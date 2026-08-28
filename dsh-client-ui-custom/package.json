@@ -48,6 +48,9 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
+  "dependencies": {
+    "@dsh-community/trash-utils": "^1.0.0"
+  },
   "devDependencies": {
     "@deepseek-ai/cordis": "file:/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/node_modules/@deepseek-ai/cordis",
     "@deepseek-ai/dsh-api-remotes": "file:/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh-api-remotes",

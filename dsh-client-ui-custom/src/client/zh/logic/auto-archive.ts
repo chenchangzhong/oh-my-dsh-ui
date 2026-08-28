@@ -32,7 +32,7 @@ export function installAutoArchive(zhCtx: ZhApplyContext): () => void {
   const readArchiveDays = (): void => {
     try {
       const snap = promptScope.getSnapshot()
-      if (snap && typeof snap === 'object' && snap.status === 'ready' && snap.value !== null) {
+      if (snap && typeof snap === 'object' && snap.status === 'ready' && snap.value !== null && typeof snap.value === 'object' && snap.value !== undefined) {
         autoArchiveState.ready = true
         const n = (snap.value as Record<string, unknown>).zhAutoArchiveDays
         autoArchiveState.days = typeof n === 'number' ? n : ZH_AUTO_ARCHIVE_DAYS_DEFAULT

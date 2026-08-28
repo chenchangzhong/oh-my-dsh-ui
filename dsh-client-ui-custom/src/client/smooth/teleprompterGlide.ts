@@ -124,9 +124,11 @@ export function computeFollowReserve(
   const available = Math.max(0, runwayPx)
   if (available <= 0) return 0
   if (speedCps <= FOLLOW_RESERVE_MIN_CPS) return 0
+  const delta = FOLLOW_RESERVE_MAX_CPS - FOLLOW_RESERVE_MIN_CPS
+  if (delta === 0) return 0 // 除零保护
   const normalized = Math.min(1, Math.max(0, (
     speedCps - FOLLOW_RESERVE_MIN_CPS
-  ) / (FOLLOW_RESERVE_MAX_CPS - FOLLOW_RESERVE_MIN_CPS)))
+  ) / delta))
   const minimum = Math.min(available, FOLLOW_RESERVE_MIN_PX)
   return minimum + normalized * (available - minimum)
 }

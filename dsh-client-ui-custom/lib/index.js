@@ -1,10 +1,9 @@
 import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 import z from "@deepseek-ai/schemastery";
-import { basename, dirname, join } from "node:path";
-import { access, cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { homedir, platform } from "node:os";
-import { execFile } from "node:child_process";
+import { restoreItem, trashItem } from "@dsh-community/trash-utils";
 //#region src/shared.ts
 /**
 * Settings-namespace contract shared by the Host registration (node half)
@@ -85,197 +84,6 @@ function warn(message) {
 	console.warn(`[${PKG}] ${message}`);
 }
 //#endregion
-//#region src/server/trash.ts
-function psSingleQuote(value) {
-	return `'${value.replaceAll("'", "''")}'`;
-}
-function runPowerShellTrash(path) {
-	const command = `Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory(${psSingleQuote(path)}, 'OnlyErrorDialogs', 'SendToRecycleBin')`;
-	return new Promise((resolve, reject) => {
-		const child = execFile("powershell.exe", [
-			"-NoProfile",
-			"-NonInteractive",
-			"-ExecutionPolicy",
-			"Bypass",
-			"-Command",
-			command
-		], {
-			windowsHide: true,
-			maxBuffer: 4194304
-		}, (error, stdout, stderr) => {
-			if (error) {
-				const detail = String(stderr || stdout || error.message).trim();
-				reject(/* @__PURE__ */ new Error(`PowerShell 回收站失败: ${detail || error.message}`));
-				return;
-			}
-			resolve();
-		});
-		child.on("spawn", () => {
-			child.stdout?.resume();
-			child.stderr?.resume();
-		});
-	});
-}
-async function trashWin32(path) {
-	await runPowerShellTrash(path);
-	return path;
-}
-async function restoreWin32(originalPath) {
-	const quotedParent = psSingleQuote(dirname(originalPath));
-	const quotedName = psSingleQuote(basename(originalPath));
-	const script = [
-		`$Target = ${psSingleQuote(originalPath)}`,
-		`$Parent = ${quotedParent}`,
-		`$Name = ${quotedName}`,
-		"$shell = New-Object -ComObject Shell.Application",
-		"$bin = $shell.Namespace(0xA)",
-		"foreach ($item in $bin.Items()) {",
-		"  $from = $item.ExtendedProperty('System.Recycle.DeletedFrom')",
-		"  if ($from -ne $Parent) { continue }",
-		"  if ($item.Name -ne $Name) { continue }",
-		"  $physical = $item.Path",
-		"  if ($physical) {",
-		"    if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Recurse -Force }",
-		"    if (-not (Test-Path -LiteralPath $Parent)) { New-Item -ItemType Directory -Path $Parent -Force | Out-Null }",
-		"    Move-Item -LiteralPath $physical -Destination $Parent -Force",
-		"    $moved = Join-Path $Parent $Name",
-		"    $landed = Join-Path $Parent (Split-Path -Leaf $physical)",
-		"    if ($landed -ne $moved -and (Test-Path -LiteralPath $landed)) { Move-Item -LiteralPath $landed -Destination $moved -Force }",
-		"    Write-Output \"RESTORED:$Target\"",
-		"    exit 0",
-		"  }",
-		"}",
-		"Write-Output \"NOT-FOUND:$Target\"",
-		"exit 1"
-	].join("\n");
-	await new Promise((resolve, reject) => {
-		const child = execFile("powershell.exe", [
-			"-NoProfile",
-			"-NonInteractive",
-			"-ExecutionPolicy",
-			"Bypass",
-			"-Command",
-			script
-		], {
-			windowsHide: true,
-			maxBuffer: 4194304
-		}, (error, stdout, stderr) => {
-			if (error) {
-				const detail = String(stdout || stderr || error.message).trim();
-				reject(/* @__PURE__ */ new Error(`Windows 回收站恢复失败: ${detail || error.message}`));
-				return;
-			}
-			resolve();
-		});
-		child.on("spawn", () => {
-			child.stdout?.resume();
-			child.stderr?.resume();
-		});
-	});
-}
-const TRASH_DIR_DARWIN = join(homedir(), ".Trash");
-async function trashDarwin(path) {
-	const name = basename(path);
-	let target = join(TRASH_DIR_DARWIN, name);
-	if (await exists(target)) target = join(TRASH_DIR_DARWIN, `${name}-${Date.now()}`);
-	await rename(path, target);
-	return target;
-}
-async function restoreDarwin(location, originalPath) {
-	await mkdir(dirname(originalPath), { recursive: true });
-	if (await exists(location)) {
-		await rename(location, originalPath);
-		return;
-	}
-	await mkdir(originalPath, { recursive: true });
-}
-function xdgTrashDir() {
-	const dataHome = process.env.XDG_DATA_HOME;
-	return dataHome !== void 0 && dataHome !== "" ? join(dataHome, "Trash") : join(homedir(), ".local", "share", "Trash");
-}
-async function exists(path) {
-	try {
-		await access(path);
-		return true;
-	} catch {
-		return false;
-	}
-}
-async function trashXdg(path) {
-	const trash = xdgTrashDir();
-	const filesDir = join(trash, "files");
-	const infoDir = join(trash, "info");
-	await mkdir(filesDir, { recursive: true });
-	await mkdir(infoDir, { recursive: true });
-	const name = basename(path);
-	let targetName = name;
-	let suffix = 1;
-	while (await exists(join(filesDir, targetName)) || await exists(join(infoDir, `${targetName}.trashinfo`))) {
-		suffix += 1;
-		targetName = `${name}.${suffix}`;
-	}
-	try {
-		await rename(path, join(filesDir, targetName));
-	} catch (error) {
-		if (error?.code !== "EXDEV") throw error;
-		await cp(path, join(filesDir, targetName), { recursive: true });
-		await rm(path, {
-			recursive: true,
-			force: true
-		});
-	}
-	const deletedAt = (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
-	const info = `[Trash Info]\nPath=${escapeTrashPath(path)}\nDeletionDate=${deletedAt}\n`;
-	await writeFile(join(infoDir, `${targetName}.trashinfo`), info, "utf8");
-	return join(filesDir, targetName);
-}
-function escapeTrashPath(path) {
-	return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-}
-function unescapeTrashPath(escaped) {
-	return escaped.split("/").map((segment) => decodeURIComponent(segment)).join("/");
-}
-async function restoreXdg(location, originalPath) {
-	let resolved = null;
-	const infoDir = join(xdgTrashDir(), "info");
-	try {
-		const entries = await readdir(infoDir);
-		for (const entry of entries) {
-			if (!entry.endsWith(".trashinfo")) continue;
-			const content = await readFile(join(infoDir, entry), "utf8");
-			const match = /^Path=(.+)$/m.exec(content);
-			if (match === null) continue;
-			if (unescapeTrashPath(match[1]) === originalPath) {
-				resolved = join(xdgTrashDir(), "files", entry.slice(0, -10));
-				await rm(join(infoDir, entry), { force: true });
-				break;
-			}
-		}
-	} catch {
-		resolved = null;
-	}
-	const source = resolved ?? location;
-	await mkdir(dirname(originalPath), { recursive: true });
-	if (await exists(source)) {
-		await rename(source, originalPath);
-		return;
-	}
-	await mkdir(originalPath, { recursive: true });
-}
-async function trashItem(path) {
-	const current = platform();
-	return {
-		ok: true,
-		location: current === "win32" ? await trashWin32(path) : current === "darwin" ? await trashDarwin(path) : await trashXdg(path)
-	};
-}
-async function restoreItem(location, originalPath) {
-	const current = platform();
-	if (current === "win32") await restoreWin32(originalPath);
-	else if (current === "darwin") await restoreDarwin(location, originalPath);
-	else await restoreXdg(location, originalPath);
-}
-//#endregion
 //#region src/server/session-delete.ts
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 function isValidSessionId(id) {
@@ -306,9 +114,8 @@ function createSessionTrash() {
 }
 const sessionTrash = createSessionTrash();
 function isLoopbackHostname(hostname) {
-	if (hostname === "localhost" || hostname === "[::1]") return true;
-	const parts = hostname.split(".");
-	return parts.length === 4 && parts[0] === "127" && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
+	if (hostname === "localhost" || hostname === "[::1]" || hostname === "127.0.0.1") return true;
+	return false;
 }
 function isTrustedApiRequest(req) {
 	const host = req.headers["host"];
@@ -320,7 +127,9 @@ function isTrustedApiRequest(req) {
 		return false;
 	}
 	if (!isLoopbackHostname(hostname)) return false;
-	if (req.headers["sec-fetch-site"] === "cross-site") return false;
+	const secFetchSite = req.headers["sec-fetch-site"];
+	if (Array.isArray(secFetchSite)) return false;
+	if (secFetchSite === "cross-site") return false;
 	const origin = req.headers["origin"];
 	if (origin === void 0) return true;
 	if (Array.isArray(origin)) return false;
@@ -536,7 +345,10 @@ function writeJson(res, status, body) {
 function installSessionDeleteRoute(ctx, deps) {
 	const install = function() {
 		const webServer = ctx.get("webServer");
-		if (webServer === void 0 || webServer === null || typeof webServer?.register !== "function") return false;
+		if (webServer === void 0 || webServer === null || typeof webServer?.register !== "function") {
+			warn("Session delete route registration failed: webServer service unavailable");
+			return false;
+		}
 		const ws = webServer;
 		const handler = async (req, res) => {
 			if (!isTrustedApiRequest(req)) {
@@ -629,7 +441,7 @@ function installSessionDeleteRoute(ctx, deps) {
 						});
 						return;
 					}
-					const title = typeof payload.title === "string" ? payload.title : "";
+					const title = typeof payload.title === "string" ? payload.title.slice(0, 256) : "";
 					const currentSessionId = typeof payload.currentSessionId === "string" ? payload.currentSessionId : "";
 					const result = await deleteSession(deps(), sessionId, {
 						trash: true,
@@ -878,5 +690,3 @@ function apply(ctx, config) {
 }
 //#endregion
 export { apply };
-
-//# sourceMappingURL=index.js.map

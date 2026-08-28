@@ -83,7 +83,7 @@ export default defineConfig([
     banner: { js: CLIENT_BANNER },
     footer: { js: CLIENT_FOOTER },
     treeshake: true,
-    sourcemap: true,
+    sourcemap: false,
     clean: false,
     dts: false,
     onSuccess: inlineStyleCss,
@@ -99,7 +99,7 @@ export default defineConfig([
     outDir: 'lib',
     deps: { neverBundle: NEVER_BUNDLE },
     treeshake: true,
-    sourcemap: true,
+    sourcemap: false,
     clean: false,
     dts: false,
     outputOptions: {

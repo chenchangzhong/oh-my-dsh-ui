@@ -225,7 +225,7 @@ function regimeOf(agent: unknown): 'zh' | 'en' {
   return regime
 }
 
-/** 把 deployment:persona 换成四个默认代理的中文版本（精确文本匹配）。 */
+/** 把 deployment:persona 换成四个默认代理的中文版本（精确文本匹配 + MINIMAL 回退匹配）。 */
 function localizePersona(assembly: unknown): void {
   const sections = (assembly as { sections?: unknown[] } | undefined)?.sections
   if (!Array.isArray(sections)) return
@@ -234,7 +234,12 @@ function localizePersona(assembly: unknown): void {
     const entry = section as { name?: unknown; text?: unknown }
     if (entry.name !== 'deployment:persona') continue
     if (typeof entry.text !== 'string') continue
-    const zh = PERSONA_ZH[entry.text]
+    // 优先精确匹配
+    let zh = PERSONA_ZH[entry.text]
+    // MINIMAL persona 回退：上游可能轻微改写措辞但仍含核心语义
+    if (zh === undefined && entry.text.includes('software engineer assistant')) {
+      zh = PERSONA_ZH[MINIMAL_PERSONA_EN]
+    }
     if (zh === undefined) continue
     entry.text = zh
     return

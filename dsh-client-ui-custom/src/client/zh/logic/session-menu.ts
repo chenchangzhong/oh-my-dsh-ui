@@ -96,7 +96,7 @@ function readSessionIdFromRow(row: HTMLElement): string | null {
       while (fiber && depth < 40) {
         const mp = fiber.memoizedProps
         if (mp && typeof mp === 'object' && mp.node && typeof mp.node === 'object' && typeof mp.node.id === 'string') {
-          return mp.node.id
+          return mp.node?.id
         }
         fiber = fiber.return as typeof fiber
         depth++
@@ -138,22 +138,32 @@ function performDelete(sessionId: string, title: string, ctx: ClientContext): vo
     if (snap?.current) currentSessionId = snap.current
   } catch { /* ignore */ }
 
-  void fetch('/dsh-zh/api/session.delete', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, title, currentSessionId }),
-  }).then(r => r.json().catch(() => null)).then((parsed: { ok?: boolean; error?: { message?: string } } | null) => {
-    if (!parsed?.ok) {
-      showToast('删除失败：' + (parsed?.error?.message ?? 'HTTP'), 5000)
-      return
+  void (async () => {
+    try {
+      const response = await fetch('/dsh-zh/api/session.delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId, title, currentSessionId }),
+      })
+      if (!response.ok) {
+        showToast('删除失败：HTTP ' + response.status, 5000)
+        return
+      }
+      const parsed = await response.json().catch(() => null) as { ok?: boolean; error?: { message?: string } } | null
+      if (!parsed?.ok) {
+        showToast('删除失败：' + (parsed?.error?.message ?? '未知错误'), 5000)
+        return
+      }
+      showToast('会话已删除（日志已移入系统回收站）', 4000)
+      if (currentSessionId === sessionId) {
+        try { (ctx.sessions as { clear?: () => void }).clear?.() } catch { /* ignore */ }
+      }
+      try { void ctx.workspaces.refresh?.() } catch { /* ignore */ }
+      try { void ctx.sessions.refresh?.() } catch { /* ignore */ }
+    } catch (error) {
+      showToast('删除失败：网络错误', 5000)
     }
-    showToast('会话已删除（日志已移入系统回收站）', 4000)
-    if (currentSessionId === sessionId) {
-      try { (ctx.sessions as { clear?: () => void }).clear?.() } catch { /* ignore */ }
-    }
-    try { void ctx.workspaces.refresh?.() } catch { /* ignore */ }
-    try { void ctx.sessions.refresh?.() } catch { /* ignore */ }
-  }, () => showToast('删除失败：网络错误', 5000))
+  })()
 }
 
 // ─── installSessionMenu ───────────────────────────────────────────────────────

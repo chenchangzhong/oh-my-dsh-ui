@@ -88,11 +88,8 @@ export const sessionTrash = createSessionTrash()
 
 // ---------- 信任围栏（与 /api 网关同策略：Host 回环 + 同源） ----------
 function isLoopbackHostname(hostname: string): boolean {
-  if (hostname === 'localhost' || hostname === '[::1]') return true
-  const parts = hostname.split('.')
-  return parts.length === 4
-    && parts[0] === '127'
-    && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+  if (hostname === 'localhost' || hostname === '[::1]' || hostname === '127.0.0.1') return true
+  return false  // 不再信任 127.x.x.x
 }
 
 function isTrustedApiRequest(req: { headers: Record<string, string | string[] | undefined> }): boolean {
@@ -105,7 +102,9 @@ function isTrustedApiRequest(req: { headers: Record<string, string | string[] | 
     return false
   }
   if (!isLoopbackHostname(hostname)) return false
-  if (req.headers['sec-fetch-site'] === 'cross-site') return false
+  const secFetchSite = req.headers['sec-fetch-site']
+  if (Array.isArray(secFetchSite)) return false
+  if (secFetchSite === 'cross-site') return false
   const origin = req.headers['origin']
   if (origin === undefined) return true
   if (Array.isArray(origin)) return false
@@ -524,7 +523,7 @@ export function installSessionDeleteRoute(ctx: HostContext, deps: () => DeleteDe
             writeJson(res, 400, { ok: false, error: { code: 'bad-request', message: 'invalid sessionId' } })
             return
           }
-          const title = typeof payload.title === 'string' ? payload.title : ''
+          const title = typeof payload.title === 'string' ? payload.title.slice(0, 256) : ''
           const currentSessionId = typeof payload.currentSessionId === 'string' ? payload.currentSessionId : ''
           const result = await deleteSession(deps(), sessionId, {
             trash: true,

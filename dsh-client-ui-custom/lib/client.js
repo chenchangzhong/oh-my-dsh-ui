@@ -3157,7 +3157,7 @@ function installAutoArchive(zhCtx) {
 	const readArchiveDays = () => {
 		try {
 			const snap = promptScope.getSnapshot();
-			if (snap && typeof snap === "object" && snap.status === "ready" && snap.value !== null) {
+			if (snap && typeof snap === "object" && snap.status === "ready" && snap.value !== null && typeof snap.value === "object" && snap.value !== void 0) {
 				autoArchiveState.ready = true;
 				const n = snap.value.zhAutoArchiveDays;
 				autoArchiveState.days = typeof n === "number" ? n : ZH_AUTO_ARCHIVE_DAYS_DEFAULT;
@@ -4611,7 +4611,7 @@ function readSessionIdFromRow(row) {
 			let depth = 0;
 			while (fiber && depth < 40) {
 				const mp = fiber.memoizedProps;
-				if (mp && typeof mp === "object" && mp.node && typeof mp.node === "object" && typeof mp.node.id === "string") return mp.node.id;
+				if (mp && typeof mp === "object" && mp.node && typeof mp.node === "object" && typeof mp.node.id === "string") return mp.node?.id;
 				fiber = fiber.return;
 				depth++;
 			}
@@ -4646,30 +4646,40 @@ function performDelete(sessionId, title, ctx) {
 		const snap = ctx.sessions.list.getSnapshot();
 		if (snap?.current) currentSessionId = snap.current;
 	} catch {}
-	fetch("/dsh-zh/api/session.delete", {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({
-			sessionId,
-			title,
-			currentSessionId
-		})
-	}).then((r) => r.json().catch(() => null)).then((parsed) => {
-		if (!parsed?.ok) {
-			showToast("删除失败：" + (parsed?.error?.message ?? "HTTP"), 5e3);
-			return;
+	(async () => {
+		try {
+			const response = await fetch("/dsh-zh/api/session.delete", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					sessionId,
+					title,
+					currentSessionId
+				})
+			});
+			if (!response.ok) {
+				showToast("删除失败：HTTP " + response.status, 5e3);
+				return;
+			}
+			const parsed = await response.json().catch(() => null);
+			if (!parsed?.ok) {
+				showToast("删除失败：" + (parsed?.error?.message ?? "未知错误"), 5e3);
+				return;
+			}
+			showToast("会话已删除（日志已移入系统回收站）", 4e3);
+			if (currentSessionId === sessionId) try {
+				ctx.sessions.clear?.();
+			} catch {}
+			try {
+				ctx.workspaces.refresh?.();
+			} catch {}
+			try {
+				ctx.sessions.refresh?.();
+			} catch {}
+		} catch (error) {
+			showToast("删除失败：网络错误", 5e3);
 		}
-		showToast("会话已删除（日志已移入系统回收站）", 4e3);
-		if (currentSessionId === sessionId) try {
-			ctx.sessions.clear?.();
-		} catch {}
-		try {
-			ctx.workspaces.refresh?.();
-		} catch {}
-		try {
-			ctx.sessions.refresh?.();
-		} catch {}
-	}, () => showToast("删除失败：网络错误", 5e3));
+	})();
 }
 function installSessionMenu(zhCtx) {
 	const { ctx } = zhCtx;
@@ -11491,4 +11501,3 @@ exports.resolvePreset = resolvePreset;
 		return module.exports;
 	}
 });
-//# sourceMappingURL=client.js.map
