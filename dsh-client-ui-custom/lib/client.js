@@ -8052,10 +8052,13 @@ function removeStyle() {
 */
 /** Last presented text per root, retained across follow lifecycle flips. */
 const ledgerByRoot = /* @__PURE__ */ new WeakMap();
+/** Selectors for nodes whose text content should never be paced by the reveal engine. */
 const SKIP_TEXT_SELECTOR = [
 	"[aria-hidden=\"true\"]",
 	"[aria-live]",
 	"[contenteditable=\"true\"]",
+	"[data-smooth-excluded]",
+	".DiffViewer-module_block",
 	"script",
 	"style",
 	"textarea"

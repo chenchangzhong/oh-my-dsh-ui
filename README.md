@@ -99,6 +99,8 @@ Feature 模块
 
 ## 构建与开发
 
+> 📦 **打包安装速查**：改完代码后直接看 [`docs/build-and-install.md`](docs/build-and-install.md)（打包 → 软链 → 重启生效，一条命令搞定）。
+
 ### 主插件（dsh-client-ui-custom）
 
 ```bash
