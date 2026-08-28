@@ -1,0 +1,76 @@
+/* Tabbed UI增强 section styles */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Tab bar: underline tabs, matching the host's ConfigurablePluginsTab
+   (pbvGtq_tabs / pbvGtq_tab / pbvGtq_panel) so the UI增强 tabs read as the
+   same control family as the rest of the settings shell. */
+.tabBar {
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  margin-top: 2px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.tab {
+  position: relative;
+  padding: 7px 1px 9px;
+  border: 0;
+  background: 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+  outline: none;
+  transition: color 120ms ease;
+}
+
+.tab:hover,
+.tab[data-active='true'] {
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Active underline (2px, bottom). Mirrors pbvGtq_tab:after. */
+.tab[data-active='true']::after,
+.tab:focus-visible::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--dsw-alias-label-primary);
+}
+
+.tab:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Tab panels container */
+.panels {
+  position: relative;
+  /* Breathing room between the underline tab bar and the content; inactive
+     panels are display:none so this only affects the visible one. */
+  padding-top: 16px;
+}
+
+.panel {
+  /* Keep all panels mounted; hide inactive ones via display:none so form
+     state is preserved. No entrance animation here: a CSS animation replays
+     whenever an element flips display:none <-> block (tab switch), which reads
+     as a jitter. The settings-shell entrance is handled by settings-motion. */
+}
+
+.panelHidden {
+  display: none;
+}

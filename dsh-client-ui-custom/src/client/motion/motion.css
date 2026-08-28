@@ -1,0 +1,363 @@
+/* Conversation entrance motion (feature: motion). The engine (motion.ts)
+   applies the global .dsu-motion-row-in marker plus one style class
+   (.dsu-motion-<style>, see MOTION_STYLES) to freshly mounted chat rows; the
+   row animates once on mount with a short Apple-style entrance. Rows of a
+   load batch carry a per-row stagger via --dsu-motion-delay, so a switched /
+   freshly loaded conversation cascades in instead of popping. */
+
+.dsu-motion-fade-up {
+  animation: dsu-motion-rise 280ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation-delay: var(--dsu-motion-delay, 0ms);
+}
+
+.dsu-motion-fade {
+  animation: dsu-motion-fade-in 240ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation-delay: var(--dsu-motion-delay, 0ms);
+}
+
+.dsu-motion-rise-scale {
+  animation: dsu-motion-rise-scale 300ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation-delay: var(--dsu-motion-delay, 0ms);
+}
+
+.dsu-motion-slide-in {
+  animation: dsu-motion-slide-in 280ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation-delay: var(--dsu-motion-delay, 0ms);
+}
+
+/* New transcript styles: blur-in un-sharpens the row into focus (visionOS-style
+   sheet feel); scale-in grows it in place with no travel. Both stay short. */
+.dsu-motion-blur-in {
+  animation: dsu-motion-blur-in 300ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation-delay: var(--dsu-motion-delay, 0ms);
+}
+
+.dsu-motion-scale-in {
+  animation: dsu-motion-scale-in 280ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation-delay: var(--dsu-motion-delay, 0ms);
+}
+
+/* Sidebar rail: horizontal entrance from the screen edge (SIDEBAR_MOTION_STYLES). */
+.dsu-motion-slide-left {
+  animation: dsu-motion-slide-left 280ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation-delay: var(--dsu-motion-delay, 0ms);
+}
+
+/* Sidebar tree rows: expand unfolds each row vertically from the top of its
+   slot; slide-down drops rows in from above, as if settling into the list. */
+.dsu-motion-expand {
+  animation: dsu-motion-expand 280ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation-delay: var(--dsu-motion-delay, 0ms);
+  transform-origin: top;
+}
+
+.dsu-motion-slide-down {
+  animation: dsu-motion-slide-down 280ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation-delay: var(--dsu-motion-delay, 0ms);
+}
+
+.dsu-motion-panel {
+  animation: dsu-motion-panel 300ms cubic-bezier(0.33, 1, 0.68, 1) both;
+}
+
+/* New-conversation welcome dialog: a LARGE surface, so its entrance is
+   deliberately gentler than message rows — slower (420ms), barely-there
+   travel (4px) and no pronounced scaling. A big block moving visibly reads
+   as mechanical, so these stay whisper-quiet. */
+.dsu-motion-reveal {
+  animation: dsu-motion-reveal 420ms cubic-bezier(0.33, 1, 0.68, 1) both;
+}
+
+@keyframes dsu-motion-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.dsu-motion-bloom {
+  animation: dsu-motion-bloom 420ms cubic-bezier(0.33, 1, 0.68, 1) both;
+}
+
+@keyframes dsu-motion-bloom {
+  from {
+    opacity: 0;
+    transform: scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.dsu-motion-zoom {
+  animation: dsu-motion-zoom 400ms cubic-bezier(0.33, 1, 0.68, 1) both;
+}
+
+@keyframes dsu-motion-zoom {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dsu-motion-panel {
+  from {
+    opacity: 0.4;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Sidebar selection box: the tree item that became active traces a selection
+   box (full outline + left accent bar) that fades in and STAYS on the active
+   item; the box is removed when the item loses selection (motion.ts). */
+.dsu-motion-select {
+  animation: dsu-motion-select 320ms cubic-bezier(0.33, 1, 0.68, 1) both;
+}
+
+@keyframes dsu-motion-select {
+  0% {
+    box-shadow: inset 0 0 0 0 transparent, inset 3px 0 0 0 transparent;
+  }
+  100% {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--dsu-accent, #4176e6) 45%, transparent),
+      inset 3px 0 0 0 color-mix(in srgb, var(--dsu-accent, #4176e6) 90%, transparent);
+  }
+}
+
+@keyframes dsu-motion-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dsu-motion-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dsu-motion-rise-scale {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dsu-motion-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dsu-motion-slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dsu-motion-blur-in {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
+}
+
+@keyframes dsu-motion-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dsu-motion-expand {
+  from {
+    opacity: 0;
+    transform: scaleY(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dsu-motion-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Reduced motion: keep a short opacity-only cross-fade (content still arrives
+   gently), drop the movement and the stagger entirely. */
+@media (prefers-reduced-motion: reduce) {
+  .dsu-motion-fade-up,
+  .dsu-motion-fade,
+  .dsu-motion-rise-scale,
+  .dsu-motion-slide-in,
+  .dsu-motion-blur-in,
+  .dsu-motion-scale-in,
+  .dsu-motion-slide-left,
+  .dsu-motion-expand,
+  .dsu-motion-slide-down,
+  .dsu-motion-reveal,
+  .dsu-motion-bloom,
+  .dsu-motion-zoom {
+    animation-name: dsu-motion-fade-in;
+    animation-duration: 100ms;
+    animation-delay: 0ms;
+  }
+  /* The selection box is a short opacity-only trace; drop it entirely. */
+  .dsu-motion-select {
+    animation: none;
+  }
+  .dsu-motion-panel {
+    animation: none;
+  }
+}
+
+/* ── Settings-panel motion (feature: settings-motion) ────────────────────────
+   The original plugin ("animation" feature, animation.module.css) drives the
+   settings shell with three surfaces, gated behind html[data-dsu-anim] (set
+   by the 动效 section toggle):
+     - the dialog itself      -> html[data-dsu-anim] [role="dialog"]  (dsu-dialog)
+     - the backdrop           -> html[data-dsu-anim] [role="presentation"] (dsu-node)
+     - the content column     -> .dsu-anim-reveal (dsu-fade-up, re-applied by
+                                installSettingsMotion on every page switch)
+   The dialog animation is pure CSS on element mount (plays on open, no
+   close animation = instant disappearance); only the content column needs
+   the JS replay because the host re-renders it in place. Style tier knobs
+   --dsu-anim-duration / --dsu-anim-ease / --dsu-anim-rise are written on
+   <html> by the 动效 section (standard tier defaults mirrored here).
+   prefers-reduced-motion collapses to a short cross-fade.
+   ──────────────────────────────────────────────────────────────────── */
+html[data-dsu-anim] [role="dialog"] {
+  animation: dsu-dialog var(--dsu-anim-duration, 200ms) var(--dsu-anim-ease, cubic-bezier(0.2, 0, 0, 1)) both;
+}
+
+html[data-dsu-anim] [role="presentation"] {
+  animation: dsu-node 150ms ease-out both;
+}
+
+html[data-dsu-anim] [data-dsu-motion="fade-up"] {
+  animation: dsu-fade-up var(--dsu-anim-duration, 200ms) var(--dsu-anim-ease, cubic-bezier(0.2, 0, 0, 1)) both;
+}
+
+/* The settings content column (host built-in pages and plugin sections): the
+   engine re-applies this class whenever the page switches, so the content
+   fades in with a slight rise each time instead of teleporting. */
+html[data-dsu-anim] .dsu-anim-reveal {
+  animation: dsu-fade-up var(--dsu-anim-duration, 200ms) var(--dsu-anim-ease, cubic-bezier(0.2, 0, 0, 1)) both;
+}
+
+@keyframes dsu-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(var(--dsu-anim-rise, 6px));
+  }
+}
+
+@keyframes dsu-dialog {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+}
+
+/* Dialog close: the host unmounts the dialog synchronously, so the engine
+   clones it at its last position and plays this exit animation on the clone
+   before removing it — the close mirrors the open (fade + slight scale). */
+html[data-dsu-anim] .dsu-dialog-out {
+  animation: dsu-dialog-out 160ms ease-in both;
+}
+
+/* The exit ghost is a clone of the unmounted overlay: stop every inner
+   animation (the cloned panel would otherwise replay dsu-dialog and the
+   cloned content its dsu-fade-up), leaving only the ghost's own fade-out. */
+html[data-dsu-anim] .dsu-dialog-out * {
+  animation: none !important;
+}
+
+@keyframes dsu-dialog-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dsu-node {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The focus preset: keep the cross-fade only, drop every displacement/scale. */
+html[data-dsu-anim][data-dsu-preset="focus"] [data-dsu-motion="fade-up"],
+html[data-dsu-anim][data-dsu-preset="focus"] .dsu-anim-reveal,
+html[data-dsu-anim][data-dsu-preset="focus"] [role="dialog"],
+html[data-dsu-anim][data-dsu-preset="focus"] [role="presentation"] {
+  animation-name: dsu-node;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-dsu-anim] [data-dsu-motion],
+  html[data-dsu-anim] [role="dialog"],
+  html[data-dsu-anim] [role="presentation"] {
+    animation-duration: 100ms !important;
+  }
+
+  html[data-dsu-anim] [data-dsu-motion="fade-up"],
+  html[data-dsu-anim] .dsu-anim-reveal,
+  html[data-dsu-anim] [role="dialog"],
+  html[data-dsu-anim] [role="presentation"] {
+    animation-name: dsu-node;
+  }
+}

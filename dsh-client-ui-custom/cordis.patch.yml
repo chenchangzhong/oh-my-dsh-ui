@@ -1,0 +1,4 @@
+# oh-my-dsh-ui —— 整合 dsh-client-ui-custom（外观/动效）+ zh（中文优化）+ smooth（丝滑流式）的单一 DSH 插件
+- insert:
+    - id: oh-my-dsh-ui
+      name: 'oh-my-dsh-ui'
