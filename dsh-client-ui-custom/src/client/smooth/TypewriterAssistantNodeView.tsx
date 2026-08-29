@@ -357,7 +357,7 @@ function AnimatedMarkdownText({
     speedCpsRef,
     revealScaleRef: followRevealScaleRef,
   })
-  const shown = reduced ? text : displayed
+  const shown = reduced ? (text ?? '') : (displayed ?? '')
   const live = typing && !reduced
 
   useEffect(() => {
@@ -399,9 +399,9 @@ function AnimatedMarkdownText({
       hostRef={followRootRef}
     >
       <MarkdownText
-        text={live ? shown : text}
+        text={(live ? shown : text) ?? ''}
         streaming={live}
-        codeLabels={codeLabels}
+        codeLabels={codeLabels ?? { code: 'Copy', copied: 'Copied' }}
         fileMentions={live ? undefined : fileMentions}
       />
     </FollowHost>
@@ -609,7 +609,7 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
     () => owner === undefined ? undefined : fileMentions(owner),
     [fileMentions, owner],
   )
-  const codeLabels = useMemo(() => ({ copyLabel: t('copy'), copiedLabel: t('copied') }), [t])
+  const codeLabels = useMemo(() => ({ code: t('copy'), copied: t('copied') }), [t])
   const imageLoader: ImageLoader = loadImage ?? (async () => {
     throw new Error(t('image.serviceUnavailable'))
   })
@@ -632,12 +632,14 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
   for (let index = 0; index < data.blocks.length; index += 1) {
     const block = data.blocks[index]
     if (block === undefined) continue
+    // Guard: skip blocks with missing content to prevent DSH MarkdownText crash
+    if ((block.kind === 'text' || block.kind === 'reasoning') && (block.text === undefined || typeof block.text !== 'string')) continue
     switch (block.kind) {
       case 'text':
         rendered.push(
           <AnimatedMarkdownText
             key={index}
-            text={block.text}
+            text={String(block.text)}
             codeLabels={codeLabels}
             fileMentions={mentions}
             streaming={streaming}
@@ -654,7 +656,7 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
         rendered.push(
           <AnimatedReasoning
             key={index}
-            text={block.text}
+            text={String(block.text)}
             running={streaming && index === last}
             preset={preset}
             thinkAutoExpand={thinkAutoExpand}

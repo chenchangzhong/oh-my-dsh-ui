@@ -6938,7 +6938,7 @@ function AnimatedMarkdownText({ text, codeLabels, fileMentions, streaming, ownFo
 		speedCpsRef,
 		revealScaleRef: followRevealScaleRef
 	});
-	const shown = reduced ? text : displayed;
+	const shown = reduced ? text ?? "" : displayed ?? "";
 	const live = typing && !reduced;
 	(0, react.useEffect)(() => {
 		const root = followRootRef.current;
@@ -6981,9 +6981,12 @@ function AnimatedMarkdownText({ text, codeLabels, fileMentions, streaming, ownFo
 		predictive: streaming,
 		hostRef: followRootRef,
 		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
-			text: live ? shown : text,
+			text: (live ? shown : text) ?? "",
 			streaming: live,
-			codeLabels,
+			codeLabels: codeLabels ?? {
+				code: "Copy",
+				copied: "Copied"
+			},
 			fileMentions: live ? void 0 : fileMentions
 		})
 	});
@@ -7142,8 +7145,8 @@ const TypewriterAssistantNodeView = (0, react.memo)(function TypewriterAssistant
 	]);
 	const mentions = (0, react.useMemo)(() => owner === void 0 ? void 0 : fileMentions(owner), [fileMentions, owner]);
 	const codeLabels = (0, react.useMemo)(() => ({
-		copyLabel: t("copy"),
-		copiedLabel: t("copied")
+		code: t("copy"),
+		copied: t("copied")
 	}), [t]);
 	const imageLoader = loadImage ?? (async () => {
 		throw new Error(t("image.serviceUnavailable"));
@@ -7160,10 +7163,11 @@ const TypewriterAssistantNodeView = (0, react.memo)(function TypewriterAssistant
 	for (let index = 0; index < data.blocks.length; index += 1) {
 		const block = data.blocks[index];
 		if (block === void 0) continue;
+		if ((block.kind === "text" || block.kind === "reasoning") && (block.text === void 0 || typeof block.text !== "string")) continue;
 		switch (block.kind) {
 			case "text":
 				rendered.push(/* @__PURE__ */ (0, react_jsx_runtime.jsx)(AnimatedMarkdownText, {
-					text: block.text,
+					text: String(block.text),
 					codeLabels,
 					fileMentions: mentions,
 					streaming,
@@ -7177,7 +7181,7 @@ const TypewriterAssistantNodeView = (0, react.memo)(function TypewriterAssistant
 				break;
 			case "reasoning":
 				rendered.push(/* @__PURE__ */ (0, react_jsx_runtime.jsx)(AnimatedReasoning, {
-					text: block.text,
+					text: String(block.text),
 					running: streaming && index === last,
 					preset,
 					thinkAutoExpand,
