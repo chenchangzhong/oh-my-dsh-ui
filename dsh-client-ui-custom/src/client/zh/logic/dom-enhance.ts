@@ -1,10 +1,9 @@
 /**
- * Chinese enhancement core: locale.lookup/translate hook + DOM text enhancement.
+ * Chinese enhancement core: locale.translate hook + DOM text enhancement.
  *
  * ADAPTED from deepseek-harness-zh_pro's dom-enhance.ts:
- *   - Source: monkey-patches ctx.locale.lookup and ctx.locale.translate directly
- *   - Target: uses ctx.locale.bind() for dictionary access and re-exports the
- *     hooked lookup/translate through a wrapped locale service
+ *   - DSH 0.1.2+ no longer exposes ctx.locale.lookup publicly; only translate on the instance
+ *   - Target: monkey-patches ctx.locale.translate only (instance-level, not prototype)
  *   - settingsStore: replaced with local settings-store module
  *   - ctx.get('locale'): replaced with ctx.locale
  *
@@ -12,7 +11,7 @@
  * DOM effects (stats full, thinking lines, chat width): language-independent.
  *
  * Host dependencies:
- *   - ctx.locale (must support bind(), register(), subscribe(), getLocale())
+ *   - ctx.locale (must support bind(), register(), subscribe(), getLocale(), translate)
  *   - settingsStore (local module, bridged to ctx.settingsScope)
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -21,7 +20,7 @@ import { TERMS } from '../data/terms.ts'
 import { PERMISSION_NAMES, PERMISSION_DESCRIPTIONS, COMMAND_DESCRIPTIONS, CHAT_LABELS } from '../data/dom-labels.ts'
 import { TRAJ_PATTERNS, TRAJ_REVERSE } from '../data/traj-patterns.ts'
 import { SETTINGS_ZH, SETTINGS_EN } from '../data/settings-dicts.ts'
-import { enStepCount, enToolCallCount, applyPatterns, rewriteText, resolvePairs, applyPairs, formatZhSeconds, PARAM_TRANSFORMS } from './format-utils.ts'
+import { enStepCount, enToolCallCount, applyPatterns, rewriteText, resolvePairs, applyPairs, formatZhSeconds, interpolateZh, PARAM_TRANSFORMS } from './format-utils.ts'
 import { settingsStore } from '../store/settings-store.ts'
 import type { ZhApplyContext } from './apply.ts'
 
@@ -200,6 +199,9 @@ function liveLineText(full: string): string {
 }
 
 // ─── installChineseEnhance ────────────────────────────────────────────────────
+// DSH 0.1.2 起 LocaleRuntime 不再暴露公开的 lookup，translate 也移出公开面
+// （TS 私有，但运行时仍是实例可达方法；bind 的闭包在调用时解析 this.translate）。
+// 因此只在实例上覆盖 translate：无论 ui 包在我们之前还是之后 bind，都会经过本包装。
 export function installChineseEnhance(zhCtx: ZhApplyContext): () => void {
   const { ctx } = zhCtx
 
@@ -209,47 +211,54 @@ export function installChineseEnhance(zhCtx: ZhApplyContext): () => void {
   let localeUnsubscribe: (() => void) | undefined
   let settingsUnsubscribe: (() => void) | undefined
 
-  // Monkey-patch locale for zh lookup (preserve originals).
-  const originalLookup = ctx.locale.lookup?.bind(ctx.locale)
+  // Monkey-patch locale.translate for zh lookup (preserve originals).
+  // DSH 0.1.2+: lookup is no longer exposed publicly, only translate on the instance.
   const originalTranslate = ctx.locale.translate?.bind(ctx.locale)
-
-  if (ctx.locale.lookup) {
-    ctx.locale.lookup = function (ns: string, key: string): string | undefined {
-      if (!zhEnhanceOn(ctx)) return originalLookup?.(ns, key)
-      if (ns === 'dsh-zh-settings' || ns === 'dsh-zh-archive') return originalLookup?.(ns, key)
-      const table = (ZH as Record<string, Record<string, string>>)[ns]
-      if (table?.[key] !== undefined) return table[key]
-      const partial = (ZH_PARTIAL as Record<string, Record<string, unknown>>)[ns]
-      if (partial?.[key] !== undefined) {
-        const original = originalLookup?.(ns, key)
-        if (typeof original !== 'string') return original
-        return applyPairs(original, resolvePairs((partial[key] as string[])))
-      }
-      const star = (ZH as Record<string, Record<string, string>>)['*']?.[key]
-      if (star !== undefined) return star
-      return originalLookup?.(ns, key)
-    }
-  }
+  const translateWasOwn = Object.prototype.hasOwnProperty.call(ctx.locale, 'translate')
 
   if (ctx.locale.translate) {
     ctx.locale.translate = function (ns: string, key: string, params?: Record<string, unknown>): string {
-      if (!zhEnhanceOn(ctx)) return originalTranslate?.(ns, key, params)
-      if (ns === 'conversation' && key === 'message.retry.status' && params) {
+      // 只在中文界面 + 「中文补全」开启时生效：其余情况保持原样。
+      if (!zhEnhanceOn(ctx)) return originalTranslate?.call(this, ns, key, params) ?? ''
+      // 本插件自带词典的命名空间跳过通用词兜底：它们按界面语言自备
+      // 完整译文（含 {n} 参数模板），不能被 ZH['*'] 的通用词（如「展开」）
+      // 吞掉归档视图的「再展开 N 个归档」等参数文案。
+      if (ns === 'dsh-zh-settings' || ns === 'dsh-zh-archive') {
+        return originalTranslate?.call(this, ns, key, params) ?? ''
+      }
+      // 重试倒计时（DSH 0.1.2 起位于 chat 命名空间）：原始秒数按时/分/秒
+      // 显示，直接拼装整句。
+      if (ns === 'chat' && key === 'message.retry.status' && params) {
         const label = String(params.label ?? '')
         const retry = String(params.retry ?? '')
         const maximum = String(params.maximum ?? '')
         return label + '（' + retry + '/' + maximum + '） · ' + formatZhSeconds(params.seconds)
       }
+      // 参数转换（时长/数量单位）先于模板解析，模板命中顺序与旧版一致：
+      // ZH 整句 → ZH_PARTIAL 术语 → ZH['*'] 通用词 → 上游原值。
+      let nextParams = params
       const table = (PARAM_TRANSFORMS as Record<string, Record<string, Record<string, (v: unknown) => unknown>>>)[ns]
       if (table?.[key] !== undefined && params) {
-        const next: Record<string, unknown> = {}
+        nextParams = {}
         for (const k of Object.keys(params)) {
           const fn = table[key][k]
-          next[k] = fn !== undefined ? fn(params[k]) : params[k]
+          nextParams[k] = fn !== undefined ? fn(params[k]) : params[k]
         }
-        return originalTranslate?.(ns, key, next) ?? ''
       }
-      return originalTranslate?.(ns, key, params) ?? ''
+      const zhTable = (ZH as Record<string, Record<string, string>>)[ns]
+      if (zhTable?.[key] !== undefined) return interpolateZh(zhTable[key], nextParams)
+      // 部分翻译：先取上游原模板（不带参数调用返回原文模板），只替换引用的
+      // 术语，其余随上游更新，再自行插值参数。
+      const partial = (ZH_PARTIAL as Record<string, Record<string, string[]>>)[ns]
+      if (partial?.[key] !== undefined) {
+        const template = originalTranslate?.call(this, ns, key) ?? ''
+        if (typeof template === 'string') {
+          return interpolateZh(applyPairs(template, resolvePairs(partial[key])), nextParams)
+        }
+      }
+      const star = (ZH as Record<string, Record<string, string>>)['*']?.[key]
+      if (star !== undefined) return interpolateZh(star, nextParams)
+      return originalTranslate?.call(this, ns, key, params) ?? ''
     }
   }
 
@@ -525,9 +534,9 @@ export function installChineseEnhance(zhCtx: ZhApplyContext): () => void {
     if (settingsUnsubscribe) settingsUnsubscribe()
     if (localeUnsubscribe) localeUnsubscribe()
     resetDomEffects()
-    // Restore original locale methods.
-    if (ctx.locale && originalLookup) ctx.locale.lookup = originalLookup
-    if (ctx.locale && originalTranslate) ctx.locale.translate = originalTranslate
+    // 还原 translate：原本是原型方法时移除实例覆盖，避免留下多余的自有属性。
+    if (ctx.locale && translateWasOwn) ctx.locale.translate = originalTranslate
+    else if (ctx.locale) delete ctx.locale.translate
   }
 }
 

@@ -624,7 +624,6 @@ const UiCustomSectionSchema = z.object({
 		"silky"
 	]).default("balanced"),
 	smoothThinkAutoExpand: z.boolean().default(true),
-	smoothAutoCollapse: z.boolean().default(true),
 	smoothDebugEnabled: z.boolean().default(false),
 	features: z.array(z.union([...FEATURES])).default([])
 });
@@ -679,7 +678,6 @@ function apply(ctx, config) {
 			smoothEnabled: config?.smoothEnabled ?? true,
 			smoothPreset: config?.smoothPreset === "realtime" || config?.smoothPreset === "silky" ? config.smoothPreset : "balanced",
 			smoothThinkAutoExpand: config?.smoothThinkAutoExpand ?? true,
-			smoothAutoCollapse: config?.smoothAutoCollapse ?? true,
 			smoothDebugEnabled: config?.smoothDebugEnabled ?? false,
 			features: config?.features ? [...config.features] : []
 		} });

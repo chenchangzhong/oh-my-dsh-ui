@@ -21,7 +21,6 @@ import {
 export interface SmoothScopeSnapshot {
   smoothEnabled: boolean
   smoothThinkAutoExpand: boolean
-  smoothAutoCollapse: boolean
   smoothDebugEnabled: boolean
   smoothDebugTuning: StreamDebugTuning
 }
@@ -30,7 +29,6 @@ export interface SmoothScopeSnapshot {
 const SMOOTH_DEFAULTS: SmoothScopeSnapshot = {
   smoothEnabled: DEFAULT_STREAM_SETTINGS.enabled,
   smoothThinkAutoExpand: DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
-  smoothAutoCollapse: DEFAULT_STREAM_SETTINGS.autoCollapse,
   smoothDebugEnabled: DEFAULT_STREAM_SETTINGS.debugEnabled,
   smoothDebugTuning: DEFAULT_STREAM_DEBUG_TUNING,
 }
@@ -61,7 +59,6 @@ function buildSnapshot(raw: unknown): StreamSettings {
   return {
     enabled: typeof obj.smoothEnabled === 'boolean' ? obj.smoothEnabled : DEFAULT_STREAM_SETTINGS.enabled,
     thinkAutoExpand: typeof obj.smoothThinkAutoExpand === 'boolean' ? obj.smoothThinkAutoExpand : DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
-    autoCollapse: typeof obj.smoothAutoCollapse === 'boolean' ? obj.smoothAutoCollapse : DEFAULT_STREAM_SETTINGS.autoCollapse,
     debugEnabled: typeof obj.smoothDebugEnabled === 'boolean' ? obj.smoothDebugEnabled : DEFAULT_STREAM_SETTINGS.debugEnabled,
     debugTuning: parseDebugTuning(obj.smoothDebugTuning),
   }
@@ -93,7 +90,6 @@ export function createHostSettingsApi(
         const patch: Record<string, unknown> = {}
         if (settings.enabled !== undefined) patch.smoothEnabled = settings.enabled
         if (settings.thinkAutoExpand !== undefined) patch.smoothThinkAutoExpand = settings.thinkAutoExpand
-        if (settings.autoCollapse !== undefined) patch.smoothAutoCollapse = settings.autoCollapse
         if (settings.debugEnabled !== undefined) patch.smoothDebugEnabled = settings.debugEnabled
         if (settings.debugTuning !== undefined) {
           patch.smoothDebugTuning = {

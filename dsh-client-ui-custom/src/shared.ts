@@ -290,8 +290,6 @@ export interface SmoothSection {
   smoothPreset?: 'realtime' | 'balanced' | 'silky'
   /** 思考块流式时自动展开。默认开。 */
   smoothThinkAutoExpand?: boolean
-  /** 回合结束后折叠工作过程为摘要行。默认开（与 zh.thinkingAuto 互斥，见 resolveThinkingOwner）。 */
-  smoothAutoCollapse?: boolean
   /** 渲染诊断面板。默认关。 */
   smoothDebugEnabled?: boolean
 }

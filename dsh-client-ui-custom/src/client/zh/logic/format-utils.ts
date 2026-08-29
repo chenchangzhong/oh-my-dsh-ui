@@ -101,6 +101,16 @@ function formatZhSeconds(raw) {
   return out
 }
 
+/** 将模板字符串中的 {key} 占位符替换为实际参数值。 */
+function interpolateZh(template: string, params?: Record<string, unknown>): string {
+  if (!params) return template
+  let result = template
+  for (const [key, value] of Object.entries(params)) {
+    result = result.split('{' + key + '}').join(String(value))
+  }
+  return result
+}
+
 /** 把英文单位时长（如 "48m48s"、"2.4s"、"1h2m3s"）转成中文（48分48秒、2.4秒）。 */
 function formatEnDurationToZh(raw) {
   const s = String(raw)
@@ -133,12 +143,15 @@ function trimNumber(x) {
 }
 
 /** 参数需要转换的键（ns -> key -> 参数名 -> 转换函数）。 */
+// DSH 0.1.2 起 stats/message 键由 conversation 迁至 chat。
 const PARAM_TRANSFORMS = {
-  conversation: {
+  chat: {
     'stats.llm': { duration: formatEnDurationToZh },
     'stats.toolCall': { duration: formatEnDurationToZh },
     'stats.ttftAverage': { duration: formatEnDurationToZh },
     'stats.tokens': { input: formatCompactNumberToZh, output: formatCompactNumberToZh },
+  },
+  conversation: {
     'input.accessMode': { name: function (raw) {
       const v = PERMISSION_NAMES[String(raw)]
       return v !== undefined ? v : String(raw)
@@ -146,4 +159,4 @@ const PARAM_TRANSFORMS = {
   },
 }
 
-export { enStepCount, enToolCallCount, applyPatterns, rewriteText, resolvePairs, applyPairs, formatZhSeconds, formatEnDurationToZh, formatCompactNumberToZh, trimNumber, PARAM_TRANSFORMS }
+export { enStepCount, enToolCallCount, applyPatterns, rewriteText, resolvePairs, applyPairs, formatZhSeconds, formatEnDurationToZh, formatCompactNumberToZh, trimNumber, interpolateZh, PARAM_TRANSFORMS }

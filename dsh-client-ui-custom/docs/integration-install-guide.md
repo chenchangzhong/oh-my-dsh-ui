@@ -19,14 +19,14 @@ FEATURES = ['markdown', 'appearance', 'usage', 'motion', 'zh', 'smooth']
 | host 半边 | `src/index.ts` | `UiCustomSectionSchema` 追加 zh 16 字段 + smooth 5 字段（默认值取自源插件真实默认）；`UiCustomConfig`/`apply().base` 同步 seed |
 | 挂载 | `src/client/index.ts` | `registerFeatures` 内 `enabled('zh')` → `applyZh(ctx)`；`enabled('smooth')` → `apply(ctx)`（别名导入 `applySmooth`） |
 | zh feature | `src/client/zh/`（18 文件） | data 5 词典 + store 2（settings/prompt，绑 ui-custom 命名空间）+ logic 9（dom-enhance/auto-archive/archive-view/session-menu/settings-section/register-section/apply/format-utils）+ locales + shared + index |
-| smooth feature | `src/client/smooth/`（21 文件） | TypewriterAssistantNodeView/FollowHost/AnimatedDisclosure/TypewriterToolNodeView 渲染器 + useSmoothStreamContent/teleprompterGlide/useFpsGuard/useProgressiveDomText 引擎 + auto-collapse-controller + SmoothStreamCard/DebugPanel + settings/config/locales 适配层 |
+| smooth feature | `src/client/smooth/`（20 文件） | TypewriterAssistantNodeView/FollowHost/AnimatedDisclosure/TypewriterToolNodeView 渲染器 + useSmoothStreamContent/teleprompterGlide/useFpsGuard/useProgressiveDomText 引擎 + SmoothStreamCard/DebugPanel + settings/config/locales 适配层（auto-collapse-controller 已移除） |
 
 ### 命名空间统一（关键决策）
 - zh/smooth 的**运行时配置**全部读宿主 `ui-custom` 命名空间（`ctx.settingsScope.bind({ namespace: 'ui-custom' })`），不创建分叉命名空间——单一插件语义。
 - zh 的 **locale 字典**保留独立 NS（`dsh-zh-settings`）与宿主各 feature 平级（UI 文案 NS 与配置 NS 是不同维度，可共存）。
 
-### 思考折叠互斥（resolveThinkingOwner）
-`zh.thinkingAuto` 与 `smooth.smoothAutoCollapse/smoothThinkAutoExpand` 由统一决策；zh 启用时优先，smooth 仅在 zh 关闭时接管（基座 `client/index.ts` 顶层纯函数）。
+### 思考展开互斥（resolveThinkingOwner）
+`zh.thinkingAuto` 与 `smooth.smoothThinkAutoExpand` 由统一决策；zh 启用时优先，smooth 仅在 zh 关闭时接管（基座 `client/index.ts` 顶层纯函数）。注：`smoothAutoCollapse` 功能已移除。
 
 ---
 
@@ -88,7 +88,7 @@ dsh plugin --profile web list
 #    - 中文界面：思考块自动折叠（zh.thinkingAuto → max-height clamp）不应与流式冲突
 #    - 长回复：打字机揭示 + 弹簧滚动跟随（smooth）在思考框内/框外同时丝滑
 #    - 设置 → 外观/动效/中文优化/流式：四组设置页并存
-#    - 思考折叠开关：关掉 zh 的 thinkingAuto 后 smooth 的 autoCollapse 接管，无闪烁
+#    - 思考展开：关掉 zh 的 thinkingAuto 后 smooth 的 smoothThinkAutoExpand 接管，无闪烁
 
 # 3) 白名单验证：
 #    features: []        → 全部 6 feature
@@ -102,7 +102,7 @@ dsh plugin --profile web list
 
 ```bash
 git -C /Users/zhong/project/dsh-plugins/ui-custom/dsh-client-ui-custom status --short
-# 新增： src/client/zh/**（18 文件）+ src/client/smooth/**（21 文件）
+# 新增： src/client/zh/**（18 文件）+ src/client/smooth/**（20 文件）
 # 修改： src/shared.ts / src/index.ts / src/client/index.ts
 # 其他： 此前各轮修复（appearance 精简、motion、smooth 折叠、zh isSmoothStreamBlock）
 ```

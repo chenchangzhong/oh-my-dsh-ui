@@ -6,7 +6,7 @@
  * Adaptation: uses `ctx.settingsScope` under the ui-custom namespace.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '../snapshot-store.ts'
 import {
   DEFAULT_STREAM_DEBUG_TUNING,
   DEFAULT_STREAM_SETTINGS,
@@ -23,7 +23,6 @@ export interface SmoothStreamCardState {
   failed: boolean
   enabled: boolean
   thinkAutoExpand: boolean
-  autoCollapse: boolean
   debugEnabled: boolean
   debugTuning: StreamDebugTuning
   debugAvailable: boolean
@@ -50,9 +49,9 @@ export interface SmoothStreamCardFace {
 /** Bridge the host settingsScope onto a staged settings form. */
 export class SmoothStreamCardController {
   private readonly store = createSnapshotStore<SmoothStreamCardState>(this.projection())
-  private loadedBase: Pick<StreamSettings, 'enabled' | 'thinkAutoExpand' | 'autoCollapse'> | undefined
+  private loadedBase: Pick<StreamSettings, 'enabled' | 'thinkAutoExpand'> | undefined
   private loadedDebug: Pick<StreamSettings, 'debugEnabled' | 'debugTuning'> | undefined
-  private stagedBase: Pick<StreamSettings, 'enabled' | 'thinkAutoExpand' | 'autoCollapse'> | undefined
+  private stagedBase: Pick<StreamSettings, 'enabled' | 'thinkAutoExpand'> | undefined
   private stagedDebug: Pick<StreamSettings, 'debugEnabled' | 'debugTuning'> | undefined
   private saving = false
   private failed = false
@@ -85,12 +84,11 @@ export class SmoothStreamCardController {
       hooks: { smoothStreamCard: this.store },
       edit: (patch) => {
         if (this.saving) return
-        if (patch.enabled !== undefined || patch.thinkAutoExpand !== undefined || patch.autoCollapse !== undefined) {
+        if (patch.enabled !== undefined || patch.thinkAutoExpand !== undefined) {
           this.stagedBase = {
             ...this.baseValues(),
             ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
             ...(patch.thinkAutoExpand === undefined ? {} : { thinkAutoExpand: patch.thinkAutoExpand }),
-            ...(patch.autoCollapse === undefined ? {} : { autoCollapse: patch.autoCollapse }),
           }
         }
         if (patch.debugEnabled !== undefined || patch.debugTuning !== undefined) {
@@ -135,11 +133,10 @@ export class SmoothStreamCardController {
     }
   }
 
-  private baseValues(): Pick<StreamSettings, 'enabled' | 'thinkAutoExpand' | 'autoCollapse'> {
+  private baseValues(): Pick<StreamSettings, 'enabled' | 'thinkAutoExpand'> {
     return this.stagedBase ?? this.loadedBase ?? {
       enabled: DEFAULT_STREAM_SETTINGS.enabled,
       thinkAutoExpand: DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
-      autoCollapse: DEFAULT_STREAM_SETTINGS.autoCollapse,
     }
   }
 
@@ -169,7 +166,6 @@ export class SmoothStreamCardController {
           this.loadedBase = {
             enabled: typeof obj.smoothEnabled === 'boolean' ? obj.smoothEnabled : DEFAULT_STREAM_SETTINGS.enabled,
             thinkAutoExpand: typeof obj.smoothThinkAutoExpand === 'boolean' ? obj.smoothThinkAutoExpand : DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
-            autoCollapse: typeof obj.smoothAutoCollapse === 'boolean' ? obj.smoothAutoCollapse : DEFAULT_STREAM_SETTINGS.autoCollapse,
           }
           if (obj.smoothDebugEnabled !== undefined || obj.smoothDebugTuning !== undefined) {
             this.loadedDebug = {
@@ -218,7 +214,6 @@ export class SmoothStreamCardController {
         if (this.stagedBase !== undefined) {
           if (this.stagedBase.enabled !== undefined) scope.set('smoothEnabled', this.stagedBase.enabled)
           if (this.stagedBase.thinkAutoExpand !== undefined) scope.set('smoothThinkAutoExpand', this.stagedBase.thinkAutoExpand)
-          if (this.stagedBase.autoCollapse !== undefined) scope.set('smoothAutoCollapse', this.stagedBase.autoCollapse)
         }
         if (this.stagedDebug !== undefined) {
           if (this.stagedDebug.debugEnabled !== undefined) scope.set('smoothDebugEnabled', this.stagedDebug.debugEnabled)

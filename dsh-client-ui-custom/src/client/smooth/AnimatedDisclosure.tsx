@@ -30,8 +30,8 @@ export interface AnimatedDisclosureProps {
   /**
    * When true, the expanded body is NOT tagged `data-disclosure-content`. The
    * `zh` feature treats that attribute as a marker of a smooth-owned think block
-   * and skips its per-line fixed-height scroll (and the smooth auto-collapse
-   * hides it). Omitting it lets `zh` own the block's scroll/collapse while smooth
+   * and skips its per-line fixed-height scroll. Omitting it lets `zh` own the
+   * block's scroll/collapse while smooth
    * still drives the text reveal inside — the "think block not taken over" mode.
    */
   omitDisclosureContentAttr?: boolean

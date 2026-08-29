@@ -11,7 +11,7 @@
  *   `__DSH_SMOOTH_STREAM_CONFIG__` global (no host boot bridge in this port).
  * - Diagnostics: local settings store with localStorage persistence, mirrored
  *   to the settings scope for the settings card.
- * - Auto-collapse: DOM-level controller, independent of the renderer takeover.
+
  *
  * Source: /tmp/dsh-smooth-stream/src/client/index.ts apply() pattern.
  * Host pattern: /Users/zhong/project/dsh-plugins/ui-custom/dsh-client-ui-custom/src/client/index.ts registerFeatures().
@@ -26,7 +26,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { TypewriterAssistantNodeView } from './TypewriterAssistantNodeView.tsx'
-import { AutoCollapseController } from './auto-collapse-controller.ts'
 import { wrapFollowNodeView, type FollowWrapProps } from './TypewriterToolNodeView.tsx'
 import { SmoothStreamCard } from './SmoothStreamCard.tsx'
 import { SmoothStreamCardController } from './SmoothStreamCardController.ts'
@@ -166,7 +165,6 @@ class SettingsCell {
       pending === this.pending
       && next.enabled === this.value.enabled
       && next.thinkAutoExpand === this.value.thinkAutoExpand
-      && next.autoCollapse === this.value.autoCollapse
       && next.debugEnabled === this.value.debugEnabled
       && next.debugTuning === this.value.debugTuning
     ) return
@@ -177,10 +175,6 @@ class SettingsCell {
 
   takeoverEnabled(): boolean {
     return !this.pending && this.value.enabled
-  }
-
-  autoCollapseActive(): boolean {
-    return !this.pending && this.value.autoCollapse
   }
 
   readonly getSnapshot = (): StreamSettings => this.value
@@ -233,24 +227,6 @@ export function apply(ctx: ClientContext, config?: { preset?: string; takeover?:
     // Fall back to defaults if validation fails
     void config
   }
-
-  // Auto-collapse: DOM-level controller, independent of the renderer takeover.
-  // Uses `ctx.effect` instead of the source's `ctx.inject(['slots'], ...)`
-  // because the slots service is guaranteed to be present (it's in `inject`).
-  const autoCollapse = new AutoCollapseController()
-  const syncAutoCollapse = (): void => {
-    if (settings.autoCollapseActive()) autoCollapse.start()
-    else autoCollapse.stop()
-  }
-  const unsubscribeSettings = settings.subscribe(syncAutoCollapse)
-  syncAutoCollapse()
-  ctx.effect(() => {
-    syncAutoCollapse()
-    return () => {
-      unsubscribeSettings()
-      autoCollapse.stop()
-    }
-  }, 'smooth: auto-collapse lifecycle')
 
   // Settings card: uses the host's settingsScope pattern instead of RPC.
   // ctx.effect runs the settings registration once locale is available.

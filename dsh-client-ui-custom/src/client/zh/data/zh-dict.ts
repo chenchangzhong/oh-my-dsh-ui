@@ -1,8 +1,8 @@
 // 整句覆盖（命名空间 -> 键 -> 全中文值）。
 // 仅保留「必须改写整句」的键；能只换个别词的键一律放 ZH_PARTIAL。
 const ZH = {
-  conversation: {
-    // 重试倒计时的 lookup 兜底；正常路径在 translate 里整句拼装。
+  // DSH 0.1.2 起重试倒计时位于 chat 命名空间（已迁移自 conversation）。
+  chat: {
     'message.retry.status': '{label}（{retry}/{maximum}） · {seconds}秒',
   },
   model: {
@@ -33,19 +33,22 @@ const ZH = {
 // 上游改词后未命中的片段原样保留 —— 正是「跟随上游」而不是整句覆盖。
 // 条目可以是术语名（查 TERMS），也可以是 [原文, 译文] 字面对（仅此键使用）。
 const ZH_PARTIAL = {
-  conversation: {
+  // DSH 0.1.2 起 stats/message 键由 conversation 迁至 chat。
+  chat: {
     'stats.llm': ['llm'],
     'stats.ttftAverage': ['token'],
     'stats.tokensPerSecond': ['tokPerSec'],
     'stats.tokens': ['tok'],
-    'access.confirm.title': ['fullAccess'],
-    'access.confirm.description': ['fullAccess', 'agent'],
-    'access.confirm.enable': ['fullAccess'],
     'message.compaction.completed': ['token'],
     'message.unknownSurface': ['surface'],
     'message.maxTokens': ['token'],
     'message.ttft': ['token'],
     'message.tokensPerSecond': ['tokPerSec'],
+  },
+  conversation: {
+    'access.confirm.title': ['fullAccess'],
+    'access.confirm.description': ['fullAccess', 'agent'],
+    'access.confirm.enable': ['fullAccess'],
   },
   trajectory: {
     // 该命名空间 zh 词典整体还是英文，按整条短语替换；上游补齐 zh 后这些术语自然不再命中。

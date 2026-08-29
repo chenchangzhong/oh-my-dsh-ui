@@ -28,7 +28,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-let _deepseek_ai_dsh_client_runtime_client = require("@deepseek-ai/dsh-client-runtime/client");
 let react = require("react");
 react = __toESM(react, 1);
 let react_jsx_runtime = require("react/jsx-runtime");
@@ -745,6 +744,27 @@ const en$4 = {
 	previewingBar: "Press F2 to exit preview"
 };
 //#endregion
+//#region src/client/snapshot-store.ts
+function createSnapshotStore(initialState) {
+	let state = initialState;
+	const listeners = /* @__PURE__ */ new Set();
+	return {
+		getSnapshot: () => state,
+		subscribe: (listener) => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+		update: (updater) => {
+			updater(state);
+			listeners.forEach((l) => l());
+		},
+		set: (newState) => {
+			state = newState;
+			listeners.forEach((l) => l());
+		}
+	};
+}
+//#endregion
 //#region src/client/font-presets.ts
 /** The stock look: no override, the theme's own stacks win. */
 const DEFAULT_PRESET = {
@@ -1171,7 +1191,7 @@ var AppearanceSettingsController = class {
 		this.onPreview = onPreview;
 		this.values = themeOf(configFromThemeSection(defaults, scope.getSnapshot().value));
 		this.draft = { ...this.values };
-		this.store = (0, _deepseek_ai_dsh_client_runtime_client.createSnapshotStore)({
+		this.store = createSnapshotStore({
 			status: "loading",
 			writable: false,
 			values: this.values,
@@ -3303,7 +3323,7 @@ function installAutoArchive(zhCtx) {
 //#endregion
 //#region src/client/zh/data/zh-dict.ts
 const ZH = {
-	conversation: { "message.retry.status": "{label}（{retry}/{maximum}） · {seconds}秒" },
+	chat: { "message.retry.status": "{label}（{retry}/{maximum}） · {seconds}秒" },
 	model: { retry: "重试" },
 	cordis: {
 		"panel.trigger": "Cordis 插件",
@@ -3365,19 +3385,21 @@ const ZH = {
 	}
 };
 const ZH_PARTIAL = {
-	conversation: {
+	chat: {
 		"stats.llm": ["llm"],
 		"stats.ttftAverage": ["token"],
 		"stats.tokensPerSecond": ["tokPerSec"],
 		"stats.tokens": ["tok"],
-		"access.confirm.title": ["fullAccess"],
-		"access.confirm.description": ["fullAccess", "agent"],
-		"access.confirm.enable": ["fullAccess"],
 		"message.compaction.completed": ["token"],
 		"message.unknownSurface": ["surface"],
 		"message.maxTokens": ["token"],
 		"message.ttft": ["token"],
 		"message.tokensPerSecond": ["tokPerSec"]
+	},
+	conversation: {
+		"access.confirm.title": ["fullAccess"],
+		"access.confirm.description": ["fullAccess", "agent"],
+		"access.confirm.enable": ["fullAccess"]
 	},
 	trajectory: {
 		"toolbar.duration": ["trajDuration"],
@@ -3942,6 +3964,13 @@ function formatZhSeconds(raw) {
 	if (seconds > 0 || out === "") out += seconds + "秒";
 	return out;
 }
+/** 将模板字符串中的 {key} 占位符替换为实际参数值。 */
+function interpolateZh(template, params) {
+	if (!params) return template;
+	let result = template;
+	for (const [key, value] of Object.entries(params)) result = result.split("{" + key + "}").join(String(value));
+	return result;
+}
 /** 把英文单位时长（如 "48m48s"、"2.4s"、"1h2m3s"）转成中文（48分48秒、2.4秒）。 */
 function formatEnDurationToZh(raw) {
 	const s = String(raw);
@@ -3971,19 +4000,21 @@ function trimNumber(x) {
 	return s;
 }
 /** 参数需要转换的键（ns -> key -> 参数名 -> 转换函数）。 */
-const PARAM_TRANSFORMS = { conversation: {
-	"stats.llm": { duration: formatEnDurationToZh },
-	"stats.toolCall": { duration: formatEnDurationToZh },
-	"stats.ttftAverage": { duration: formatEnDurationToZh },
-	"stats.tokens": {
-		input: formatCompactNumberToZh,
-		output: formatCompactNumberToZh
+const PARAM_TRANSFORMS = {
+	chat: {
+		"stats.llm": { duration: formatEnDurationToZh },
+		"stats.toolCall": { duration: formatEnDurationToZh },
+		"stats.ttftAverage": { duration: formatEnDurationToZh },
+		"stats.tokens": {
+			input: formatCompactNumberToZh,
+			output: formatCompactNumberToZh
+		}
 	},
-	"input.accessMode": { name: function(raw) {
+	conversation: { "input.accessMode": { name: function(raw) {
 		const v = PERMISSION_NAMES[String(raw)];
 		return v !== void 0 ? v : String(raw);
-	} }
-} };
+	} } }
+};
 //#endregion
 //#region src/client/zh/store/settings-store.ts
 /** Sentinel value when the scope is not yet available. */
@@ -4211,41 +4242,36 @@ function installChineseEnhance(zhCtx) {
 	let statsResizeTimer;
 	let localeUnsubscribe;
 	let settingsUnsubscribe;
-	const originalLookup = ctx.locale.lookup?.bind(ctx.locale);
 	const originalTranslate = ctx.locale.translate?.bind(ctx.locale);
-	if (ctx.locale.lookup) ctx.locale.lookup = function(ns, key) {
-		if (!zhEnhanceOn(ctx)) return originalLookup?.(ns, key);
-		if (ns === "dsh-zh-settings" || ns === "dsh-zh-archive") return originalLookup?.(ns, key);
-		const table = ZH[ns];
-		if (table?.[key] !== void 0) return table[key];
-		const partial = ZH_PARTIAL[ns];
-		if (partial?.[key] !== void 0) {
-			const original = originalLookup?.(ns, key);
-			if (typeof original !== "string") return original;
-			return applyPairs(original, resolvePairs(partial[key]));
-		}
-		const star = ZH["*"]?.[key];
-		if (star !== void 0) return star;
-		return originalLookup?.(ns, key);
-	};
+	const translateWasOwn = Object.prototype.hasOwnProperty.call(ctx.locale, "translate");
 	if (ctx.locale.translate) ctx.locale.translate = function(ns, key, params) {
-		if (!zhEnhanceOn(ctx)) return originalTranslate?.(ns, key, params);
-		if (ns === "conversation" && key === "message.retry.status" && params) {
+		if (!zhEnhanceOn(ctx)) return originalTranslate?.call(this, ns, key, params) ?? "";
+		if (ns === "dsh-zh-settings" || ns === "dsh-zh-archive") return originalTranslate?.call(this, ns, key, params) ?? "";
+		if (ns === "chat" && key === "message.retry.status" && params) {
 			const label = String(params.label ?? "");
 			const retry = String(params.retry ?? "");
 			const maximum = String(params.maximum ?? "");
 			return label + "（" + retry + "/" + maximum + "） · " + formatZhSeconds(params.seconds);
 		}
+		let nextParams = params;
 		const table = PARAM_TRANSFORMS[ns];
 		if (table?.[key] !== void 0 && params) {
-			const next = {};
+			nextParams = {};
 			for (const k of Object.keys(params)) {
 				const fn = table[key][k];
-				next[k] = fn !== void 0 ? fn(params[k]) : params[k];
+				nextParams[k] = fn !== void 0 ? fn(params[k]) : params[k];
 			}
-			return originalTranslate?.(ns, key, next) ?? "";
 		}
-		return originalTranslate?.(ns, key, params) ?? "";
+		const zhTable = ZH[ns];
+		if (zhTable?.[key] !== void 0) return interpolateZh(zhTable[key], nextParams);
+		const partial = ZH_PARTIAL[ns];
+		if (partial?.[key] !== void 0) {
+			const template = originalTranslate?.call(this, ns, key) ?? "";
+			if (typeof template === "string") return interpolateZh(applyPairs(template, resolvePairs(partial[key])), nextParams);
+		}
+		const star = ZH["*"]?.[key];
+		if (star !== void 0) return interpolateZh(star, nextParams);
+		return originalTranslate?.call(this, ns, key, params) ?? "";
 	};
 	const fixStatsFull = (textNode) => {
 		if (settingsStore.getSnapshot().statsFull !== true) return;
@@ -4463,8 +4489,8 @@ function installChineseEnhance(zhCtx) {
 		if (settingsUnsubscribe) settingsUnsubscribe();
 		if (localeUnsubscribe) localeUnsubscribe();
 		resetDomEffects();
-		if (ctx.locale && originalLookup) ctx.locale.lookup = originalLookup;
-		if (ctx.locale && originalTranslate) ctx.locale.translate = originalTranslate;
+		if (ctx.locale && translateWasOwn) ctx.locale.translate = originalTranslate;
+		else if (ctx.locale) delete ctx.locale.translate;
 	};
 }
 /**
@@ -5135,7 +5161,6 @@ const DEFAULT_STREAM_DEBUG_TUNING = {
 const DEFAULT_STREAM_SETTINGS = {
 	enabled: true,
 	thinkAutoExpand: true,
-	autoCollapse: true,
 	debugEnabled: false,
 	debugTuning: DEFAULT_STREAM_DEBUG_TUNING
 };
@@ -5179,7 +5204,7 @@ const INITIAL_STATE = {
 	tuning: { ...DEFAULT_STREAM_DEBUG_TUNING },
 	metrics: EMPTY_METRICS
 };
-const store = (0, _deepseek_ai_dsh_client_runtime_client.createSnapshotStore)(INITIAL_STATE);
+const store = createSnapshotStore(INITIAL_STATE);
 const streamMetrics = /* @__PURE__ */ new Map();
 const followMetrics = /* @__PURE__ */ new Map();
 let actions;
@@ -7214,842 +7239,6 @@ const TypewriterAssistantNodeView = (0, react.memo)(function TypewriterAssistant
 	});
 });
 //#endregion
-//#region src/client/smooth/auto-collapse-controller.ts
-/**
-* Auto-collapse coordinator: folds the work process of finished turns behind
-* one summary row so only the model's final answer stays visible.
-*
-* The Harness ChatView lays a conversation out as a flat list of flow items
-* (`[data-chat-flow] > [data-chat-flow-kind=…]`). This controller watches that
-* list, splits it into turn segments at `user`/`steering` boundaries closed by
-* `turn-tail`, and — once a segment has settled — hides its thinking rows,
-* tool/command/context seats and intermediate replies, leaving one clickable
-* `已处理 {时长}` row plus the final answer. Clicking the row expands the full
-* process again; the choice survives later renders because it lives in the
-* controller, not the DOM.
-*
-* Adapted from the standalone `dsh-auto-collapse` plugin (level-1 folding
-* only): no second-level chips, no merged thinking rows, no status-text
-* rewrite, no transition animation — the collapse decision itself stays
-* instantaneous and reversible.
-*
-* React coexistence follows the upstream design: injected rows are plain
-* siblings/prepend children the vdom diff never claims, native rows are only
-* ever touched through an inline-`display` ledger that records the precise
-* original value and restores it on stop, session switch, or foreign takeover
-* (a written-value comparison plus an ownership sentinel catches another
-* script rewriting styles behind our back). A MutationObserver batches real
-* structure changes into rAF passes; a low-frequency self-rearming audit pass
-* reconciles unobservable style writes; a setTimeout fallback keeps passes
-* flowing when background tabs suspend rAF.
-*/
-const STYLE_ID = "dshss-auto-collapse-style";
-/** Class of the injected per-turn summary row; the follow engine's generalized
-* surface walk picks it up as an ordinary foreign flow sibling. */
-const PROCESSED_CLASS = "dshss-processed";
-/** Inline custom property marking elements whose display this plugin owns. */
-const DISPLAY_OWNED_PROP = "--dshss-display-owned";
-/** Unobservable external style writes are reconciled by this audit cadence. */
-const AUDIT_TICK_MS = 1e3;
-/** Background-tab fallback that flushes a scheduled pass when rAF is frozen. */
-const PASS_FALLBACK_MS = 60;
-/**
-* Fold motion, deliberately minimal: layout changes land synchronously (the
-* display toggle happens in the same tick as the decision) and nothing
-* animates geometry at all — the earlier container-height squeeze was removed
-* because real sessions showed residual drift after the pin released (other
-* layout participants keep settling around the fold). What remains is one
-* paint-only flourish: the summary row fades its opacity in. A fold is
-* therefore a single reflow followed by a fade — the most stable shape
-* possible.
-*/
-const FOLD_ROW_FADE_MS = 160;
-const FOLD_EASE_OUT = "cubic-bezier(0.22, 0.61, 0.36, 1)";
-const ZH_COPY = {
-	processedLabel: "已处理",
-	expandTitle: "展开工作过程",
-	collapseTitle: "收起工作过程",
-	formatDuration: formatZhDuration
-};
-const EN_COPY = {
-	processedLabel: "Processed",
-	expandTitle: "Show the work process",
-	collapseTitle: "Hide the work process",
-	formatDuration: formatEnDuration
-};
-function resolveFoldCopy() {
-	let lang = "";
-	try {
-		lang = document.documentElement.lang || navigator.language || "";
-	} catch {
-		lang = "";
-	}
-	return lang.toLowerCase().startsWith("zh") ? ZH_COPY : EN_COPY;
-}
-const FOLD_CSS = `
-.${PROCESSED_CLASS} {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-self: flex-start;
-  width: fit-content;
-  max-width: 100%;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-  border: none;
-  background: none;
-  font: 400 14px/24px system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.9));
-  cursor: pointer;
-  user-select: none;
-  border-radius: 4px;
-  transition: color 0.15s ease;
-}
-.${PROCESSED_CLASS}:hover {
-  color: var(--dsw-alias-label-primary, inherit);
-  background: transparent;
-}
-.${PROCESSED_CLASS}:focus-visible {
-  outline: 2px solid var(--dsw-alias-state-focus-ring, rgba(77, 107, 254, 0.8));
-  outline-offset: 2px;
-}
-.${PROCESSED_CLASS}-chevron {
-  display: inline-flex;
-  flex: none;
-  width: 14px;
-  height: 14px;
-  opacity: 0.55;
-  transform: rotate(-90deg);
-  transition: transform 0.12s ease, opacity 0.1s ease;
-}
-.${PROCESSED_CLASS}:hover .${PROCESSED_CLASS}-chevron {
-  opacity: 0.9;
-}
-.${PROCESSED_CLASS}[aria-expanded="true"] .${PROCESSED_CLASS}-chevron {
-  transform: rotate(0deg);
-}
-/* Think rows kept in the layout tree while collapsed so grid 0fr animation
- * inside AnimatedDisclosure stays alive and streaming continues. */
-.${PROCESSED_CLASS}-think-hidden {
-  visibility: hidden;
-}
-@media (prefers-reduced-motion: reduce) {
-  .${PROCESSED_CLASS},
-  .${PROCESSED_CLASS}-chevron {
-    transition: none;
-  }
-}
-`;
-var AutoCollapseController = class AutoCollapseController {
-	observer = null;
-	raf = 0;
-	timer = 0;
-	auditTimer = 0;
-	/** True between start() and stop(); the preference toggle re-enters both. */
-	running = false;
-	lastPassError = "";
-	flow = null;
-	/** Stable segment key → summary row + gesture state. */
-	segmentStates = /* @__PURE__ */ new Map();
-	/** First sighting of a running segment, for turns without a host duration. */
-	runningSince = /* @__PURE__ */ new Map();
-	/** Segments that settled once: a resumed run restarts local timing. */
-	completedOnce = /* @__PURE__ */ new Set();
-	/** Precise pre-plugin display values, restored on stop/switch/takeover. */
-	originalDisplay = /* @__PURE__ */ new WeakMap();
-	writtenDisplay = /* @__PURE__ */ new WeakMap();
-	controlledDisplay = /* @__PURE__ */ new Set();
-	/** Reply-presence verdicts cached per message until a mutation hits it. */
-	bodyTextCache = /* @__PURE__ */ new WeakMap();
-	dirtyMessages = /* @__PURE__ */ new Set();
-	onVisibilityChange = () => {
-		if (typeof document === "undefined" || document.hidden !== true) this.schedule();
-	};
-	/** Re-run a pass immediately (settings changes, diagnostics, tests).
-	* Reply-presence verdicts are dropped wholesale: manual refreshes are rare,
-	* and a conservative rebuild beats a stale classification. */
-	refresh() {
-		this.bodyTextCache = /* @__PURE__ */ new WeakMap();
-		this.dirtyMessages.clear();
-		this.schedule();
-	}
-	start() {
-		if (this.running) return;
-		this.running = true;
-		injectStyle();
-		try {
-			this.observer = new MutationObserver((records) => {
-				if (this.shouldSchedule(records)) {
-					this.markDirty(records);
-					this.schedule();
-				}
-			});
-			this.observer.observe(document.body, {
-				childList: true,
-				subtree: true,
-				attributes: true,
-				attributeFilter: ["data-state"],
-				characterData: true
-			});
-			this.armAuditLoop();
-			this.schedule();
-		} catch (error) {
-			this.reportError(error);
-			throw error;
-		}
-	}
-	stop() {
-		this.running = false;
-		if (this.raf !== 0) cancelAnimationFrame(this.raf);
-		this.raf = 0;
-		if (this.timer !== 0) clearTimeout(this.timer);
-		this.timer = 0;
-		if (this.auditTimer !== 0) clearTimeout(this.auditTimer);
-		this.auditTimer = 0;
-		if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", this.onVisibilityChange);
-		this.observer?.disconnect();
-		this.observer = null;
-		this.switchFlow(null);
-		removeStyle();
-	}
-	/** Low-frequency reconciliation for style writes no observer can see. */
-	armAuditLoop() {
-		if (typeof document !== "undefined" && typeof document.addEventListener === "function") document.addEventListener("visibilitychange", this.onVisibilityChange);
-		this.rearmAudit();
-	}
-	rearmAudit() {
-		if (!this.running || this.auditTimer !== 0) return;
-		this.auditTimer = setTimeout(() => {
-			this.auditTimer = 0;
-			if (!this.running) return;
-			if (typeof document !== "undefined" && document.hidden === true) {
-				this.rearmAudit();
-				return;
-			}
-			this.schedule();
-			this.rearmAudit();
-		}, AUDIT_TICK_MS);
-	}
-	/** Body-level observations only need to wake us up near the active flow. */
-	shouldSchedule(records) {
-		if (records.length === 0 || this.flow === null || !this.flow.isConnected) return true;
-		return records.some((record) => nodeWithin(record.target, this.flow) || nodeWithin(this.flow, record.target));
-	}
-	/** Walk each record to its flow child so reply-cache invalidation stays
-	* targeted; anything unattributable invalidates conservatively. */
-	markDirty(records) {
-		const flow = this.flow;
-		if (flow === null || !flow.isConnected) return;
-		if (records.length === 0) {
-			this.bodyTextCache = /* @__PURE__ */ new WeakMap();
-			this.dirtyMessages.clear();
-			return;
-		}
-		for (const record of records) {
-			let current = record.target;
-			while (current !== null && current.parentNode !== flow) current = current.parentNode;
-			if (!(current instanceof HTMLElement)) {
-				this.bodyTextCache = /* @__PURE__ */ new WeakMap();
-				this.dirtyMessages.clear();
-				return;
-			}
-			this.dirtyMessages.add(current);
-		}
-	}
-	schedule() {
-		if (!this.running || this.raf !== 0) return;
-		this.raf = requestAnimationFrame(() => {
-			this.raf = 0;
-			if (this.timer !== 0) {
-				clearTimeout(this.timer);
-				this.timer = 0;
-			}
-			this.runPass();
-		});
-		if (this.timer !== 0) clearTimeout(this.timer);
-		this.timer = setTimeout(() => {
-			this.timer = 0;
-			if (this.raf !== 0) {
-				cancelAnimationFrame(this.raf);
-				this.raf = 0;
-				this.runPass();
-			}
-		}, PASS_FALLBACK_MS);
-	}
-	runPass() {
-		try {
-			this.pass();
-			this.lastPassError = "";
-		} catch (error) {
-			this.reportError(error);
-		}
-	}
-	reportError(error) {
-		const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-		if (message === this.lastPassError) return;
-		this.lastPassError = message;
-		console.error("[dsh-smooth-stream] auto-collapse pass failed", error);
-	}
-	pass() {
-		if (!this.running) return;
-		const nextFlow = findFlow();
-		if (nextFlow !== this.flow) this.switchFlow(nextFlow);
-		const flow = this.flow;
-		if (flow === null) return;
-		for (const el of this.dirtyMessages) this.bodyTextCache.delete(el);
-		this.dirtyMessages.clear();
-		const segments = buildSegments(flow, (el) => this.hasBodyCached(el));
-		const liveSegmentKeys = new Set(segments.map((segment) => segment.key));
-		for (const segment of segments) {
-			if (!segment.running) continue;
-			if (this.completedOnce.has(segment.key)) {
-				this.completedOnce.delete(segment.key);
-				this.runningSince.delete(segment.key);
-			}
-			if (!this.runningSince.has(segment.key)) this.runningSince.set(segment.key, Date.now());
-		}
-		const completedKeys = /* @__PURE__ */ new Set();
-		for (const segment of segments) {
-			if (!segment.closed || segment.running || !segment.hasWork) continue;
-			completedKeys.add(segment.key);
-			this.completedOnce.add(segment.key);
-			let state = this.segmentStates.get(segment.key);
-			if (state === void 0) {
-				state = {
-					key: segment.key,
-					row: null,
-					expanded: false,
-					snapshot: segment
-				};
-				this.segmentStates.set(segment.key, state);
-			} else state.snapshot = segment;
-			const started = this.runningSince.get(segment.key);
-			const parsed = segment.boundary === null ? void 0 : parseTurnDuration(segment.boundary);
-			if (parsed !== void 0) state.duration = parsed;
-			else if (state.duration === void 0 && started !== void 0) state.duration = Date.now() - started;
-			if (state.row === null || !state.row.isConnected) state.row = this.createProcessedRow(state);
-			this.syncProcessedRow(state);
-		}
-		for (const [key, state] of [...this.segmentStates]) {
-			if (completedKeys.has(key)) continue;
-			state.row?.remove();
-			this.segmentStates.delete(key);
-		}
-		const desiredHidden = /* @__PURE__ */ new Set();
-		for (const segment of segments) {
-			const state = this.segmentStates.get(segment.key);
-			if (state !== void 0 && !state.expanded) {
-				for (const seat of segment.hideSeats) this.hideElement(seat, desiredHidden);
-				for (const row of segment.finalThinkRows) this.hideElement(row, desiredHidden, AutoCollapseController.THINK_ROW_HIDDEN_CLASS);
-				if (segment.finalStep !== null) this.restoreElement(segment.finalStep);
-			} else {
-				for (const seat of segment.hideSeats) this.restoreElement(seat);
-				for (const row of segment.finalThinkRows) {
-					row.classList.remove(AutoCollapseController.THINK_ROW_HIDDEN_CLASS);
-					this.restoreElement(row);
-				}
-				if (segment.finalStep !== null) this.restoreElement(segment.finalStep);
-			}
-		}
-		for (const segment of segments) {
-			if (!hasVisibleSegmentWork(segment)) {
-				const state = this.segmentStates.get(segment.key);
-				if (state !== void 0 && state.row !== null) {
-					state.row.remove();
-					state.row = null;
-				}
-			}
-			for (const seat of segment.hideSeats) this.retainDisplayControl(seat, desiredHidden);
-			for (const row of segment.finalThinkRows) this.retainDisplayControl(row, desiredHidden, AutoCollapseController.THINK_ROW_HIDDEN_CLASS);
-			if (segment.finalStep !== null) this.retainDisplayControl(segment.finalStep, desiredHidden);
-		}
-		this.restoreUnusedDisplays(desiredHidden);
-		for (const state of this.segmentStates.values()) this.placeProcessedRow(flow, state);
-		for (const key of [...this.runningSince.keys()]) if (!liveSegmentKeys.has(key)) this.runningSince.delete(key);
-		for (const key of [...this.completedOnce]) if (!liveSegmentKeys.has(key)) this.completedOnce.delete(key);
-	}
-	/** Flow swap means a session switch: fully restore the old tree, rebuild. */
-	switchFlow(next) {
-		if (next === this.flow) return;
-		for (const state of this.segmentStates.values()) state.row?.remove();
-		this.segmentStates.clear();
-		this.runningSince.clear();
-		this.completedOnce.clear();
-		this.bodyTextCache = /* @__PURE__ */ new WeakMap();
-		this.dirtyMessages.clear();
-		this.restoreAllDisplays();
-		this.flow = next;
-	}
-	/** Keep already-controlled elements in the desired-hidden set so the sweep
-	* does not flip them back mid-flight of an external change. */
-	retainDisplayControl(el, desiredHidden, hiddenClass) {
-		if (this.controlledDisplay.has(el)) desiredHidden.add(el);
-		if (hiddenClass === AutoCollapseController.THINK_ROW_HIDDEN_CLASS && el.closest("[data-variant=\"think\"]") !== null) return;
-		if (hiddenClass !== void 0) el.classList.add(hiddenClass);
-	}
-	/** Restore every element the ledger controls that this pass no longer wants
-	* hidden; elements absent from `desired` come back to their true display. */
-	restoreUnusedDisplays(desired) {
-		for (const el of [...this.controlledDisplay]) if (!desired.has(el)) this.restoreElement(el);
-	}
-	/** Restore every element still under the display ledger, then retire the
-	* ledger itself (stop / session switch). */
-	restoreAllDisplays() {
-		for (const el of [...this.controlledDisplay]) this.restoreElement(el);
-		this.controlledDisplay.clear();
-		this.originalDisplay = /* @__PURE__ */ new WeakMap();
-		this.writtenDisplay = /* @__PURE__ */ new WeakMap();
-	}
-	createProcessedRow(state) {
-		const row = createProcessedRowElement(state.duration);
-		row.addEventListener("click", () => {
-			state.expanded = !state.expanded;
-			this.syncProcessedRow(state);
-			this.schedule();
-		});
-		return row;
-	}
-	syncProcessedRow(state) {
-		const row = state.row;
-		if (row === null) return;
-		const copy = resolveFoldCopy();
-		const text = row.firstElementChild;
-		const label = state.duration === void 0 ? copy.processedLabel : `${copy.processedLabel} ${copy.formatDuration(state.duration)}`;
-		if (text !== null && text.textContent !== label) text.textContent = label;
-		const expanded = String(state.expanded);
-		if (row.getAttribute("aria-expanded") !== expanded) row.setAttribute("aria-expanded", expanded);
-		const title = state.expanded ? copy.collapseTitle : copy.expandTitle;
-		if (row.title !== title) row.title = title;
-	}
-	placeProcessedRow(flow, state) {
-		const row = state.row;
-		if (row === null) return;
-		if (!state.snapshot.hasWork || !hasVisibleSegmentWork(state.snapshot)) {
-			row.remove();
-			state.row = null;
-			return;
-		}
-		let target = state.snapshot.firstWork ?? state.snapshot.finalStep ?? state.snapshot.boundary;
-		if (target === null || target.parentElement !== flow) {
-			row.remove();
-			state.row = null;
-			return;
-		}
-		if (row.parentElement !== flow || row.nextElementSibling !== target) {
-			target.before(row);
-			this.revealVisualOnce(row);
-		}
-	}
-	hasBodyCached(el) {
-		const cached = this.bodyTextCache.get(el);
-		if (cached !== void 0) return cached;
-		const value = hasBodyContent(el);
-		this.bodyTextCache.set(el, value);
-		return value;
-	}
-	/** True when the recorded display was changed (or the ownership sentinel
-	* wiped) behind the ledger's back; callers hand control back to reality. */
-	displayForeign(el) {
-		const written = this.writtenDisplay.get(el);
-		if (written === void 0) return false;
-		return el.style.getPropertyValue(DISPLAY_OWNED_PROP) === "" || el.style.display !== written;
-	}
-	releaseDisplayLedger(el) {
-		this.originalDisplay.delete(el);
-		this.writtenDisplay.delete(el);
-		this.controlledDisplay.delete(el);
-		el.style.removeProperty(DISPLAY_OWNED_PROP);
-	}
-	/** CSS class applied to think rows hidden by folding so their content can
-	* still measure while the auto-collapse controller owns them. Uses
-	* visibility+opacity (NOT display:none): display:none would remove the
-	* element from the layout tree entirely, killing the grid-row 0fr animation
-	* and the streaming continuation inside AnimatedDisclosure bodies. Keeping
-	* the box in layout (visibility hidden + pointer-events none + opacity 0)
-	* lets both the grid 0fr animation and any inner reveal keep measuring. */
-	static THINK_ROW_HIDDEN_CLASS = "dshss-processed-think-hidden";
-	hideElement(el, desired, hiddenClass) {
-		if (hiddenClass === AutoCollapseController.THINK_ROW_HIDDEN_CLASS && el.closest("[data-variant=\"think\"]") !== null) {
-			el.classList.remove(AutoCollapseController.THINK_ROW_HIDDEN_CLASS);
-			el.style.removeProperty("visibility");
-			el.style.removeProperty("opacity");
-			el.style.removeProperty("pointer-events");
-			if (this.controlledDisplay.has(el)) this.restoreElement(el);
-			return;
-		}
-		desired.add(el);
-		if (!this.originalDisplay.has(el) && !isDisplayed(el)) return;
-		if (!this.originalDisplay.has(el) || this.displayForeign(el)) {
-			this.originalDisplay.set(el, el.style.display);
-			this.writtenDisplay.set(el, el.style.display);
-			el.style.setProperty(DISPLAY_OWNED_PROP, "1");
-		}
-		this.controlledDisplay.add(el);
-		if (el.style.display === "none") return;
-		if (hiddenClass !== void 0) {
-			el.style.display = "none";
-			this.writtenDisplay.set(el, "none");
-			el.classList.add(hiddenClass);
-			el.style.display = this.originalDisplay.get(el) ?? "";
-			el.style.setProperty("visibility", "hidden");
-			el.style.setProperty("opacity", "0");
-			el.style.setProperty("pointer-events", "none");
-			return;
-		}
-		el.style.display = "none";
-		this.writtenDisplay.set(el, "none");
-	}
-	restoreElement(el) {
-		if (!this.originalDisplay.has(el)) return;
-		if (this.displayForeign(el)) {
-			this.releaseDisplayLedger(el);
-			return;
-		}
-		const original = this.originalDisplay.get(el);
-		if (el.style.display !== original) el.style.display = original;
-		el.classList.remove(AutoCollapseController.THINK_ROW_HIDDEN_CLASS);
-		this.releaseDisplayLedger(el);
-	}
-	/** Whether WAAPI exists and the user has not asked for reduced motion. */
-	canAnimate(el) {
-		if (typeof el.animate !== "function") return false;
-		try {
-			if (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
-		} catch {
-			return false;
-		}
-		return true;
-	}
-	/** First-appearance flourish for the plugin-owned summary row: a pure
-	* opacity fade. Paint-only, so it cannot shift anyone's layout. */
-	revealVisualOnce(row) {
-		if (row.dataset.dshssShown === "1") return;
-		row.dataset.dshssShown = "1";
-		if (!this.canAnimate(row)) return;
-		row.animate([{ opacity: "0" }, { opacity: "1" }], {
-			duration: FOLD_ROW_FADE_MS,
-			easing: FOLD_EASE_OUT
-		});
-	}
-};
-/** Visible chat flow container, falling back to the first one rendered. */
-function findFlow() {
-	const flows = document.querySelectorAll("[data-chat-flow]");
-	for (const flow of flows) if (flow.offsetParent !== null || flow.getBoundingClientRect().width > 0) return flow;
-	return flows[0] ?? null;
-}
-/** parentNode walk that also accepts Text mutation targets. */
-function nodeWithin(node, ancestor) {
-	for (let current = node; current !== null; current = current.parentNode) if (current === ancestor) return true;
-	return false;
-}
-/** Top-level message order, excluding this plugin's own summary rows. */
-function flowItems(flow) {
-	return [...flow.children].filter((el) => el instanceof HTMLElement && !el.classList.contains(PROCESSED_CLASS));
-}
-function isDisplayed(el) {
-	if (typeof getComputedStyle === "function") return getComputedStyle(el).display !== "none";
-	return el.style.display !== "none";
-}
-function stableElementKey(el, fallbackIndex) {
-	const kind = el.getAttribute("data-chat-flow-kind") ?? "node";
-	return `${kind}:${el.getAttribute("data-chat-flow-key") ?? el.getAttribute("data-chat-anchor-key") ?? `${kind}:${fallbackIndex}`}`;
-}
-/** Kinds that can open a history stretch lacking an explicit user marker. */
-function opensTurnWork(el) {
-	const kind = el.getAttribute("data-chat-flow-kind");
-	return kind === "assistant-step" || kind === "assistant" || kind === "tool-call" || kind === "command" || kind === "manual-compaction";
-}
-/**
-* Split the flow into turn segments. `user`/`steering` rows close the previous
-* segment and open the next; `turn-tail` closes and resets the opener. Leading
-* context before the first user row joins that user's segment, matching how
-* the host presents context injection.
-*/
-function buildSegments(flow, hasBody) {
-	const items = flowItems(flow);
-	const itemIndex = new Map(items.map((el, index) => [el, index]));
-	const snapshots = [];
-	let contentStart = 0;
-	let startMarker = null;
-	const append = (end, boundary, closed) => {
-		if (end < contentStart) return;
-		const range = items.slice(contentStart, end);
-		const hideSeats = /* @__PURE__ */ new Set();
-		const bodySteps = [];
-		let running = false;
-		for (const el of range) {
-			const classified = classifyItem(el, hasBody);
-			if (classified.fold === "body") bodySteps.push(el);
-			else if (classified.fold === "seat") hideSeats.add(el);
-			if (classified.running) running = true;
-		}
-		const finalStep = bodySteps.at(-1) ?? null;
-		const middleSteps = new Set(bodySteps.slice(0, -1));
-		for (const step of middleSteps) hideSeats.add(step);
-		const finalThinkRows = finalStep === null ? [] : thinkRowsIn(finalStep);
-		const firstWork = range.find((el) => hideSeats.has(el)) ?? finalStep;
-		const identity = startMarker ?? range.find((el) => opensTurnWork(el)) ?? boundary;
-		const identityIndex = identity === null ? contentStart : itemIndex.get(identity) ?? contentStart;
-		const key = `${startMarker === null ? "leading" : "segment"}:${identity === null ? `open:${contentStart}` : stableElementKey(identity, identityIndex)}`;
-		snapshots.push({
-			key,
-			boundary,
-			startMarker,
-			hideSeats,
-			middleSteps,
-			finalStep,
-			finalThinkRows,
-			firstWork,
-			closed,
-			running,
-			hasWork: hideSeats.size > 0 || finalThinkRows.length > 0
-		});
-	};
-	items.forEach((el, index) => {
-		const kind = el.getAttribute("data-chat-flow-kind");
-		if (kind === "user" || kind === "steering") {
-			if (startMarker !== null) {
-				append(index, el, true);
-				contentStart = index + 1;
-			} else if (items.slice(contentStart, index).some((el) => opensTurnWork(el))) {
-				append(index, el, true);
-				contentStart = index + 1;
-			}
-			startMarker = el;
-			return;
-		}
-		if (kind === "turn-tail") {
-			append(index, el, true);
-			contentStart = index + 1;
-			startMarker = null;
-		}
-	});
-	if (contentStart < items.length) append(items.length, null, false);
-	return snapshots;
-}
-/**
-* Classify one top-level flow item against the Harness's own node vocabulary.
-* Reply-bearing assistant messages become `body` candidates (last one per
-* segment wins as the final answer); core work process — tool-call seats,
-* command/compaction cards, context injection, thinking-only messages —
-* becomes a hideable `seat`. Everything else is skipped untouched: boundaries,
-* empty decorations, and crucially any kind this module does not own, so rows
-* contributed by other plugins' slots are never folded or hidden.
-*/
-function classifyItem(el, hasBody) {
-	const kind = el.getAttribute("data-chat-flow-kind");
-	if (kind === "user" || kind === "steering" || kind === "turn-tail") return {
-		fold: "skip",
-		running: false
-	};
-	if (kind === "assistant-step" || kind === "assistant") {
-		if (hasBody(el)) return {
-			fold: "body",
-			running: subtreeRunning(el)
-		};
-		if (thinkRowsIn(el).length > 0) return {
-			fold: "seat",
-			running: subtreeRunning(el)
-		};
-		return {
-			fold: "skip",
-			running: false
-		};
-	}
-	if (kind === "tool-call") {
-		const rows = topCallRowsIn(el);
-		if (rows.length === 0 || !rows.every((row) => hasNativeCardChrome(row))) return {
-			fold: "skip",
-			running: subtreeRunning(el)
-		};
-		return {
-			fold: "seat",
-			running: subtreeRunning(el)
-		};
-	}
-	if (kind === "context" || kind === "command" || kind === "manual-compaction") return {
-		fold: "seat",
-		running: subtreeRunning(el)
-	};
-	return {
-		fold: "skip",
-		running: false
-	};
-}
-/** Native work-card shape: every core card family stamps `data-variant`
-* together with `data-state`, whether composed through ToolRow or hand-rolled
-* (Bash). Custom toolviews use their own namespaced attributes instead. */
-function hasNativeCardChrome(row) {
-	return row.querySelector("[data-variant][data-state]") !== null;
-}
-/** Whether anything inside the item reports a running lifecycle. Deliberately
-* broad: staying "running" too long only delays a collapse, collapsing early
-* would cut off live output. Native cards stamp `data-state` next to
-* `data-tool`/`data-variant`; custom views use their own vocabulary and are
-* intentionally invisible here. */
-function subtreeRunning(el) {
-	if (el.getAttribute("data-state") === "running") return true;
-	for (const root of el.querySelectorAll("[data-tool][data-state], [data-variant][data-state]")) if (root.getAttribute("data-state") === "running") return true;
-	return false;
-}
-function hasVisibleSegmentWork(segment) {
-	const candidates = [...segment.hideSeats, ...segment.middleSteps];
-	if (segment.startMarker !== null) candidates.push(segment.startMarker);
-	if (segment.finalStep !== null) candidates.push(segment.finalStep);
-	return candidates.some(isDisplayed);
-}
-/** Top-level tool card rows of a seat (excluding sub-dispatch nests). */
-function topCallRowsIn(el) {
-	const rows = [];
-	for (const row of el.querySelectorAll("[data-chat-call-id]")) {
-		if (row.closest("[data-subcalls]") !== null) continue;
-		if (row.closest("[data-chat-call-id]") !== row) continue;
-		rows.push(row);
-	}
-	return rows;
-}
-/** Reasoning rows of a message: native think variants outside tool cards. */
-function thinkRowsIn(el) {
-	const rows = [];
-	for (const row of el.querySelectorAll("[data-variant=\"think\"]:not([data-tool])")) {
-		if (row.closest("[data-chat-call-id]") !== null) continue;
-		if (row.closest("[data-subcalls]") !== null) continue;
-		rows.push(row);
-	}
-	return rows;
-}
-/**
-* Reply detection beyond reasoning rows and tool cards: any non-empty text or
-* media counts, because Markdown paragraphs necessarily carry text nodes.
-* Rendered markdown class names are build-time hashes, so structure-based
-* detection is the only stable contract.
-*/
-function hasBodyContent(el) {
-	const kind = el.getAttribute("data-chat-flow-kind");
-	if (kind === "command" || kind === "manual-compaction") return false;
-	if (hasBodyText(el)) return true;
-	const excluded = "[data-variant=\"think\"], [data-chat-call-id]";
-	for (const media of el.querySelectorAll("img, video, audio, canvas")) if (media.closest(excluded) === null) return true;
-	return false;
-}
-function hasBodyText(el) {
-	const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-	let node;
-	while ((node = walker.nextNode()) !== null) {
-		if (node.data.trim() === "") continue;
-		const parent = node.parentElement;
-		if (parent !== null && parent.closest("[data-variant=\"think\"], [data-chat-call-id], [data-variant=\"others\"][data-state]") !== null) continue;
-		return true;
-	}
-	return false;
-}
-/**
-* Official turn duration from the closing element: localized tails read
-* `用时 33秒` / `用时 2分05秒` or `Ran for 33s` / `Ran for 2m 05s`; newer
-* tails only carry an end timestamp, which is diffed against the opening user
-* row's timestamp.
-*/
-function parseTurnDuration(boundary) {
-	const text = boundary.textContent ?? "";
-	const zh = text.match(/用时\s*(\d+)分(\d+)秒|用时\s*(\d+)秒/);
-	if (zh !== null) {
-		if (zh[1] !== void 0 && zh[2] !== void 0) return Number(zh[1]) * 6e4 + Number(zh[2]) * 1e3;
-		if (zh[3] !== void 0) return Number(zh[3]) * 1e3;
-		return;
-	}
-	const en = text.match(/Ran for\s*(?:(\d+)m\s*)?(\d+)s/);
-	if (en !== null) return ((en[1] === void 0 ? 0 : Number(en[1])) * 60 + Number(en[2])) * 1e3;
-	const end = parseTimeText(text);
-	const start = findTurnStart(boundary);
-	if (end !== void 0 && start !== void 0 && end > start) return end - start;
-}
-/** DSH timestamp text (`8月14日 21:56` / `2026年8月14日 22:11`) → epoch ms. */
-function parseTimeText(text) {
-	const m = text.match(/(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日\s*(\d{1,2}):(\d{2})/);
-	if (m === null) return void 0;
-	const year = m[1] !== void 0 ? Number(m[1]) : (/* @__PURE__ */ new Date()).getFullYear();
-	const t = new Date(year, Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])).getTime();
-	return Number.isNaN(t) ? void 0 : t;
-}
-/** Latest turn-opening timestamp at or before the boundary element. */
-function findTurnStart(boundary) {
-	const flow = boundary.parentElement;
-	if (flow === null) return void 0;
-	let best = null;
-	for (const s of flow.querySelectorAll("[class*=\"timeStart\"]")) {
-		const pos = s.compareDocumentPosition(boundary);
-		if ((pos & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 || (pos & Node.DOCUMENT_POSITION_CONTAINED_BY) !== 0 || s === boundary) best = s;
-		else break;
-	}
-	if (best === null) return void 0;
-	return parseTimeText(best.textContent ?? "");
-}
-/** Compact duration pieces shared by both locales: seconds under a minute,
-* whole minutes drop the seconds, hours drop to minute granularity. */
-function durationParts(ms) {
-	const s = Math.round(ms / 1e3);
-	return {
-		h: Math.floor(s / 3600),
-		m: Math.floor(s % 3600 / 60),
-		s: s % 60
-	};
-}
-/** 毫秒 → 中文紧凑时长（14秒 / 2分05秒 / 15分 / 3小时2分）。 */
-function formatZhDuration(ms) {
-	const { h, m, s } = durationParts(ms);
-	if (h > 0) return m > 0 ? `${h}小时${m}分` : `${h}小时`;
-	if (s < 60 && m === 0 && h === 0) return `${s}秒`;
-	if (s === 0) return `${m}分`;
-	return `${m}分${String(s).padStart(2, "0")}秒`;
-}
-/** Milliseconds → compact English duration (14s / 2m05s / 15m / 3h2m). */
-function formatEnDuration(ms) {
-	const { h, m, s } = durationParts(ms);
-	if (h > 0) return m > 0 ? `${h}h${m}m` : `${h}h`;
-	if (m === 0 && h === 0) return `${s}s`;
-	if (s === 0) return `${m}m`;
-	return `${m}m${String(s).padStart(2, "0")}s`;
-}
-/** Native disclosure chevron (IconChevronDownOutline14, 14x14). */
-const CHEVRON_PATH = "M11.8486 5.5L11.4238 5.92383L8.69727 8.65137C8.44157 8.90706 8.21562 9.13382 8.01172 9.29785C7.79912 9.46883 7.55595 9.61756 7.25 9.66602C7.08435 9.69222 6.91565 9.69222 6.75 9.66602C6.44405 9.61756 6.20088 9.46883 5.98828 9.29785C5.78438 9.13382 5.55843 8.90706 5.30273 8.65137L2.57617 5.92383L2.15137 5.5L3 4.65137L3.42383 5.07617L6.15137 7.80273C6.42595 8.07732 6.59876 8.24849 6.74023 8.3623C6.87291 8.46904 6.92272 8.47813 6.9375 8.48047C6.97895 8.48703 7.02105 8.48703 7.0625 8.48047C7.07728 8.47813 7.12709 8.46904 7.25977 8.3623C7.40124 8.24849 7.57405 8.07732 7.84863 7.80273L10.5762 5.07617L11 4.65137L11.8486 5.5Z";
-function createChevronIcon(className) {
-	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-	svg.setAttribute("width", "14");
-	svg.setAttribute("height", "14");
-	svg.setAttribute("class", className);
-	svg.setAttribute("viewBox", "0 0 14 14");
-	svg.setAttribute("fill", "none");
-	svg.setAttribute("aria-hidden", "true");
-	const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-	path.setAttribute("d", CHEVRON_PATH);
-	path.setAttribute("fill", "currentColor");
-	svg.appendChild(path);
-	return svg;
-}
-function createProcessedRowElement(duration) {
-	const copy = resolveFoldCopy();
-	const btn = document.createElement("button");
-	btn.type = "button";
-	btn.className = PROCESSED_CLASS;
-	btn.setAttribute("aria-expanded", "false");
-	const text = document.createElement("span");
-	text.textContent = duration === void 0 ? copy.processedLabel : `${copy.processedLabel} ${copy.formatDuration(duration)}`;
-	btn.append(text, createChevronIcon(`${PROCESSED_CLASS}-chevron`));
-	btn.title = copy.expandTitle;
-	return btn;
-}
-function injectStyle() {
-	if (document.getElementById(STYLE_ID) !== null) return;
-	const style = document.createElement("style");
-	style.id = STYLE_ID;
-	style.textContent = FOLD_CSS;
-	document.head.appendChild(style);
-}
-function removeStyle() {
-	document.getElementById(STYLE_ID)?.remove();
-}
-//#endregion
 //#region src/client/smooth/useProgressiveDomText.ts
 /**
 * Progressive text reveal for opaque Agent renderers.
@@ -8645,27 +7834,6 @@ function SmoothStreamCard(props) {
 						})]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-						className: SmoothStreamCard_module_default.field,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-							className: SmoothStreamCard_module_default.fieldHead,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: SmoothStreamCard_module_default.label,
-								children: t("autoCollapse")
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-								type: "checkbox",
-								className: SmoothStreamCard_module_default.toggle,
-								checked: state.autoCollapse,
-								disabled: !state.writable || state.saving,
-								onChange: (event) => {
-									props.edit({ autoCollapse: event.target.checked });
-								}
-							})]
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: SmoothStreamCard_module_default.hint,
-							children: t("autoCollapseHint")
-						})]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
 						className: state.debugAvailable ? SmoothStreamCard_module_default.field : `${SmoothStreamCard_module_default.field} ${SmoothStreamCard_module_default.fieldDisabled}`,
 						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 							className: SmoothStreamCard_module_default.fieldHead,
@@ -8748,7 +7916,7 @@ function SmoothStreamCard(props) {
 /** Bridge the host settingsScope onto a staged settings form. */
 var SmoothStreamCardController = class {
 	ctx;
-	store = (0, _deepseek_ai_dsh_client_runtime_client.createSnapshotStore)(this.projection());
+	store = createSnapshotStore(this.projection());
 	loadedBase;
 	loadedDebug;
 	stagedBase;
@@ -8780,11 +7948,10 @@ var SmoothStreamCardController = class {
 			hooks: { smoothStreamCard: this.store },
 			edit: (patch) => {
 				if (this.saving) return;
-				if (patch.enabled !== void 0 || patch.thinkAutoExpand !== void 0 || patch.autoCollapse !== void 0) this.stagedBase = {
+				if (patch.enabled !== void 0 || patch.thinkAutoExpand !== void 0) this.stagedBase = {
 					...this.baseValues(),
 					...patch.enabled === void 0 ? {} : { enabled: patch.enabled },
-					...patch.thinkAutoExpand === void 0 ? {} : { thinkAutoExpand: patch.thinkAutoExpand },
-					...patch.autoCollapse === void 0 ? {} : { autoCollapse: patch.autoCollapse }
+					...patch.thinkAutoExpand === void 0 ? {} : { thinkAutoExpand: patch.thinkAutoExpand }
 				};
 				if (patch.debugEnabled !== void 0 || patch.debugTuning !== void 0) this.stagedDebug = {
 					...this.debugValues(),
@@ -8836,8 +8003,7 @@ var SmoothStreamCardController = class {
 	baseValues() {
 		return this.stagedBase ?? this.loadedBase ?? {
 			enabled: DEFAULT_STREAM_SETTINGS.enabled,
-			thinkAutoExpand: DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
-			autoCollapse: DEFAULT_STREAM_SETTINGS.autoCollapse
+			thinkAutoExpand: DEFAULT_STREAM_SETTINGS.thinkAutoExpand
 		};
 	}
 	debugValues() {
@@ -8865,8 +8031,7 @@ var SmoothStreamCardController = class {
 					const obj = snapshot.value;
 					this.loadedBase = {
 						enabled: typeof obj.smoothEnabled === "boolean" ? obj.smoothEnabled : DEFAULT_STREAM_SETTINGS.enabled,
-						thinkAutoExpand: typeof obj.smoothThinkAutoExpand === "boolean" ? obj.smoothThinkAutoExpand : DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
-						autoCollapse: typeof obj.smoothAutoCollapse === "boolean" ? obj.smoothAutoCollapse : DEFAULT_STREAM_SETTINGS.autoCollapse
+						thinkAutoExpand: typeof obj.smoothThinkAutoExpand === "boolean" ? obj.smoothThinkAutoExpand : DEFAULT_STREAM_SETTINGS.thinkAutoExpand
 					};
 					if (obj.smoothDebugEnabled !== void 0 || obj.smoothDebugTuning !== void 0) this.loadedDebug = {
 						debugEnabled: typeof obj.smoothDebugEnabled === "boolean" ? obj.smoothDebugEnabled : DEFAULT_STREAM_SETTINGS.debugEnabled,
@@ -8907,7 +8072,6 @@ var SmoothStreamCardController = class {
 				if (this.stagedBase !== void 0) {
 					if (this.stagedBase.enabled !== void 0) scope.set("smoothEnabled", this.stagedBase.enabled);
 					if (this.stagedBase.thinkAutoExpand !== void 0) scope.set("smoothThinkAutoExpand", this.stagedBase.thinkAutoExpand);
-					if (this.stagedBase.autoCollapse !== void 0) scope.set("smoothAutoCollapse", this.stagedBase.autoCollapse);
 				}
 				if (this.stagedDebug !== void 0) {
 					if (this.stagedDebug.debugEnabled !== void 0) scope.set("smoothDebugEnabled", this.stagedDebug.debugEnabled);
@@ -9365,8 +8529,6 @@ const en$1 = {
 	enabledHint: "Let this feature render and follow streaming replies. Turn off to use the built-in renderer.",
 	thinkAutoExpand: "Auto-expand thinking",
 	thinkAutoExpandHint: "Open the thinking block while it streams. Turn off to keep it collapsed.",
-	autoCollapse: "Collapse finished work",
-	autoCollapseHint: "When a reply finishes, fold its thinking, tools, and intermediate output behind one \"Processed\" summary so only the final answer shows. Click the summary to expand again.",
 	debugEnabled: "Show render diagnostics",
 	debugEnabledHint: "Show live streaming and scroll metrics on the right side of the chat.",
 	debugUnavailable: "Live diagnostics require a newer version.",
@@ -9444,8 +8606,6 @@ const zh$1 = {
 	enabledHint: "由本特性渲染并跟随流式回复；关闭后使用内置渲染。",
 	thinkAutoExpand: "自动展开思考",
 	thinkAutoExpandHint: "思考块在流式时自动展开；关闭后保持折叠，可手动展开。",
-	autoCollapse: "完成后自动折叠",
-	autoCollapseHint: "回复处理完成后，把思考、工具与过程输出折叠为一行\"已处理\"摘要，只展示最终回复；点击摘要可再次展开。",
 	debugEnabled: "显示渲染调试面板",
 	debugEnabledHint: "在聊天右侧显示流式渲染和滚动的实时参数。",
 	debugUnavailable: "当前版本不支持实时调试。",
@@ -9530,7 +8690,7 @@ const zh$1 = {
 *   `__DSH_SMOOTH_STREAM_CONFIG__` global (no host boot bridge in this port).
 * - Diagnostics: local settings store with localStorage persistence, mirrored
 *   to the settings scope for the settings card.
-* - Auto-collapse: DOM-level controller, independent of the renderer takeover.
+
 *
 * Source: /tmp/dsh-smooth-stream/src/client/index.ts apply() pattern.
 * Host pattern: /Users/zhong/project/dsh-plugins/ui-custom/dsh-client-ui-custom/src/client/index.ts registerFeatures().
@@ -9635,16 +8795,13 @@ var SettingsCell = class {
 	refresh() {
 		const next = this.read();
 		const pending = this.card?.getSnapshot().status === "loading";
-		if (pending === this.pending && next.enabled === this.value.enabled && next.thinkAutoExpand === this.value.thinkAutoExpand && next.autoCollapse === this.value.autoCollapse && next.debugEnabled === this.value.debugEnabled && next.debugTuning === this.value.debugTuning) return;
+		if (pending === this.pending && next.enabled === this.value.enabled && next.thinkAutoExpand === this.value.thinkAutoExpand && next.debugEnabled === this.value.debugEnabled && next.debugTuning === this.value.debugTuning) return;
 		this.pending = pending;
 		this.value = next;
 		for (const listener of this.listeners) listener();
 	}
 	takeoverEnabled() {
 		return !this.pending && this.value.enabled;
-	}
-	autoCollapseActive() {
-		return !this.pending && this.value.autoCollapse;
 	}
 	getSnapshot = () => this.value;
 	subscribe = (listener) => {
@@ -9682,20 +8839,6 @@ function apply$1(ctx, config) {
 	const settings = new SettingsCell();
 	const takeover = config?.takeover ?? true;
 	if (!STREAM_MODES.includes(streamConfig.mode) || !STREAM_PRESETS.includes(streamConfig.preset)) {}
-	const autoCollapse = new AutoCollapseController();
-	const syncAutoCollapse = () => {
-		if (settings.autoCollapseActive()) autoCollapse.start();
-		else autoCollapse.stop();
-	};
-	const unsubscribeSettings = settings.subscribe(syncAutoCollapse);
-	syncAutoCollapse();
-	ctx.effect(() => {
-		syncAutoCollapse();
-		return () => {
-			unsubscribeSettings();
-			autoCollapse.stop();
-		};
-	}, "smooth: auto-collapse lifecycle");
 	ctx.effect(() => {
 		if (!(ctx.locale !== void 0)) return () => {};
 		ctx.locale.register(NS, {

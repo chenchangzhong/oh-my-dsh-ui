@@ -8,7 +8,6 @@ export type SmoothStreamLocaleKey =
   | 'title' | 'description'
   | 'enabled' | 'enabledHint'
   | 'thinkAutoExpand' | 'thinkAutoExpandHint'
-  | 'autoCollapse' | 'autoCollapseHint'
   | 'debugEnabled' | 'debugEnabledHint' | 'debugUnavailable'
   | 'debugPanelTitle' | 'debugPanelToggle' | 'debugPanelClose' | 'debugGuide'
   | 'debugLive' | 'debugIdle' | 'debugUnsaved'
@@ -37,8 +36,6 @@ export const en: Record<SmoothStreamLocaleKey, string> = {
   enabledHint: 'Let this feature render and follow streaming replies. Turn off to use the built-in renderer.',
   thinkAutoExpand: 'Auto-expand thinking',
   thinkAutoExpandHint: 'Open the thinking block while it streams. Turn off to keep it collapsed.',
-  autoCollapse: 'Collapse finished work',
-  autoCollapseHint: 'When a reply finishes, fold its thinking, tools, and intermediate output behind one "Processed" summary so only the final answer shows. Click the summary to expand again.',
   debugEnabled: 'Show render diagnostics',
   debugEnabledHint: 'Show live streaming and scroll metrics on the right side of the chat.',
   debugUnavailable: 'Live diagnostics require a newer version.',
@@ -117,8 +114,6 @@ export const zh: Record<SmoothStreamLocaleKey, string> = {
   enabledHint: '由本特性渲染并跟随流式回复；关闭后使用内置渲染。',
   thinkAutoExpand: '自动展开思考',
   thinkAutoExpandHint: '思考块在流式时自动展开；关闭后保持折叠，可手动展开。',
-  autoCollapse: '完成后自动折叠',
-  autoCollapseHint: '回复处理完成后，把思考、工具与过程输出折叠为一行"已处理"摘要，只展示最终回复；点击摘要可再次展开。',
   debugEnabled: '显示渲染调试面板',
   debugEnabledHint: '在聊天右侧显示流式渲染和滚动的实时参数。',
   debugUnavailable: '当前版本不支持实时调试。',
