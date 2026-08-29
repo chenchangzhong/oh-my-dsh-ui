@@ -12,7 +12,7 @@ import { DEFAULT_STREAM_SETTINGS } from './settings.ts'
 import css from './TypewriterAssistantNodeView.module.css'
 
 type AssistantProps = ChatNodeViewProps<'assistant-step'>
-type MarkdownProps = Pick<ComponentProps<typeof MarkdownText>, 'codeLabels' | 'fileMentions' | 'text'>
+type MarkdownProps = Pick<ComponentProps<typeof MarkdownText>, 'labels' | 'fileMentions' | 'text'>
 
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(
@@ -331,7 +331,7 @@ const StreamAnnouncement = memo(function StreamAnnouncement({
  */
 function AnimatedMarkdownText({
   text,
-  codeLabels,
+  labels,
   fileMentions,
   streaming,
   ownFollow,
@@ -401,7 +401,7 @@ function AnimatedMarkdownText({
       <MarkdownText
         text={(live ? shown : text) ?? ''}
         streaming={live}
-        codeLabels={codeLabels ?? { code: 'Copy', copied: 'Copied' }}
+        labels={labels ?? { code: { copyLabel: 'Copy', copiedLabel: 'Copied' }, footnotes: 'Footnotes' }}
         fileMentions={live ? undefined : fileMentions}
       />
     </FollowHost>
@@ -609,7 +609,13 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
     () => owner === undefined ? undefined : fileMentions(owner),
     [fileMentions, owner],
   )
-  const codeLabels = useMemo(() => ({ code: t('copy'), copied: t('copied') }), [t])
+  // Host MarkdownText reads `labels.code.copyLabel/copiedLabel` and
+  // `labels.footnotes` (primitives v0.1.2 renderCode) — `copy`/`copied`/
+  // `markdown.footnotes` resolve through the shared common namespace.
+  const markdownLabels = useMemo(
+    () => ({ code: { copyLabel: t('copy'), copiedLabel: t('copied') }, footnotes: t('markdown.footnotes') }),
+    [t],
+  )
   const imageLoader: ImageLoader = loadImage ?? (async () => {
     throw new Error(t('image.serviceUnavailable'))
   })
@@ -640,7 +646,7 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
           <AnimatedMarkdownText
             key={index}
             text={String(block.text)}
-            codeLabels={codeLabels}
+            labels={markdownLabels}
             fileMentions={mentions}
             streaming={streaming}
             ownFollow={!streaming && index === lastFollow}

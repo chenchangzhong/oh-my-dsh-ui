@@ -12,7 +12,7 @@
  */
 
 import { Component, memo, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconCheckOutline16, IconCopyOutline16, JsonBlock, MarkdownText, MessageText, Tooltip, writeClipboard,
@@ -75,6 +75,20 @@ function imageLabels(t: TranslateNS<'conversation'>): MessageImageLabels {
       dialog: t('image.preview'),
       close: t('image.closePreview'),
     },
+  }
+}
+
+/**
+ * Markdown chrome labels for the host MarkdownText. The host renderer reads
+ * `labels.code.copyLabel` / `labels.code.copiedLabel` / `labels.footnotes`
+ * without optional chaining (primitives v0.1.2 renderCode), so a missing or
+ * malformed `labels` throws on any fenced code block — the keys below resolve
+ * through the shared common namespace.
+ */
+function markdownLabels(t: TranslateNS<'conversation'>): ComponentProps<typeof MarkdownText>['labels'] {
+  return {
+    code: { copyLabel: t('copy'), copiedLabel: t('copied') },
+    footnotes: t('markdown.footnotes'),
   }
 }
 
@@ -164,7 +178,7 @@ function UserStyleBubble({ content, imageLoader, renderMarkdown, t, actions }: {
         ) : null}
         {showBubble && (
           <div className={css.bubble}>
-            {renderMarkdown ? <MarkdownText text={text} /> : projectUserText(text)}
+            {renderMarkdown ? <MarkdownText text={text} labels={markdownLabels(t)} /> : projectUserText(text)}
             {rest.map((block, i) => (
               <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />
             ))}

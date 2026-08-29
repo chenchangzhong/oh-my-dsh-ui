@@ -2054,6 +2054,22 @@ function imageLabels$1(t) {
 		}
 	};
 }
+/**
+* Markdown chrome labels for the host MarkdownText. The host renderer reads
+* `labels.code.copyLabel` / `labels.code.copiedLabel` / `labels.footnotes`
+* without optional chaining (primitives v0.1.2 renderCode), so a missing or
+* malformed `labels` throws on any fenced code block — the keys below resolve
+* through the shared common namespace.
+*/
+function markdownLabels(t) {
+	return {
+		code: {
+			copyLabel: t("copy"),
+			copiedLabel: t("copied")
+		},
+		footnotes: t("markdown.footnotes")
+	};
+}
 const pad2 = (n) => String(n).padStart(2, "0");
 /** Same-day clock `HH:MM`, otherwise `M/D HH:MM` / `Y/M/D HH:MM`. */
 function formatClock(time, t, now = Date.now()) {
@@ -2146,7 +2162,10 @@ function UserStyleBubble({ content, imageLoader, renderMarkdown, t, actions }) {
 				]
 			}) : null, showBubble && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: MarkdownRender_module_default.bubble,
-				children: [renderMarkdown ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { text }) : projectUserText(text), rest.map((block, i) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.JsonBlock, {
+				children: [renderMarkdown ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+					text,
+					labels: markdownLabels(t)
+				}) : projectUserText(text), rest.map((block, i) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.JsonBlock, {
 					label: t("message.extraBlock"),
 					payload: block,
 					truncatedLabel: truncated
@@ -6921,7 +6940,7 @@ const StreamAnnouncement = (0, react.memo)(function StreamAnnouncement({ text, a
 * drains, the settled full parse (KaTeX math, fence highlighting, file
 * mentions) swaps in exactly once.
 */
-function AnimatedMarkdownText({ text, codeLabels, fileMentions, streaming, ownFollow, followSpeedCpsRef, followRevealScaleRef, onPredictiveChange, preset, shouldHoldBack }) {
+function AnimatedMarkdownText({ text, labels, fileMentions, streaming, ownFollow, followSpeedCpsRef, followRevealScaleRef, onPredictiveChange, preset, shouldHoldBack }) {
 	const reduced = usePrefersReducedMotion();
 	const [typing, setTyping] = (0, react.useState)(streaming);
 	const localSpeedCpsRef = (0, react.useRef)(35);
@@ -6983,9 +7002,12 @@ function AnimatedMarkdownText({ text, codeLabels, fileMentions, streaming, ownFo
 		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
 			text: (live ? shown : text) ?? "",
 			streaming: live,
-			codeLabels: codeLabels ?? {
-				code: "Copy",
-				copied: "Copied"
+			labels: labels ?? {
+				code: {
+					copyLabel: "Copy",
+					copiedLabel: "Copied"
+				},
+				footnotes: "Footnotes"
 			},
 			fileMentions: live ? void 0 : fileMentions
 		})
@@ -7144,9 +7166,12 @@ const TypewriterAssistantNodeView = (0, react.memo)(function TypewriterAssistant
 		turn
 	]);
 	const mentions = (0, react.useMemo)(() => owner === void 0 ? void 0 : fileMentions(owner), [fileMentions, owner]);
-	const codeLabels = (0, react.useMemo)(() => ({
-		code: t("copy"),
-		copied: t("copied")
+	const markdownLabels = (0, react.useMemo)(() => ({
+		code: {
+			copyLabel: t("copy"),
+			copiedLabel: t("copied")
+		},
+		footnotes: t("markdown.footnotes")
 	}), [t]);
 	const imageLoader = loadImage ?? (async () => {
 		throw new Error(t("image.serviceUnavailable"));
@@ -7168,7 +7193,7 @@ const TypewriterAssistantNodeView = (0, react.memo)(function TypewriterAssistant
 			case "text":
 				rendered.push(/* @__PURE__ */ (0, react_jsx_runtime.jsx)(AnimatedMarkdownText, {
 					text: String(block.text),
-					codeLabels,
+					labels: markdownLabels,
 					fileMentions: mentions,
 					streaming,
 					ownFollow: !streaming && index === lastFollow,
