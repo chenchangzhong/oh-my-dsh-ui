@@ -13,7 +13,7 @@
  * lifecycle and automatically cleaned up on unmount.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ScopeFace } from '@deepseek-ai/dsh-client-settings/client'
+import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { UiCustomSection } from '../../../shared.ts'
 import { UI_CUSTOM_SETTINGS_NS } from '../../../shared.ts'
 import {

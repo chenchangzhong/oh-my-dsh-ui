@@ -6,7 +6,7 @@
  */
 
 import React from 'react'
-import type { ScopeFace } from '@deepseek-ai/dsh-client-settings/client'
+import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { ZH_SETTINGS_NS } from '../shared.ts'
 import { SETTINGS_ZH, SETTINGS_EN } from '../data/settings-dicts.ts'
 import type { ZhSettingsSection, ZhPromptSection } from '../shared.ts'

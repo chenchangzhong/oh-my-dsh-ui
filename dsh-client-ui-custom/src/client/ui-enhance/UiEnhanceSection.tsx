@@ -21,7 +21,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import type { AppearanceInjected } from '../appearance/controller.ts'
 import type { UsageInjected } from '../usage/contract.ts'
 import type { MotionSectionInjected } from '../motion/MotionSection.tsx'
-import type { ScopeFace } from '@deepseek-ai/dsh-client-settings/client'
+import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ZhSettingsSection, ZhPromptSection } from '../zh/shared.ts'
 import { AppearanceSection } from '../appearance/AppearanceSection.tsx'
 import { UsageSection } from '../usage/UsageSection.tsx'

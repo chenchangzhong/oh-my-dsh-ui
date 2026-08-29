@@ -11,7 +11,7 @@
  * so that settings-section.ts and dom-enhance.ts require minimal changes.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ScopeFace } from '@deepseek-ai/dsh-client-settings/client'
+import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   ZH_SETTINGS_NS,
   ZH_SETTINGS_DEFAULTS,

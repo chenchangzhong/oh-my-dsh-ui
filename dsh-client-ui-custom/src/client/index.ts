@@ -27,7 +27,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the
 // conversation.chat.assistant-actions entry + its owner props).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { ScopeFace } from '@deepseek-ai/dsh-client-settings/client'
+import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { ZH_SETTINGS_NS, type ZhSettingsSection, type ZhPromptSection } from './zh/shared.ts'
 import { applyConfig } from './apply.ts'
 import { normalizeConfig, resolveFeatures, type CustomThemeConfig } from './config.ts'

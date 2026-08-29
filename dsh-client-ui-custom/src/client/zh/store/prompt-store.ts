@@ -3,7 +3,7 @@
  *
  * Previously also hosted prompt injection fields; now only zhAutoArchiveDays.
  */
-import type { ScopeFace } from '@deepseek-ai/dsh-client-settings/client'
+import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { ZH_PROMPT_DEFAULTS, type ZhPromptSection } from '../shared.ts'
 
 /** Sentinel when scope is unavailable. */
