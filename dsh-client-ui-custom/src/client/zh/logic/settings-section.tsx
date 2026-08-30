@@ -208,7 +208,7 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
   )
 
   const ui = uiSnap ?? {
-    zhComplete: true, statsFull: true, chatWidthEnabled: true, chatWidth: 90,
+    zhComplete: true, statsFull: true,
     thinkingAuto: true, thinkMaxLines: 20, thinkMaxLinesFrom: 'latest' as const,
     thinkMode: 'button' as const, deleteSessionEnabled: true, archiveViewEnabled: true,
     renderUserMarkdown: false,
@@ -216,9 +216,8 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
 
   return React.createElement('div', { style: s.section },
     // Title + intro
-    React.createElement('h3', { style: s.title }, t('nav')),
     React.createElement('p', { style: s.intro }, t('sectionIntro')),
-
+    
     React.createElement('div', { style: s.rows },
       // ── 中文补全 ──
       row('zhComplete', t('zhComplete'), t('zhCompleteDesc'),
@@ -247,15 +246,6 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
             [['button', t('thinkModeButton')], ['scroll', t('thinkModeScroll')]],
             (v) => settings.set('thinkMode', v), t('thinkMode'),
           ))),
-
-      // ── 对话宽度 ──
-      row('chatWidth', t('chatWidth'), t('chatWidthDesc'),
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-          toggle(ui.chatWidthEnabled, () => settings.set('chatWidthEnabled', !ui.chatWidthEnabled)),
-          ui.chatWidthEnabled
-            ? numInput(ui.chatWidth, 50, 100, 5,
-                (n) => settings.set('chatWidth', n), t('chatWidthPercent'), '%')
-            : null)),
 
       // ── 归档分组 ──
       group('archiveGroup',

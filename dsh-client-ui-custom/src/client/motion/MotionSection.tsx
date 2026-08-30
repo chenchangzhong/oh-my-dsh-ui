@@ -127,7 +127,6 @@ export function MotionSection({
   const newChatSelectedLabel = (NEW_CHAT_OPTIONS.find(option => option.id === newChatStyle) ?? NEW_CHAT_OPTIONS[0]!).label
   return (
     <div className={css.section}>
-      <h2 className={css.heading}>{translator('title')}</h2>
       <p className={css.intro}>{translator('intro')}</p>
       <div className={`${css.row} ${css.rowDivider}`}>
         <div className={css.rowText}>
