@@ -1,7 +1,6 @@
-# dsh-client-ui-custom（oh-my-dsh-ui）打包安装速查
+# oh-my-dsh-ui 打包安装速查
 
 > 本仓库：`/Users/zhong/project/dsh-plugins/ui-custom`
-> 插件源码：`/Users/zhong/project/dsh-plugins/ui-custom/dsh-client-ui-custom`
 > 作用：每次改完 smooth / zh / appearance 等源码后，按本流程打包并生效，不用再问。
 
 ---
@@ -9,7 +8,7 @@
 ## 1. 打包（一条命令）
 
 ```bash
-cd /Users/zhong/project/dsh-plugins/ui-custom/dsh-client-ui-custom
+cd /Users/zhong/project/dsh-plugins/ui-custom
 ./node_modules/.bin/tsdown
 ```
 
@@ -22,7 +21,7 @@ cd /Users/zhong/project/dsh-plugins/ui-custom/dsh-client-ui-custom
 ```bash
 # 验证软链（已配置好，正常情况下无需操作）
 ls -la ~/.dsh/profiles/web/node_modules/oh-my-dsh-ui
-# 期望输出：oh-my-dsh-ui -> /Users/zhong/project/dsh-plugins/ui-custom/dsh-client-ui-custom
+# 期望输出：oh-my-dsh-ui -> /Users/zhong/project/dsh-plugins/ui-custom
 
 # DSH 通过 package.json exports 的 "./client" 加载 lib/client.js，打包后实时生效
 ```

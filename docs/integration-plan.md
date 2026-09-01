@@ -1,8 +1,8 @@
-# 整合方案 v2 — 以 `dsh-client-ui-custom` 为宿主，通过 `features` 白名单收编 `zh_pro` + `smooth-stream`
+# 整合方案 v2 — 以 `oh-my-dsh-ui` 为宿主，通过 `features` 白名单收编 `zh_pro` + `smooth-stream`
 
-> 宿主：`dsh-client-ui-custom@0.1.0-rc.6` · 收编对象：`deepseek-harness-zh_pro@0.7.0`、`dsh-smooth-stream@0.4.1`
+> 宿主：`oh-my-dsh-ui@0.1.0-rc.6` · 收编对象：`deepseek-harness-zh_pro@0.7.0`、`dsh-smooth-stream@0.4.1`
 > 决策：不再三包并存，**单包单 patch**（`id: ui-custom`），两插件以新 `Feature` 身份内置，通过 `features` 白名单按需挂载，存量用户平滑迁移。
-> 工作区：`/Users/zhong/project/dsh-plugins/ui-custom/dsh-client-ui-custom`
+> 工作区：`/Users/zhong/project/dsh-plugins/ui-custom`
 
 ---
 
@@ -10,7 +10,7 @@
 
 | 问题 | 答案 |
 |------|------|
-| 以谁为宿主 | `dsh-client-ui-custom`（唯一有 `FEATURES` 白名单 + `settingsScope` + 完整 Host/Client 分层的） |
+| 以谁为宿主 | `oh-my-dsh-ui`（唯一有 `FEATURES` 白名单 + `settingsScope` + 完整 Host/Client 分层的） |
 | 收编形态 | 新增两个 Feature：`zh`（汉化/增强）+ `smooth`（丝滑流式），与现有 7 个 Feature 平级，共 9 个 |
 | 是否兼容存量 | 是。宿主 `features: []` 语义为“全开”（向后兼容）；存量 `dsh-zh`/`smooth-stream` 用户迁移时提示卸载旧包 |
 | 最小可验证增量 | 仅改 3 个文件（`shared.ts`+`src/index.ts`+`src/client/index.ts`）即可让新 Feature 占位并通过 `features: ['zh']` 单独验证 |
@@ -369,8 +369,8 @@ if (resolveThinkingOwner(scope.getSnapshot().value ?? {}) !== 'smooth') return
 
 ```bash
 # 骨架验证
-pnpm --filter dsh-client-ui-custom typecheck
-pnpm --filter dsh-client-ui-custom build
+cd /Users/zhong/project/dsh-plugins/ui-custom
+./node_modules/.bin/tsdown
 
 # 白名单三档
 # features: []          → 9 Feature 全开

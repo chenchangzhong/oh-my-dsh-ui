@@ -1,3 +1,18 @@
+# Dependencies and build caches
+node_modules/
+*.tsbuildinfo
+
+# Logs and OS noise
+*.log
+.DS_Store
+Thumbs.db
+
+# Local env files
+.env
+.env.local
+
+# Source maps
+*.map
+.agent-teams
 .pnpm-store
 .pnpm-tmp
-.pnpm-store
