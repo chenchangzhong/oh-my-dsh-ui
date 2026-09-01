@@ -46,8 +46,6 @@ export interface CustomThemeConfig {
   cornerRadius: CornerRadius
   /** Surface shadow: 'inherit' | 'none' | 'soft' | 'medium' | 'strong'. */
   surfaceShadow: SurfaceShadow
-  /** Focus glow: 'inherit' | 'on'. */
-  focusGlow: FocusGlow
   /** Dark-mode accent override ('' = inherit the main accent). */
   darkAccent: string
   /** Raw CSS appended verbatim (escape hatch for personal tweaks). */
@@ -66,15 +64,11 @@ export interface CustomThemeConfig {
 export type CornerRadius = 'inherit' | 'sm' | 'md' | 'lg' | 'xl'
 /** Opt-in surface shadow (inherit = keep the stock look). */
 export type SurfaceShadow = 'inherit' | 'none' | 'soft' | 'medium' | 'strong'
-/** Opt-in focus glow (inherit = stock focus, no added ring). */
-export type FocusGlow = 'inherit' | 'on'
 
 /** Valid corner-radius values (in UI order). */
 export const CORNER_RADIUS_LEVELS: readonly CornerRadius[] = ['inherit', 'sm', 'md', 'lg', 'xl']
 /** Valid surface-shadow values (in UI order). */
 export const SURFACE_SHADOW_LEVELS: readonly SurfaceShadow[] = ['inherit', 'none', 'soft', 'medium', 'strong']
-/** Valid focus-glow values. */
-export const FOCUS_GLOW_LEVELS: readonly FocusGlow[] = ['inherit', 'on']
 
 const isOneOf = <T extends string>(value: unknown, options: readonly T[], fallback: T): T =>
   typeof value === 'string' && (options as readonly string[]).includes(value) ? value as T : fallback
@@ -83,8 +77,6 @@ export const isCornerRadius = (value: unknown): value is CornerRadius =>
   typeof value === 'string' && (CORNER_RADIUS_LEVELS as readonly string[]).includes(value)
 export const isSurfaceShadow = (value: unknown): value is SurfaceShadow =>
   typeof value === 'string' && (SURFACE_SHADOW_LEVELS as readonly string[]).includes(value)
-export const isFocusGlow = (value: unknown): value is FocusGlow =>
-  typeof value === 'string' && (FOCUS_GLOW_LEVELS as readonly string[]).includes(value)
 
 /**
  * Shipped defaults: deliberately neutral — stock blue accent,
@@ -106,7 +98,6 @@ export const DEFAULTS: CustomThemeConfig = {
   scrollbarAccent: false,
   cornerRadius: 'inherit',
   surfaceShadow: 'inherit',
-  focusGlow: 'inherit',
   darkAccent: '',
   customCss: '',
   customVars: {},
@@ -185,7 +176,6 @@ export function normalizeConfig(
     scrollbarAccent: toBoolean(merged.scrollbarAccent, DEFAULTS.scrollbarAccent),
     cornerRadius: isOneOf(merged.cornerRadius, CORNER_RADIUS_LEVELS, DEFAULTS.cornerRadius),
     surfaceShadow: isOneOf(merged.surfaceShadow, SURFACE_SHADOW_LEVELS, DEFAULTS.surfaceShadow),
-    focusGlow: isOneOf(merged.focusGlow, FOCUS_GLOW_LEVELS, DEFAULTS.focusGlow),
     darkAccent: cleanString(merged.darkAccent, DEFAULTS.darkAccent),
     customCss: typeof merged.customCss === 'string' ? merged.customCss : '',
     customVars: toVars(merged.customVars),
@@ -198,5 +188,5 @@ export const CONFIG_KEYS: readonly (keyof CustomThemeConfig)[] = [
   'surfaceOpacity', 'sidebarOpacity', 'chatSurfaceOpacity', 'inputOpacity',
   'codeBlockOpacity', 'darkSurfaceOpacity',
   'fontFamily', 'codeFontFamily', 'fontScale', 'scrollbarAccent', 'cornerRadius', 'surfaceShadow',
-  'focusGlow', 'darkAccent', 'customCss', 'customVars',
+  'darkAccent', 'customCss', 'customVars',
 ]

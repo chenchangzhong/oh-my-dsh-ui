@@ -23,8 +23,9 @@ html[data-dsu-active='1'] body {
   --dsw-font-family: var(--dsu-font);
   --ds-font-family-code: var(--dsu-code-font);
 
-  /* Optional font override. */
-  font-family: var(--dsw-font-family);
+  /* Optional font override — use !important to defeat the host theme's
+     element-level font-family rules (DSH may set font on .message, etc.). */
+  font-family: var(--dsw-font-family) !important;
 
   /* Accent ramp derived from a single accent color. */
   --dsw-static-deepseek-50: color-mix(in srgb, var(--dsu-accent, #4176e6) 15%, white);
@@ -118,11 +119,4 @@ html[data-dsu-active='1'] [role='menu'] {
   box-shadow: var(--dsu-shadow);
 }
 
-/* Focus glow: accent ring on keyboard focus (strength scales with
-   --dsu-focus-glow, 0 = transparent = stock). */
-html[data-dsu-active='1'] input:focus-visible,
-html[data-dsu-active='1'] textarea:focus-visible,
-html[data-dsu-active='1'] button:focus-visible,
-html[data-dsu-active='1'] [role='button']:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsu-accent, #4176e6) calc(var(--dsu-focus-glow, 0) * 45%), transparent);
-}
+

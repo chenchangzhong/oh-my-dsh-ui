@@ -52,7 +52,6 @@ const isNeutralConfig = (config: CustomThemeConfig): boolean =>
   && config.scrollbarAccent === DEFAULTS.scrollbarAccent
   && config.cornerRadius === DEFAULTS.cornerRadius
   && config.surfaceShadow === DEFAULTS.surfaceShadow
-  && config.focusGlow === DEFAULTS.focusGlow
   && config.darkAccent === DEFAULTS.darkAccent
   && config.customCss === DEFAULTS.customCss
   && Object.keys(config.customVars).length === 0
@@ -98,7 +97,7 @@ export function applyConfig(config: CustomThemeConfig): void {
   else root.style.removeProperty('--dsu-radius')
   if (config.surfaceShadow !== 'inherit') set('--dsu-shadow', SURFACE_SHADOW_CSS[config.surfaceShadow] ?? 'none')
   else root.style.removeProperty('--dsu-shadow')
-  set('--dsu-focus-glow', config.focusGlow === 'on' ? '1' : '0')
+
   const darkAccent = cleanString(config.darkAccent, '')
   if (darkAccent !== '') set('--dsu-dark-accent', darkAccent)
   else root.style.removeProperty('--dsu-dark-accent')

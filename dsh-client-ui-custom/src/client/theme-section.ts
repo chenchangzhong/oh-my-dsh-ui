@@ -5,7 +5,7 @@
  * fields absent while loading/unavailable fall back to the loader config.
  */
 import {
-  isCornerRadius, isFocusGlow, isSurfaceShadow,
+  isCornerRadius, isSurfaceShadow,
   type CustomThemeConfig,
 } from './config.ts'
 import type { ThemeSection } from '../shared.ts'
@@ -25,10 +25,12 @@ export function configFromThemeSection(
   // out so an explicit undefined never lands on an optional property
   // (exactOptionalPropertyTypes).
   const { darkSurfaceOpacity, ...rest } = normalized
-  // String knobs treat an empty section value as "no override" (falls back to
-  // the loader layer).
+  // String knobs: undefined means "no override" (falls back to the loader
+  // layer), but an explicit '' from a preset is a valid value that clears the
+  // field to the stock default (e.g. a visual preset should reset fontFamily
+  // even if a font preset was previously active).
   const stringField = (value: string | undefined, fallback: string): string =>
-    value !== undefined && value !== '' ? value : fallback
+    value !== undefined ? value : fallback
   return {
     ...rest,
     // The dark main surface defaults to the LIVE surfaceOpacity: absent an
@@ -51,7 +53,6 @@ export function configFromThemeSection(
     // loader layer (whose neutral 'inherit' keeps the stock look).
     cornerRadius: isCornerRadius(section.cornerRadius) ? section.cornerRadius : normalized.cornerRadius,
     surfaceShadow: isSurfaceShadow(section.surfaceShadow) ? section.surfaceShadow : normalized.surfaceShadow,
-    focusGlow: isFocusGlow(section.focusGlow) ? section.focusGlow : normalized.focusGlow,
     darkAccent: stringField(section.darkAccent, normalized.darkAccent),
   }
 }

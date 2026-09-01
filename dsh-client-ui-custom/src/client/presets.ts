@@ -9,7 +9,7 @@
  *
  * Each preset is a complete art direction: accent color, surface opacity
  * recipe, and the refinement knobs (cornerRadius / surfaceShadow /
- * focusGlow / darkAccent).
+ * darkAccent).
  *
  * The six schemes use muted, low-saturation "高级" tones and are named after
  * their dominant color with a minimal two-character name.
@@ -46,7 +46,6 @@ const INK_TEAL: ThemePreset = {
     scrollbarAccent: true,
     cornerRadius: 'lg',
     surfaceShadow: 'soft',
-    focusGlow: 'on',
     darkAccent: '',
   },
 }
@@ -69,7 +68,6 @@ const INK_BLUE: ThemePreset = {
     scrollbarAccent: true,
     cornerRadius: 'md',
     surfaceShadow: 'soft',
-    focusGlow: 'on',
     darkAccent: '',
   },
 }
@@ -92,7 +90,6 @@ const DUSTY_ROSE: ThemePreset = {
     scrollbarAccent: true,
     cornerRadius: 'md',
     surfaceShadow: 'soft',
-    focusGlow: 'inherit',
     darkAccent: '',
   },
 }
@@ -115,7 +112,6 @@ const APRICOT_GOLD: ThemePreset = {
     scrollbarAccent: true,
     cornerRadius: 'md',
     surfaceShadow: 'soft',
-    focusGlow: 'inherit',
     darkAccent: '',
   },
 }
@@ -138,7 +134,6 @@ const MIST_GRAY: ThemePreset = {
     scrollbarAccent: false,
     cornerRadius: 'md',
     surfaceShadow: 'medium',
-    focusGlow: 'inherit',
     darkAccent: '',
   },
 }
@@ -161,7 +156,6 @@ const INK_VIOLET: ThemePreset = {
     scrollbarAccent: true,
     cornerRadius: 'lg',
     surfaceShadow: 'medium',
-    focusGlow: 'on',
     darkAccent: '#8268c4',
   },
 }

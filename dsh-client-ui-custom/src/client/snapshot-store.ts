@@ -20,8 +20,12 @@ export function createSnapshotStore<T>(initialState: T): SnapshotStore<T> {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
+    // Immutable update: create a shallow copy before applying the updater,
+    // so React's useSyncExternalStore detects a new reference and re-renders.
     update: (updater: (state: T) => void) => {
-      updater(state)
+      const next = Object.assign({}, state)
+      updater(next)
+      state = next
       listeners.forEach((l) => l())
     },
     set: (newState: T) => {

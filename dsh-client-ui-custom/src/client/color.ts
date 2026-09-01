@@ -167,7 +167,6 @@ export function randomInspirationConfig(rng: () => number = Math.random): Partia
     scrollbarAccent: rng() < 0.7,
     cornerRadius: radius,
     surfaceShadow: shadow,
-    focusGlow: rng() < 0.6 ? 'on' : 'inherit',
     darkAccent: dark ? accent : '',
   }
 }

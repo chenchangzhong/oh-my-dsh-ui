@@ -12,7 +12,7 @@ export type AppearanceKey =
   | 'fontFamily' | 'codeFontFamily' | 'fontScale' | 'fontScaleHint' | 'scrollbarAccent'
   | 'refineTitle' | 'cornerRadius' | 'radius.inherit' | 'radius.sm' | 'radius.md' | 'radius.lg' | 'radius.xl'
   | 'surfaceShadow' | 'shadow.inherit' | 'shadow.none' | 'shadow.soft' | 'shadow.medium' | 'shadow.strong'
-  | 'darkAccent' | 'darkAccentHint' | 'darkAccentPlaceholder' | 'focusGlow'
+  | 'darkAccent' | 'darkAccentHint' | 'darkAccentPlaceholder'
   | 'presetTitle' | 'presetHint' | 'myPresetName' | 'saveMyPreset' | 'removeMyPreset'
   | 'activePreset'
   | 'previewTitle' | 'previewHint' | 'randomInspiration'
@@ -63,7 +63,6 @@ export const zh: Record<AppearanceKey, string> = {
   darkAccent: '暗色强调色',
   darkAccentHint: '留空 = 暗色模式跟随主强调色；设置后仅暗色模式使用该颜色。',
   darkAccentPlaceholder: '留空 = 跟随主强调色',
-  focusGlow: '焦点光晕',
   accentPalette: '和谐色板',
   accentPaletteHint: '从当前强调色派生的一组邻近/互补/三角色，点击即可选用。',
   presetTitle: '一键预设',
@@ -128,7 +127,6 @@ export const en: Record<AppearanceKey, string> = {
   darkAccent: 'Dark-mode accent',
   darkAccentHint: 'Empty inherits the main accent in dark mode; set to override it there only.',
   darkAccentPlaceholder: 'Empty = follow main accent',
-  focusGlow: 'Focus glow',
   accentPalette: 'Harmony palette',
   accentPaletteHint: 'Neighboring / complementary / triadic shades derived from the accent — click to pick.',
   presetTitle: 'One-click presets',

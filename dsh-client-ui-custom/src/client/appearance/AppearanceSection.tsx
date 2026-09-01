@@ -446,20 +446,6 @@ export function AppearanceSection({
         </div>
 
         <div className={css.row}>
-          <label className={css.label} htmlFor="appearance-focusGlow">{translator('focusGlow')}</label>
-          <span className={css.check}>
-            <input
-              id="appearance-focusGlow"
-              className={css.checkbox}
-              type="checkbox"
-              checked={str('focusGlow', 'inherit') === 'on'}
-              disabled={!state.writable}
-              onChange={(event) => setField('focusGlow', event.target.checked ? 'on' : 'inherit')}
-            />
-          </span>
-        </div>
-
-        <div className={css.row}>
           <label className={css.label} htmlFor="appearance-scrollbarAccent">{translator('scrollbarAccent')}</label>
           <span className={css.check}>
             <input

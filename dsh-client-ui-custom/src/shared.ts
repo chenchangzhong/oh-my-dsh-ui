@@ -48,8 +48,6 @@ export interface ThemeSection {
   cornerRadius: string | undefined
   /** Surface shadow: 'inherit' | 'none' | 'soft' | 'medium' | 'strong'. */
   surfaceShadow: string | undefined
-  /** Focus glow: 'inherit' | 'on'. */
-  focusGlow: string | undefined
   /** Dark-mode accent override ('' = inherit the main accent). */
   darkAccent: string | undefined
   /**
