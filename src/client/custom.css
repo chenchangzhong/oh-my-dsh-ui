@@ -5,13 +5,6 @@
    deliberately out-specify the theme sheets so the plugin wins the cascade. */
 
 html[data-dsu-active='1'] body {
-  /* Wallpaper + optional tone overlay + light-theme tone-blend wash. */
-  background-image: var(--dsu-gradient, none), var(--dsu-tone, none), var(--dsu-wallpaper, none);
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed;
-  background-repeat: no-repeat;
-
   /* Whole-UI font scale (--dsu-font-scale written only when ≠ 1; 1 = stock).
      zoom scales every px-based font and layout uniformly (the UI is px, so a
      rem/root-font approach would not reach it). */
@@ -65,17 +58,9 @@ html[data-dsu-active='1'] body {
   --dsw-alias-scrollbar-hover-l2: color-mix(in srgb, var(--dsu-accent, #4176e6) calc(var(--dsu-scrollbar, 0) * 55%), transparent);
 }
 
-/* Dark theme: scrim over the wallpaper + dark glass hues. Must out-specify
-   the rule above (html + attribute + body + dark attribute). The gradient
-   wash is kept as a layer here too, so a gradient-only theme (no wallpaper)
-   renders the same art direction in both modes — just dimmed by the scrim. */
+/* Dark theme: dark glass hues. Must out-specify the rule above
+   (html + attribute + body + dark attribute). */
 html[data-dsu-active='1'] body[data-ds-dark-theme] {
-  background-image:
-    linear-gradient(180deg, var(--dsu-scrim, rgb(15 17 21 / 0.22)), var(--dsu-scrim, rgb(15 17 21 / 0.22))),
-    var(--dsu-gradient, none),
-    var(--dsu-tone, none),
-    var(--dsu-wallpaper, none);
-
   /* Optional dark-mode accent override (--dsu-dark-accent set by the plugin);
      unset falls back to the light ramp's dark step. */
   --dsw-alias-brand-primary: var(--dsu-dark-accent, var(--dsw-static-deepseek-400));
