@@ -1,29 +1,57 @@
 /**
  * Archive view: pure-DOM injection of archived sessions into the session list.
  *
- * ADAPTED from deepseek-harness-zh_pro's archive-view.ts:
- *   - Source: used ctx.locale for t() and ctx.get() for sessions/workspaces
- *   - Target: same ctx usage — ctx.locale.bind() for t(), ctx.get() for services
- *   - API routes: /dsh-zh/api/session.unarchive and /dsh-zh/api/session.delete
- *     MUST be provided by the host (see HOST API DEPENDENCIES note below)
- *   - Pure DOM implementation: no React, no cross-package runtime references
+ * FULL PORT of deepseek-harness-zh_pro's archive-view.ts (upstream/main,
+ * 1988-line implementation) — replaces the earlier style-only stub.
+ * Upstream source: git@github.com:magian1127/deepseek-harness-zh_pro.git
+ *   src/lib/client/logic/archive-view.ts (installArchiveView + runArchiveView)
  *
- * HOST API DEPENDENCIES (MUST be provided by host half or equivalent):
- *   POST /dsh-zh/api/session.unarchive  { sessionId: string }
- *   POST /dsh-zh/api/session.delete     { sessionId: string, title: string, currentSessionId?: string }
+ * Adaptations for this plugin (oh-my-dsh-ui / dsh-client-ui-custom):
+ *   - ctx.get('sessions'/'workspaces'/'locale') → ctx.sessions / ctx.workspaces / ctx.locale
+ *   - settingsStore: upstream localStorage store → local settingsStore bridge
+ *     (archiveViewEnabled / deleteSessionEnabled read from ui-custom namespace)
+ *   - locale dict: registers ZH_ARCHIVE_NS from ../locales/zh-locales.ts
+ *     (archiveLocales — previously an unregistered dead export; dict keys match
+ *     upstream minus the batch group)
+ *   - data-plugin style attribute: 'deepseek-harness-zh_pro' → 'zh-feature'
+ *   - dialog / rename-input background: var(--dsw-alias-surface-primary, #fff)
+ *     → var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, #fff)).
+ *     --dsw-alias-surface-primary is NOT defined in the current DSH theme
+ *     (session-menu.ts hit the same issue); bg-layer-2 is the actual card token.
+ *   - NOT ported: upstream's 会话多选 batch hooks (row checkboxes, workspace-row
+ *     select-all button, batch unarchive/delete menus). They depend on the
+ *     session-batch module (batchSelection/batchOpsEnabled), which this plugin
+ *     has not migrated; settings have no batchOpsEnabled field so those code
+ *     paths could never activate. Re-port together with session-batch.
  *
- * The zh feature cannot implement these routes independently — they must be
- * added to the host's API router or the existing dsh-zh host half must be reused.
+ * HOST API DEPENDENCIES (provided by this plugin's host half):
+ *   POST /dsh-zh/api/session.unarchive  { sessionId }              (src/server/session-delete.ts)
+ *   POST /dsh-zh/api/session.delete     { sessionId, title, currentSessionId? }
+ *
+ * Behavior (mirrors upstream):
+ *   - workspace rows (real + ungrouped bucket) get an 「查看已归档会话」button;
+ *   - clicking it switches the view: the group's normal session rows are hidden
+ *     (reversible) and an archive-row section is appended to the official
+ *     groupSection (scrolls with the official list, no independent scrollbar);
+ *   - archived rows look like official session rows, 5 by default, expanding
+ *     5 more per click of「再展开」, then collapse back;
+ *   - row menu: rename / fork / unarchive / delete (delete follows
+ *     deleteSessionEnabled); clicking a row = silent unarchive + open, rows
+ *     already opened stay in place until the view is left;
+ *   - exit: click the archive button again, Escape, or the workspace's
+ *     new-session button. Clicks outside the list do NOT exit.
+ *   - subagent and blank sessions are excluded (invisible after restore).
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { ZH_ARCHIVE_NS } from '../shared.ts'
+import { archiveLocales } from '../locales/zh-locales.ts'
 import { settingsStore } from '../store/settings-store.ts'
-import { ZhApplyContext } from './apply.ts'
+import type { ZhApplyContext } from './apply.ts'
 
-// ─── Archive view CSS ────────────────────────────────────────────────────────
+// ─── Archive view CSS (rules aligned with official Rows.module.css) ──────────
 const ARCHIVE_VIEW_CSS = [
   '[data-dsh-zh-archive-section]{display:flex;flex-direction:column;box-sizing:border-box}',
-  '[data-dsh-zh-archive-section]>*{margin-top:2px}',
+  '[data-dsh-zh-archive-section]>*+*{margin-top:2px}',
   '[data-dsh-zh-archive-row]{display:flex;align-items:center;gap:0;height:32px;box-sizing:border-box;',
   'border-radius:8px;padding:0 8px;cursor:pointer;user-select:none;',
   'color:var(--dsw-alias-label-primary)}',
@@ -68,16 +96,16 @@ const ARCHIVE_VIEW_CSS = [
   '[data-dsh-zh-archive-dialog-mask]{position:fixed;inset:0;z-index:1200;display:flex;',
   'align-items:center;justify-content:center;background:rgba(0,0,0,0.35);}',
   '[data-dsh-zh-archive-dialog]{width:min(440px,calc(100vw - 48px));border-radius:16px;padding:20px;',
-  'background:var(--dsw-alias-surface-primary, #fff);color:var(--dsw-alias-label-primary, #1f2329);',
+  'background:var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, #fff));color:var(--dsw-alias-label-primary, #1f2329);',
   'box-shadow:var(--dsw-shadow-lv3, 0 8px 24px rgba(0,0,0,0.18));}',
-  '[data-dsh-zh-archive-dialog-title]{font-size:16px;line-height:24px;font-weight:600;margin-bottom:10px}',
+  '[data-dsh-zh-archive-dialog-title]{font-size:16px;line-height:24px;font-weight:600;margin-bottom:10px;}',
   '[data-dsh-zh-archive-dialog-desc]{font-size:13px;line-height:20px;',
-  'color:var(--dsw-alias-label-tertiary,#666);margin-bottom:18px}',
+  'color:var(--dsw-alias-label-tertiary,#666);margin-bottom:18px;}',
   'input[data-dsh-zh-archive-rename-input]{width:100%;box-sizing:border-box;height:36px;',
   'padding:0 12px;margin-bottom:18px;border-radius:10px;font:inherit;font-size:14px;',
   'border:1px solid var(--dsw-alias-border-l2,#c9cdd4);outline:none;',
-  'background:var(--dsw-alias-surface-primary,#fff);color:var(--dsw-alias-label-primary,#1f2329);}',
-  '[data-dsh-zh-archive-dialog-actions]{display:flex;justify-content:flex-end;gap:10px}',
+  'background:var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, #fff));color:var(--dsw-alias-label-primary,#1f2329);}',
+  '[data-dsh-zh-archive-dialog-actions]{display:flex;justify-content:flex-end;gap:10px;}',
   '.dsh-zh-archive-toast{position:fixed;top:120px;left:50%;z-index:1300;pointer-events:none;',
   'display:flex;align-items:center;gap:10px;max-width:min(560px,calc(100vw - 48px));',
   'padding:12px 16px;border-radius:14px;background:var(--dsw-alias-button-contrast-fill);',
@@ -85,6 +113,8 @@ const ARCHIVE_VIEW_CSS = [
   'box-shadow:var(--dsw-shadow-lv3);transform:translateX(-50%);}',
 ].join('')
 
+// Archive button (inside workspace rows): geometry mirrors official
+// Rows.module.css .iconButton (16x16, r4, hover → primary).
 const ARCHIVE_BTN_CSS = [
   'button[data-dsh-zh-ws-archive]{flex:none;display:inline-flex;align-items:center;justify-content:center;',
   'width:16px;height:16px;border:none;border-radius:4px;padding:0;background:transparent;',
@@ -96,35 +126,53 @@ const ARCHIVE_BTN_CSS = [
   '[data-dsh-zh-ws-row-standalone]:hover button[data-dsh-zh-ws-archive]{display:inline-flex}',
 ].join('')
 
-// ─── Archive icons (static SVG path data from upstream) ─────────────────────
+// ─── Archive icons (static SVG path data copied from official primitives) ────
 const ARCHIVE_ICONS = {
-  archive: {
-    viewBox: '0 0 20 20',
-    paths: [
-      { d: 'M15.8659 2.05975C17.2603 2.05995 18.3913 3.19096 18.3914 4.58527V5.4874C18.3914 6.02747 18.2192 6.52672 17.9303 6.93735C17.9336 6.96524 17.9388 6.99318 17.9388 7.02195V12.8884C17.9388 13.6345 17.9395 14.2379 17.8996 14.7254C17.8642 15.1593 17.7936 15.5499 17.6373 15.9141L17.5654 16.0685C17.278 16.6328 16.8405 17.1046 16.3038 17.434L16.0679 17.5661C15.66 17.7739 15.2196 17.8598 14.7237 17.9003C14.2362 17.9401 13.6327 17.9405 12.8867 17.9405H7.11122C6.36511 17.9405 5.76171 17.9401 5.27418 17.9003C4.84051 17.8649 4.44949 17.7952 4.08545 17.6391L3.93104 17.5661C3.36673 17.2785 2.89392 16.8414 2.56465 16.3044L2.43245 16.0685C2.22473 15.6608 2.13878 15.2211 2.09825 14.7254C2.05841 14.2379 2.05912 13.6345 2.05912 12.8884V7.02195C2.05912 6.99284 2.06422 6.96449 2.06758 6.93629C1.77931 6.52592 1.60858 6.02687 1.60858 5.4874V4.58527C1.60876 3.19084 2.73962 2.05975 4.1341 2.05975H15.8659ZM16.4984 7.92936C16.296 7.98169 16.0847 8.01288 15.8659 8.01291H4.1341C3.91478 8.01291 3.70246 7.98194 3.49955 7.92936V12.8884C3.49955 13.6582 3.50053 14.1927 3.53445 14.608C3.56769 15.0146 3.62923 15.244 3.71635 15.415L3.7925 15.5514C3.98339 15.8627 4.25749 16.1165 4.58464 16.2833L4.72529 16.3435C4.88095 16.3993 5.08638 16.4402 5.39158 16.4651C5.80685 16.4991 6.34138 16.5001 7.11122 16.5001H12.8867C13.6564 16.5001 14.1911 16.499 14.6063 16.4651C15.0128 16.432 15.2423 16.3703 15.4133 16.2833L15.5508 16.2061C15.8618 16.0152 16.116 15.7419 16.2827 15.415L16.3429 15.2732C16.3985 15.1177 16.4396 14.9128 16.4645 14.608C16.4985 14.1927 16.4984 13.6583 16.4984 12.8884V7.92936ZM4.1341 3.50019C3.53511 3.50019 3.0492 3.98631 3.04902 4.58527V5.4874C3.04902 6.08649 3.535 6.57248 4.1341 6.57248H15.8659C16.4648 6.57228 16.951 6.08638 16.951 5.4874V4.58527C16.9509 3.98644 16.4647 3.50038 15.8659 3.50019H4.1341Z', fillRule: 'evenodd', clipRule: 'evenodd' },
-      { d: 'M12.7962 12.5661V11.0832H7.20548V12.5661L12.7962 12.5661Z' },
-    ],
+  "archive": {
+    "viewBox": "0 0 20 20",
+    "paths": [
+      {
+        "d": "M15.8659 2.05975C17.2603 2.05995 18.3913 3.19096 18.3914 4.58527V5.4874C18.3914 6.02747 18.2192 6.52672 17.9303 6.93735C17.9336 6.96524 17.9388 6.99318 17.9388 7.02195V12.8884C17.9388 13.6345 17.9395 14.2379 17.8996 14.7254C17.8642 15.1593 17.7936 15.5499 17.6373 15.9141L17.5654 16.0685C17.278 16.6328 16.8405 17.1046 16.3038 17.434L16.0679 17.5661C15.66 17.7739 15.2196 17.8598 14.7237 17.9003C14.2362 17.9401 13.6327 17.9405 12.8867 17.9405H7.11122C6.36511 17.9405 5.76171 17.9401 5.27418 17.9003C4.84051 17.8649 4.44949 17.7952 4.08545 17.6391L3.93104 17.5661C3.36673 17.2785 2.89392 16.8414 2.56465 16.3044L2.43245 16.0685C2.22473 15.6608 2.13878 15.2211 2.09825 14.7254C2.05841 14.2379 2.05912 13.6345 2.05912 12.8884V7.02195C2.05912 6.99284 2.06422 6.96449 2.06758 6.93629C1.77931 6.52592 1.60858 6.02687 1.60858 5.4874V4.58527C1.60876 3.19084 2.73962 2.05975 4.1341 2.05975H15.8659ZM16.4984 7.92936C16.296 7.98169 16.0847 8.01288 15.8659 8.01291H4.1341C3.91478 8.01291 3.70246 7.98194 3.49955 7.92936V12.8884C3.49955 13.6582 3.50053 14.1927 3.53445 14.608C3.56769 15.0146 3.62923 15.244 3.71635 15.415L3.7925 15.5514C3.98339 15.8627 4.25749 16.1165 4.58464 16.2833L4.72529 16.3435C4.88095 16.3993 5.08638 16.4402 5.39158 16.4651C5.80685 16.4991 6.34138 16.5001 7.11122 16.5001H12.8867C13.6564 16.5001 14.1911 16.499 14.6063 16.4651C15.0128 16.432 15.2423 16.3703 15.4133 16.2833L15.5508 16.2061C15.8618 16.0152 16.116 15.7419 16.2827 15.415L16.3429 15.2732C16.3985 15.1177 16.4396 14.9128 16.4645 14.608C16.4985 14.1927 16.4984 13.6583 16.4984 12.8884V7.92936ZM4.1341 3.50019C3.53511 3.50019 3.0492 3.98631 3.04902 4.58527V5.4874C3.04902 6.08649 3.535 6.57248 4.1341 6.57248H15.8659C16.4648 6.57228 16.951 6.08638 16.951 5.4874V4.58527C16.9509 3.98644 16.4647 3.50038 15.8659 3.50019H4.1341Z",
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      },
+      {
+        "d": "M12.7962 12.5661V11.0832H7.20548V12.5661L12.7962 12.5661Z"
+      }
+    ]
   },
-  ellipsis: {
-    viewBox: '0 0 16 16',
-    paths: [
-      { d: 'M4.55146 8.00001C4.55146 8.63513 4.03659 9.15001 3.40146 9.15001C2.76634 9.15001 2.25146 8.63513 2.25146 8.00001C2.25146 7.36488 2.76634 6.85001 3.40146 6.85001C4.03659 6.85001 4.55146 7.36488 4.55146 8.00001Z' },
-      { d: 'M9.1476 8.00001C9.1476 8.63513 8.63273 9.15001 7.9976 9.15001C7.36248 9.15001 6.8476 8.63513 6.8476 8.00001C6.8476 7.36488 7.36248 6.85001 7.9976 6.85001C8.63273 6.85001 9.1476 7.36488 9.1476 8.00001Z' },
-      { d: 'M13.7486 8.00001C13.7486 8.63513 13.2338 9.15001 12.5986 9.15001C11.9635 9.15001 11.4486 8.63513 11.4486 8.00001C11.4486 7.36488 11.9635 6.85001 12.5986 6.85001C13.2338 6.85001 13.7486 7.36488 13.7486 8.00001Z' },
-    ],
+  "ellipsis": {
+    "viewBox": "0 0 16 16",
+    "paths": [
+      {
+        "d": "M4.55146 8.00001C4.55146 8.63513 4.03659 9.15001 3.40146 9.15001C2.76634 9.15001 2.25146 8.63513 2.25146 8.00001C2.25146 7.36488 2.76634 6.85001 3.40146 6.85001C4.03659 6.85001 4.55146 7.36488 4.55146 8.00001Z"
+      },
+      {
+        "d": "M9.1476 8.00001C9.1476 8.63513 8.63273 9.15001 7.9976 9.15001C7.36248 9.15001 6.8476 8.63513 6.8476 8.00001C6.8476 7.36488 7.36248 6.85001 7.9976 6.85001C8.63273 6.85001 9.1476 7.36488 9.1476 8.00001Z"
+      },
+      {
+        "d": "M13.7486 8.00001C13.7486 8.63513 13.2338 9.15001 12.5986 9.15001C11.9635 9.15001 11.4486 8.63513 11.4486 8.00001C11.4486 7.36488 11.9635 6.85001 12.5986 6.85001C13.2338 6.85001 13.7486 7.36488 13.7486 8.00001Z"
+      }
+    ]
   },
-  edit: {
-    viewBox: '0 0 16 16',
-    paths: [
-      { d: 'M9.94076 1.34942C10.7047 0.90231 11.6503 0.902415 12.4143 1.34942C12.7061 1.52015 12.9688 1.79118 13.3104 2.13284C13.6521 2.47448 13.9231 2.73721 14.0939 3.02894C14.5408 3.79294 14.5409 4.73856 14.0939 5.50251C13.9231 5.79415 13.652 6.05704 13.3104 6.39861L6.65932 13.0497C6.28068 13.4284 6.00695 13.7108 5.66543 13.9097C5.32391 14.1085 4.94315 14.2074 4.42705 14.3498L3.24394 14.6761C2.77527 14.8054 2.34538 14.9262 2.00131 14.9684C1.65196 15.0112 1.17964 15.0013 0.810764 14.6325C0.441921 14.2637 0.432107 13.7913 0.47486 13.442C0.517035 13.0979 0.6379 12.668 0.767181 12.1993L1.09352 11.0162C1.23588 10.5001 1.33481 10.1193 1.5336 9.77784C1.7325 9.43632 2.0149 9.1626 2.39355 8.78395L9.04466 2.13284C9.38625 1.79126 9.64911 1.52016 9.94076 1.34942ZM15.5427 14.8398H7.55223L8.96707 13.425H15.5427V14.8398ZM3.39382 9.78422C2.965 10.213 2.84244 10.3436 2.75709 10.49C2.67183 10.6366 2.61862 10.8079 2.45733 11.3925L2.13099 12.5756C2.00183 13.0439 1.92194 13.3419 1.88863 13.5536C2.10041 13.5204 2.39872 13.4416 2.86764 13.3123L4.05075 12.9859C4.63544 12.8246 4.80669 12.7715 4.95323 12.6862C5.09968 12.6008 5.23022 12.4783 5.65905 12.0494L10.721 6.98644L8.45577 4.72121L3.39382 9.78422ZM11.7 2.57079C11.3774 2.38198 10.9777 2.38198 10.6551 2.57079C10.5602 2.62647 10.4487 2.72931 10.0449 3.13311L9.45604 3.72094L11.7213 5.98617L12.3102 5.39833C12.7139 4.99457 12.8168 4.88307 12.8725 4.78818C13.0613 4.46561 13.0612 4.06585 12.8725 3.74326C12.8169 3.64827 12.7146 3.53752 12.3102 3.13311C11.9057 2.72863 11.795 2.6264 11.7 2.57079Z', fillRule: 'evenodd', clipRule: 'evenodd' },
-    ],
+  "edit": {
+    "viewBox": "0 0 16 16",
+    "paths": [
+      {
+        "d": "M9.94076 1.34942C10.7047 0.90231 11.6503 0.902415 12.4143 1.34942C12.7061 1.52015 12.9688 1.79118 13.3104 2.13284C13.6521 2.47448 13.9231 2.73721 14.0939 3.02894C14.5408 3.79294 14.5409 4.73856 14.0939 5.50251C13.9231 5.79415 13.652 6.05704 13.3104 6.39861L6.65932 13.0497C6.28068 13.4284 6.00695 13.7108 5.66543 13.9097C5.32391 14.1085 4.94315 14.2074 4.42705 14.3498L3.24394 14.6761C2.77527 14.8054 2.34538 14.9262 2.00131 14.9684C1.65196 15.0112 1.17964 15.0013 0.810764 14.6325C0.441921 14.2637 0.432107 13.7913 0.47486 13.442C0.517035 13.0979 0.6379 12.668 0.767181 12.1993L1.09352 11.0162C1.23588 10.5001 1.33481 10.1193 1.5336 9.77784C1.7325 9.43632 2.0149 9.1626 2.39355 8.78395L9.04466 2.13284C9.38625 1.79126 9.64911 1.52016 9.94076 1.34942ZM15.5427 14.8398H7.55223L8.96707 13.425H15.5427V14.8398ZM3.39382 9.78422C2.965 10.213 2.84244 10.3436 2.75709 10.49C2.67183 10.6366 2.61862 10.8079 2.45733 11.3925L2.13099 12.5756C2.00183 13.0439 1.92194 13.3419 1.88863 13.5536C2.10041 13.5204 2.39872 13.4416 2.86764 13.3123L4.05075 12.9859C4.63544 12.8246 4.80669 12.7715 4.95323 12.6862C5.09968 12.6008 5.23022 12.4783 5.65905 12.0494L10.721 6.98644L8.45577 4.72121L3.39382 9.78422ZM11.7 2.57079C11.3774 2.38198 10.9777 2.38198 10.6551 2.57079C10.5602 2.62647 10.4487 2.72931 10.0449 3.13311L9.45604 3.72094L11.7213 5.98617L12.3102 5.39833C12.7139 4.99457 12.8168 4.88307 12.8725 4.78818C13.0613 4.46561 13.0612 4.06585 12.8725 3.74326C12.8169 3.64827 12.7146 3.53752 12.3102 3.13311C11.9057 2.72863 11.795 2.6264 11.7 2.57079Z"
+      }
+    ]
   },
-  branch: {
-    viewBox: '0 0 16 16',
-    paths: [
-      { d: 'M13.0762 1.37207C14.0846 1.37228 14.9021 2.19077 14.9023 3.19922C14.9022 4.20772 14.0847 5.02518 13.0762 5.02539C12.2967 5.02539 11.6325 4.53691 11.3701 3.84961H4.35547C4.79397 4.26458 5.15861 4.7644 5.41699 5.33496L7.10645 9.06738C7.88526 10.7875 9.55104 11.9228 11.4189 12.0371C11.7085 11.4109 12.3411 10.9756 13.0762 10.9756C14.0843 10.9759 14.9023 11.7936 14.9023 12.8018C14.9023 13.81 14.0843 14.6277 13.0762 14.6279C12.2534 14.6279 11.5574 14.0832 11.3291 13.335C8.9868 13.1879 6.89981 11.7612 5.92285 9.60352L4.23242 5.87109C3.67503 4.64033 2.44878 3.84961 1.09766 3.84961V2.54883C1.10665 2.54883 1.11601 2.54975 1.125 2.5498L11.3701 2.54883C11.6326 1.86151 12.2969 1.37207 13.0762 1.37207ZM13.0762 12.2764C12.7858 12.2764 12.5508 12.5114 12.5508 12.8018C12.5508 13.0921 12.7858 13.3281 13.0762 13.3281C13.3664 13.3279 13.6025 13.092 13.6025 12.8018C13.6025 12.5115 13.3664 12.2766 13.0762 12.2764ZM13.0762 2.67285C12.7855 2.67285 12.55 2.90861 12.5498 3.19922C12.5499 3.48987 12.7855 3.72559 13.0762 3.72559C13.3667 3.72538 13.6024 3.48975 13.6025 3.19922C13.6023 2.90874 13.3666 2.67306 13.0762 2.67285Z', fillRule: 'evenodd', clipRule: 'evenodd' },
-    ],
-  },
+  "branch": {
+    "viewBox": "0 0 16 16",
+    "paths": [
+      {
+        "d": "M13.0762 1.37207C14.0846 1.37228 14.9021 2.19077 14.9023 3.19922C14.9022 4.20772 14.0847 5.02518 13.0762 5.02539C12.2967 5.02539 11.6325 4.53691 11.3701 3.84961H4.35547C4.79397 4.26458 5.15861 4.7644 5.41699 5.33496L7.10645 9.06738C7.88526 10.7875 9.55104 11.9228 11.4189 12.0371C11.7085 11.4109 12.3411 10.9756 13.0762 10.9756C14.0843 10.9759 14.9023 11.7936 14.9023 12.8018C14.9023 13.81 14.0843 14.6277 13.0762 14.6279C12.2534 14.6279 11.5574 14.0832 11.3291 13.335C8.9868 13.1879 6.89981 11.7612 5.92285 9.60352L4.23242 5.87109C3.67503 4.64033 2.44878 3.84961 1.09766 3.84961V2.54883C1.10665 2.54883 1.11601 2.54975 1.125 2.5498L11.3701 2.54883C11.6326 1.86151 12.2969 1.37207 13.0762 1.37207ZM13.0762 12.2764C12.7858 12.2764 12.5508 12.5114 12.5508 12.8018C12.5508 13.0921 12.7858 13.3281 13.0762 13.3281C13.3664 13.3279 13.6025 13.092 13.6025 12.8018C13.6025 12.5115 13.3664 12.2766 13.0762 12.2764ZM13.0762 2.67285C12.7855 2.67285 12.55 2.90861 12.5498 3.19922C12.5499 3.48987 12.7855 3.72559 13.0762 3.72559C13.3667 3.72538 13.6024 3.48975 13.6025 3.19922C13.6023 2.90874 13.3666 2.67306 13.0762 2.67285Z",
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  }
 }
 
 function makeIcon(name: keyof typeof ARCHIVE_ICONS, size = 16): SVGElement | null {
@@ -148,182 +196,1236 @@ function makeIcon(name: keyof typeof ARCHIVE_ICONS, size = 16): SVGElement | nul
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+// 未分组桶的归档视图键（官方 fiber group.workspaceId 为 undefined）。
 const UNGROUPED_KEY = '__dsh-zh-ungrouped__'
+// 查看归档期间被隐藏的正常会话行容器标记（恢复时清除）。
 const HIDDEN_ROW_MARK = 'data-dsh-zh-archive-hides-row'
+// 渐进展开：初始收起为 COLLAPSED_LIMIT 行，每点一次「再展开」多显示
+// EXPAND_STEP 行；全部展开后按钮变「收起」，点击收回 COLLAPSED_LIMIT 行。
 const COLLAPSED_LIMIT = 5
 const EXPAND_STEP = 5
+// 官方「新建会话」按钮 aria-label 前缀（ProjectRowItem 行内 + 按钮）。
+const ARCHIVE_WS_NEW_SESSION = ['在“', 'New session in '] as const
+const ARCHIVE_BTN_MARK = 'data-dsh-zh-ws-archive'
+const ARCHIVE_ROW_MARK = 'data-dsh-zh-ws-archive-row'
 
-// ─── State ───────────────────────────────────────────────────────────────────
-let activeTarget: { workspaceId: string; label: string } | null = null
-let expandedCount = COLLAPSED_LIMIT
-let orderedIds: string[] | null = null
-let sectionEl: HTMLElement | null = null
-let timeRefreshTimer: ReturnType<typeof setInterval> | null = null
-let sectionRenderKey: string | null = null
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-function relativeTime(updatedAt: number, now: number): [string, number] {
-  const MIN = 60000, HOUR = 3600000, DAY = 86400000
-  const diff = Math.max(0, now - updatedAt)
-  if (diff < MIN) return ['time.now', 0]
-  if (diff < HOUR) return ['time.minutes', Math.floor(diff / MIN)]
-  if (diff < DAY) return ['time.hours', Math.floor(diff / HOUR)]
-  if (diff < 30 * DAY) return ['time.days', Math.floor(diff / DAY)]
-  if (diff < 365 * DAY) return ['time.months', Math.floor(diff / (30 * DAY))]
-  return ['time.years', Math.floor(diff / (365 * DAY))]
+// ─── Snapshot shapes (defensive views over the runtime stores) ───────────────
+interface ArchiveSessionSummary {
+  displayTitle?: string
+  updatedAt?: number
+  origin?: string
+  blank?: boolean
+  running?: boolean
 }
-
-function makeArchiveT(ctx: ClientContext): (key: string, params?: Record<string, string | number>) => string {
-  const isZh = (): boolean => {
-    try {
-      const locale = ctx.locale
-      return !!(locale && typeof locale.getLocale === 'function' && locale.getLocale().active === 'zh')
-    } catch { return false }
-  }
-  const dict = isZh() ? {
-    buttonLabel: '查看已归档会话', buttonTitle: '查看该工作区已归档的会话',
-    'group.ungrouped': '未分组', empty: '暂无归档会话',
-    expand: '再展开 {n} 个归档', collapse: '收起',
-    'actions.aria': '会话"{name}"的操作',
-    'menu.rename': '重命名', 'menu.fork': '分叉会话',
-    'menu.unarchive': '取消归档', 'menu.delete': '删除会话',
-    'rename.title': '重命名会话', 'rename.ok': '保存', 'rename.cancel': '取消',
-    'rename.failed': '重命名失败：{message}',
-    'delete.title': '删除会话',
-    'delete.desc': '将把该会话的日志目录移入系统回收站，并从工作区账本移除（不保留恢复位）',
-    'delete.ok': '删除', 'delete.cancel': '取消',
-    'delete.deleting': '正在删除会话…',
-    'delete.done': '会话已删除（日志已移入系统回收站）',
-    'delete.failed': '删除失败：{message}',
-    'time.now': '刚刚', 'time.minutes': '{n}分钟', 'time.hours': '{n}小时',
-    'time.days': '{n}天', 'time.months': '{n}个月', 'time.years': '{n}年',
-  } : {
-    buttonLabel: 'Archived sessions', buttonTitle: 'View archived sessions of this workspace',
-    'group.ungrouped': 'Ungrouped', empty: 'No archived sessions',
-    expand: 'Show {n} more archived sessions', collapse: 'Show less',
-    'actions.aria': 'Session actions for {name}',
-    'menu.rename': 'Rename', 'menu.fork': 'Fork session',
-    'menu.unarchive': 'Unarchive', 'menu.delete': 'Delete session',
-    'rename.title': 'Rename session', 'rename.ok': 'Save', 'rename.cancel': 'Cancel',
-    'rename.failed': 'Rename failed: {message}',
-    'delete.title': 'Delete session',
-    'delete.desc': 'The session log directory will move to the system recycle bin',
-    'delete.ok': 'Delete', 'delete.cancel': 'Cancel',
-    'delete.deleting': 'Deleting session…',
-    'delete.done': 'Session deleted (log moved to the system recycle bin)',
-    'delete.failed': 'Delete failed: {message}',
-    'time.now': 'now', 'time.minutes': '{n}min', 'time.hours': '{n}h',
-    'time.days': '{n}d', 'time.months': '{n}mo', 'time.years': '{n}y',
-  }
-  return (key: string, p?: Record<string, string | number>): string => {
-    let s = (dict as Record<string, string>)[key] ?? key
-    if (p) for (const k of Object.keys(p)) s = s.split('{' + k + '}').join(String(p[k]))
-    return s
-  }
+interface SessionsSnap {
+  byId?: Record<string, ArchiveSessionSummary>
+  current?: string
 }
-
-// ─── Core logic (placeholders — full implementation mirrors source) ──────────
-function archivedRowsOf(archivedIds: string[], snap: {
-  items?: Array<{ path?: string; sessionIds?: string[] }>
-  byId: Record<string, { displayTitle?: string; updatedAt?: number; origin?: string; blank?: boolean }>
-}, workspaceId: string): Array<{ id: string; title: string; updatedAt: number }> {
-  const memberSet = new Set<string>()
-  if (snap.items) {
-    for (const item of snap.items) {
-      if (workspaceId === UNGROUPED_KEY) {
-        item.sessionIds?.forEach(id => memberSet.add(String(id)))
-      } else if (String((item as { workspaceId?: string }).workspaceId ?? '') === workspaceId) {
-        item.sessionIds?.forEach(id => memberSet.add(String(id)))
-      }
-    }
-  }
-  const rows: Array<{ id: string; title: string; updatedAt: number }> = []
-  for (const id of archivedIds) {
-    const key = String(id)
-    if (workspaceId === UNGROUPED_KEY) { if (memberSet.has(key)) continue }
-    else if (!memberSet.has(key)) continue
-    const summary = snap.byId[key]
-    if (!summary || summary.origin === 'subagent' || summary.blank === true) continue
-    rows.push({ id: key, title: summary.displayTitle ?? key, updatedAt: summary.updatedAt ?? 0 })
-  }
-  rows.sort((a, b) => b.updatedAt - a.updatedAt)
-  return rows
+interface WorkspaceItem {
+  workspaceId?: string
+  path?: string
+  title?: string
+  sessionIds?: string[]
 }
-
-function readSnapshots(ctx: ClientContext) {
-  let sessions: ReturnType<typeof ctx.sessions.list.getSnapshot> | null = null
-  let workspaces: ReturnType<typeof ctx.workspaces.list.getSnapshot> | null = null
-  try { sessions = ctx.sessions.list.getSnapshot() } catch { /* ignore */ }
-  try { workspaces = ctx.workspaces.list.getSnapshot() } catch { /* ignore */ }
-  return { sessions, workspaces }
+interface WorkspacesSnap {
+  items?: WorkspaceItem[]
+  archivedSessionIds?: string[]
 }
+interface ArchiveRow { id: string; title: string; updatedAt: number }
+interface RowGroupInfo { workspaceId: string | undefined; label: string }
+type ArchiveT = (key: string, params?: Record<string, string | number>) => string
 
-// ─── Public API stubs (full DOM implementation mirrors source exactly) ─────
-// NOTE: The full archive-view.ts implementation is identical to the source.
-// Key adaptations for host:
-//   - ctx.locale.bind(NS) → ctx.locale for t() function
-//   - ctx.get('sessions') → ctx.sessions
-//   - ctx.get('workspaces') → ctx.workspaces
-//   - fetch('/dsh-zh/api/session.unarchive') → MUST be hosted route
-//   - fetch('/dsh-zh/api/session.delete') → MUST be hosted route
-//
-// The full source is at: deepseek-harness-zh_pro/src/lib/client/logic/archive-view.ts
-
+// ─── Install (gated by the 「查看已归档」 settings toggle) ───────────────────
 export function installArchiveView(zhCtx: ZhApplyContext): () => void {
   const { ctx } = zhCtx
+  let activeDispose: (() => void) | null = null
+  const startArchiveView = (): void => {
+    if (activeDispose !== null) return
+    try {
+      activeDispose = runArchiveView(ctx)
+    } catch { /* 注册失败时保持未激活，下次开关变化再试 */ }
+  }
+  const stopArchiveView = (): void => {
+    if (activeDispose === null) return
+    const dispose = activeDispose
+    activeDispose = null
+    try { dispose() } catch { /* 清理失败不阻断 */ }
+  }
+  const syncEnabled = (): void => {
+    // 开关关闭时完全不注册（无样式、无 observer、无 DOM 副作用）；运行时
+    // 翻转立即生效：关闭即卸载，开启即重新注册。
+    if (settingsStore.getSnapshot().archiveViewEnabled === true) startArchiveView()
+    else stopArchiveView()
+  }
+  const unsub = settingsStore.subscribe(syncEnabled)
+  syncEnabled()
+  return function () {
+    unsub()
+    stopArchiveView()
+  }
+}
 
-  // Abort if API routes are not available.
-  // TODO: leader must confirm host API route availability.
-  let apiAvailable = false
+// 查看已归档完整注册（仅在 archiveViewEnabled 开启时被调用），返回清理函数。
+function runArchiveView(ctx: ClientContext): () => void {
+  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return () => {}
+  if (document.body === null) return () => {}
+
+  const localeService = ctx.locale
+
+  // ── 词典：dsh-zh-archive 命名空间（随卸载注销；注册失败不阻断） ──
+  let archiveT: ArchiveT = (key) => key
+  let localeDispose: (() => void) | null = null
   try {
-    const testFetch = typeof fetch === 'function'
-    apiAvailable = testFetch
-  } catch { apiAvailable = false }
+    localeDispose = localeService.register(ZH_ARCHIVE_NS, archiveLocales[ZH_ARCHIVE_NS])
+  } catch { /* 已注册过（重复 apply）时沿用现有词典 */ }
+  archiveT = localeService.bind(ZH_ARCHIVE_NS)
 
-  // Style injection
+  // ── 样式注入（data-plugin 标签 + MutationObserver 保活，HMR 兼容） ──
   let styleObserver: MutationObserver | null = null
-  const putStyle = (tag: string, css: string): void => {
+  const putStyle = (tag: string, text: string | string[]): void => {
     if (!document.head) return
-    if (document.head.querySelector(`style[data-plugin-css="${tag}"]`)) return
-    const el = document.createElement('style')
-    el.setAttribute('data-plugin', 'zh-feature')
-    el.setAttribute('data-plugin-css', tag)
-    el.textContent = css
-    document.head.appendChild(el)
+    try {
+      if (document.head.querySelector(`style[data-plugin-css="${tag}"]`) === null) {
+        const el = document.createElement('style')
+        el.setAttribute('data-plugin', 'zh-feature')
+        el.setAttribute('data-plugin-css', tag)
+        el.textContent = Array.isArray(text) ? text.join('') : text
+        document.head.appendChild(el)
+      }
+    } catch { /* ignore */ }
   }
   const ensureStyles = (): void => {
+    if (!document.head) return
     putStyle('dsh-zh/archive-view.css', ARCHIVE_VIEW_CSS)
     putStyle('dsh-zh/archive-button.css', ARCHIVE_BTN_CSS)
     if (styleObserver) styleObserver.disconnect()
-    styleObserver = new MutationObserver(() => ensureStyles())
+    styleObserver = new MutationObserver((records) => {
+      let external = false
+      for (const record of records) {
+        const added = record.addedNodes
+        if (!added || added.length === 0) continue
+        for (const node of Array.from(added)) {
+          if (node.nodeType !== 1) continue
+          const tag = (node as HTMLElement).getAttribute?.('data-plugin-css')
+          if (tag === 'dsh-zh/archive-view.css' || tag === 'dsh-zh/archive-button.css') continue
+          external = true
+          break
+        }
+        if (external) break
+      }
+      if (external) ensureStyles()
+    })
     styleObserver.observe(document.head, { childList: true })
   }
+  ensureStyles()
 
-  let activeDispose: (() => void) | null = null
-  const stop = (): void => {
-    if (activeDispose) { try { activeDispose() } catch { /* ignore */ } activeDispose = null }
+  // ── 纯函数：归档行派生（与官方 tree.ts 语义对齐） ──
+  // 某工作区（或未分组桶）的归档会话行：官方归档集合 ∩ 账本会话 ∩ 列表快照；
+  // 未分组桶 = 归档集合中不属于任何账本的会话。排序按会话最近活动时间
+  // （updatedAt）降序——与官方会话列表的 recency 语义一致。
+  // 与官方 sessionVisible 对齐排除两类行（恢复后在正常列表永不可见）：
+  //   - origin === 'subagent'：子代理会话仅在其父会话目录中展示；
+  //   - blank：未使用过的空会话，仅作为当前选中的临时「新会话」行。
+  const memberSetOf = (items: WorkspaceItem[] | undefined, workspaceId: string): Set<string> => {
+    const memberOf = new Set<string>()
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        if (!item || typeof item !== 'object' || !Array.isArray(item.sessionIds)) continue
+        if (workspaceId === UNGROUPED_KEY) {
+          for (const id of item.sessionIds) memberOf.add(String(id))
+        } else if (String(item.workspaceId) === String(workspaceId)) {
+          for (const id of item.sessionIds) memberOf.add(String(id))
+          break
+        }
+      }
+    }
+    return memberOf
   }
-
-  const syncEnabled = (): void => {
-    const on = settingsStore.getSnapshot().archiveViewEnabled === true
-    if (!on) { stop(); return }
-    if (activeDispose) return
-    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
-    ensureStyles()
-    // Full runArchiveView logic (see source archive-view.ts lines 197-890)
-    // adapted as: ctx.locale → ctx.locale, ctx.get('sessions') → ctx.sessions,
-    // ctx.get('workspaces') → ctx.workspaces, API routes unchanged.
-    activeDispose = () => {
-      if (styleObserver) { styleObserver.disconnect(); styleObserver = null }
-      if (timeRefreshTimer) { clearInterval(timeRefreshTimer); timeRefreshTimer = null }
+  // 单行构造：summary 缺失或不可展示（子代理/blank）时返回 null。
+  const rowOf = (id: string, byId: Record<string, ArchiveSessionSummary>): ArchiveRow | null => {
+    const summary = byId[String(id)]
+    if (summary === undefined || summary === null || typeof summary !== 'object') return null
+    if (summary.origin === 'subagent' || summary.blank === true) return null
+    return {
+      id: String(id),
+      title: summary.displayTitle ? String(summary.displayTitle) : String(id),
+      updatedAt: typeof summary.updatedAt === 'number' ? summary.updatedAt : 0,
     }
   }
+  const archivedRowsOf = (
+    archivedIds: string[], items: WorkspaceItem[] | undefined,
+    byId: Record<string, ArchiveSessionSummary>, workspaceId: string,
+  ): ArchiveRow[] => {
+    const memberOf = memberSetOf(items, workspaceId)
+    const rows: ArchiveRow[] = []
+    const archiveList = Array.isArray(archivedIds) ? archivedIds : []
+    for (const raw of archiveList) {
+      const key = String(raw)
+      if (workspaceId === UNGROUPED_KEY) {
+        if (memberOf.has(key)) continue
+      } else if (!memberOf.has(key)) {
+        continue
+      }
+      const row = rowOf(key, byId)
+      if (row === null) continue
+      rows.push(row)
+    }
+    // 按会话最近活动时间（updatedAt）降序：最近活动的排最前。
+    rows.sort((a, b) => b.updatedAt - a.updatedAt)
+    return rows
+  }
+  // 渲染行合并：进入视图时的行序快照（orderedIds）在前——已恢复（离开归档
+  // 集合）的行原位保留、外观不变，点击查看对列表零扰动；之后新进入归档
+  // 集合的行按集合序追加。会话日志被删（summary 消失）或归属变化的快照行
+  // 自动移除。
+  const mergedRowsOf = (
+    archivedIds: string[], items: WorkspaceItem[] | undefined,
+    byId: Record<string, ArchiveSessionSummary>, workspaceId: string,
+    orderedIds: string[] | null,
+  ): ArchiveRow[] => {
+    const memberOf = memberSetOf(items, workspaceId)
+    const rows: ArchiveRow[] = []
+    const seen = new Set<string>()
+    if (Array.isArray(orderedIds)) {
+      for (const id of orderedIds) {
+        const key = String(id)
+        if (seen.has(key)) continue
+        const row = rowOf(key, byId)
+        if (row === null) continue
+        if (workspaceId === UNGROUPED_KEY) {
+          if (memberOf.has(key)) continue
+        } else if (!memberOf.has(key)) {
+          continue
+        }
+        rows.push(row)
+        seen.add(key)
+      }
+    }
+    for (const row of archivedRowsOf(archivedIds, items, byId, workspaceId)) {
+      if (seen.has(row.id)) continue
+      rows.push(row)
+      seen.add(row.id)
+    }
+    return rows
+  }
+  // 相对时间桶（与官方 relativeTime 一致）。
+  const archiveRelativeTime = (updatedAt: number, now: number): [string, number] => {
+    const MIN = 60000, HOUR = 3600000, DAY = 86400000
+    const diff = Math.max(0, now - updatedAt)
+    if (diff < MIN) return ['time.now', 0]
+    if (diff < HOUR) return ['time.minutes', Math.floor(diff / MIN)]
+    if (diff < DAY) return ['time.hours', Math.floor(diff / HOUR)]
+    if (diff < 30 * DAY) return ['time.days', Math.floor(diff / DAY)]
+    if (diff < 365 * DAY) return ['time.months', Math.floor(diff / (30 * DAY))]
+    return ['time.years', Math.floor(diff / (365 * DAY))]
+  }
+  // 读会话/工作区快照（同步、防御）。
+  const readSnapshots = (): { sessions: SessionsSnap | null; workspaces: WorkspacesSnap | null } => {
+    let sessions: SessionsSnap | null = null
+    let workspaces: WorkspacesSnap | null = null
+    try { sessions = ctx.sessions.list.getSnapshot() as unknown as SessionsSnap } catch { /* ignore */ }
+    try { workspaces = ctx.workspaces.list.getSnapshot() as unknown as WorkspacesSnap } catch { /* ignore */ }
+    return { sessions, workspaces }
+  }
 
-  const unsub = settingsStore.subscribe(syncEnabled)
-  syncEnabled()
+  // ── 状态 ──
+  // 当前打开的归档视图 { workspaceId, label }。
+  let activeTarget: { workspaceId: string; label: string } | null = null
+  let expandedCount = COLLAPSED_LIMIT
+  // 进入视图时的归档行 id 序快照：本视图期间这些行不因「点击查看（恢复）」
+  // 而从列表消失——已打开的行原位保留，直到退出归档视图。再次进入时按当时
+  // 集合重新快照。
+  let orderedIds: string[] | null = null
+  // 归档行宿主容器：注入官方列表该工作区分组容器的末尾。目标工作区行暂时
+  // 不可见（官方重渲染/离开分组视图）时容器先摘下，行回来再挂回。
+  let sectionEl: HTMLElement | null = null
+  let sectionRaf: number | null = null
+  // 相对时间显示刷新（60 秒粒度；renderKey 不含时间桶，需显式绕过缓存）。
+  let timeRefreshTimer: ReturnType<typeof setInterval> | null = null
+  // 容器内容渲染缓存（rows 签名 + currentId + 展开数）：未变时跳过重建，
+  // 是防 MutationObserver 递归死循环的关键。
+  let sectionRenderKey: string | null = null
 
+  const clearArchiveTimers = (): void => {
+    if (timeRefreshTimer !== null) { clearInterval(timeRefreshTimer); timeRefreshTimer = null }
+    if (sectionRaf !== null) { cancelAnimationFrame(sectionRaf); sectionRaf = null }
+  }
+
+  const enterArchive = (workspaceId: string, label: string): void => {
+    activeTarget = { workspaceId: String(workspaceId), label }
+    expandedCount = COLLAPSED_LIMIT
+    // 快照进入时的归档行序（见 orderedIds 声明处注释）。
+    const snap = readSnapshots()
+    orderedIds = archivedRowsOf(
+      Array.isArray(snap.workspaces?.archivedSessionIds) ? snap.workspaces!.archivedSessionIds! : [],
+      snap.workspaces?.items,
+      (snap.sessions?.byId ?? {}) as Record<string, ArchiveSessionSummary>,
+      String(workspaceId),
+    ).map((row) => row.id)
+    // 行停留时周期刷新相对时间文案（60 秒粒度）。
+    if (timeRefreshTimer === null) {
+      timeRefreshTimer = setInterval(() => {
+        if (activeTarget === null) return
+        sectionRenderKey = null
+        renderSectionContent()
+      }, 60000)
+    }
+    syncArchivedSection()
+  }
+  const leaveArchive = (): void => {
+    if (activeTarget === null) return
+    clearArchiveTimers()
+    activeTarget = null
+    expandedCount = COLLAPSED_LIMIT
+    orderedIds = null
+    removeSection()
+    syncButtonActiveMarks()
+  }
+  const toggleArchive = (workspaceId: string, label: string): void => {
+    if (activeTarget !== null && String(activeTarget.workspaceId) === String(workspaceId)) leaveArchive()
+    else enterArchive(workspaceId, label)
+  }
+
+  // ── 取消归档 / 打开 ──
+  // 取消归档（行点击静默）：主机路由改写官方归档集合，成功后刷新会话/
+  // 工作区列表，刷新完成后打开该会话；路由失败时仍尝试直接打开。
+  const unarchiveThen = (sessionId: string): void => {
+    const openSession = (): void => {
+      try {
+        const sessions = ctx.sessions as unknown as { open?: (id: string) => void }
+        if (typeof sessions.open === 'function') sessions.open(sessionId)
+      } catch { /* ignore */ }
+    }
+    void fetch('/dsh-zh/api/session.unarchive', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    }).then((response) => response.json().catch(() => null))
+      .then((parsed: { ok?: boolean } | null) => {
+        const refreshPromises: Array<Promise<unknown>> = []
+        try {
+          const workspaces = ctx.workspaces as unknown as { refresh?: () => Promise<unknown> }
+          if (typeof workspaces.refresh === 'function') refreshPromises.push(workspaces.refresh())
+        } catch { /* ignore */ }
+        try {
+          const sessions = ctx.sessions as unknown as { refresh?: () => Promise<unknown> }
+          if (typeof sessions.refresh === 'function') refreshPromises.push(sessions.refresh())
+        } catch { /* ignore */ }
+        if (parsed === null || parsed.ok !== true) {
+          openSession()
+          return
+        }
+        void Promise.all(refreshPromises).then(openSession, openSession)
+      })
+      .catch(openSession)
+  }
+  // 点击归档行查看：静默取消归档 + 打开会话；归档视图保持显示，已打开的
+  // 行原位保留，可连续打开多个会话（再点一次归档按钮切回默认列表）。
+  const openArchived = (sessionId: string): void => {
+    void unarchiveThen(sessionId)
+  }
+
+  // ── 归档行三点菜单（重命名 / 分叉会话 / 取消归档 / 删除会话） ──
+  // 项与动作对齐官方会话行菜单（rename=binding().session.rename、
+  // fork=fork+open）；「删除会话」与会话行菜单共用开关（deleteSessionEnabled）
+  // 与主机回收站路由。
+  let menuEl: HTMLElement | null = null
+  let menuRowId: string | null = null
+  let dialogEl: HTMLElement | null = null
+  let toastEl: HTMLElement | null = null
+  let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+  const showToast = (text: string, duration: number): void => {
+    try {
+      if (toastTimer !== null) { clearTimeout(toastTimer); toastTimer = null }
+      if (toastEl !== null && toastEl.parentNode !== null) toastEl.parentNode.removeChild(toastEl)
+      toastEl = document.createElement('div')
+      toastEl.setAttribute('class', 'dsh-zh-archive-toast')
+      toastEl.setAttribute('role', 'status')
+      toastEl.textContent = text
+      document.body.appendChild(toastEl)
+      toastTimer = setTimeout(() => {
+        toastTimer = null
+        if (toastEl !== null && toastEl.parentNode !== null) toastEl.parentNode.removeChild(toastEl)
+        toastEl = null
+      }, duration)
+    } catch { /* 提示条失败不影响主流程 */ }
+  }
+  const closeDialog = (): void => {
+    if (dialogEl !== null && dialogEl.parentNode !== null) dialogEl.parentNode.removeChild(dialogEl)
+    dialogEl = null
+  }
+  // 通用对话框（确认框 / 重命名输入框共用骨架）。
+  const showDialog = (build: (card: HTMLElement, close: () => void) => void): void => {
+    closeDialog()
+    const overlay = document.createElement('div')
+    overlay.setAttribute('data-dsh-zh-archive-dialog-mask', '')
+    const card = document.createElement('div')
+    card.setAttribute('data-dsh-zh-archive-dialog', '')
+    build(card, () => { closeDialog() })
+    overlay.appendChild(card)
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) closeDialog()
+    }, false)
+    document.body.appendChild(overlay)
+    dialogEl = overlay
+  }
+  const closeMenu = (): void => {
+    if (menuEl !== null && menuEl.parentNode !== null) menuEl.parentNode.removeChild(menuEl)
+    menuEl = null
+    menuRowId = null
+    try {
+      const open = document.body.querySelectorAll('[data-dsh-zh-archive-menu-open]')
+      for (let i = 0; i < open.length; i += 1) open[i].removeAttribute('data-dsh-zh-archive-menu-open')
+    } catch { /* ignore */ }
+  }
+  // 从归档列表移除一行（取消归档/删除后调用）：orderedIds 剔除 + 立即
+  // 重渲染（不等异步 refresh）。
+  const dropRow = (sessionId: string): void => {
+    if (Array.isArray(orderedIds)) {
+      orderedIds = orderedIds.filter((id) => id !== sessionId)
+    }
+    sectionRenderKey = null
+    renderSectionContent()
+  }
+  // 重命名：与官方 onRename 相同的 per-session 通道（binding().session.rename）。
+  const openRenameDialog = (row: ArchiveRow): void => {
+    showDialog((card, close) => {
+      const titleEl = document.createElement('div')
+      titleEl.setAttribute('data-dsh-zh-archive-dialog-title', '')
+      titleEl.textContent = archiveT('rename.title')
+      const input = document.createElement('input')
+      input.type = 'text'
+      input.setAttribute('data-dsh-zh-archive-rename-input', '')
+      input.value = row.title
+      const actions = document.createElement('div')
+      actions.setAttribute('data-dsh-zh-archive-dialog-actions', '')
+      const cancel = document.createElement('button')
+      cancel.type = 'button'
+      cancel.textContent = archiveT('rename.cancel')
+      cancel.style.cssText = 'padding:6px 16px;border-radius:10px;border:1px solid rgba(127,127,127,0.35);background:transparent;cursor:pointer;font:inherit;font-size:14px'
+      const ok = document.createElement('button')
+      ok.type = 'button'
+      ok.textContent = archiveT('rename.ok')
+      ok.style.cssText = 'padding:6px 16px;border-radius:10px;border:none;background:var(--dsw-alias-state-business-primary,#4f6ef7);color:#fff;cursor:pointer;font:inherit;font-size:14px'
+      const submit = (): void => {
+        const title = input.value.trim()
+        if (title === '') return
+        try {
+          const sessions = ctx.sessions as unknown as {
+            binding?: (id: string) => { session?: { rename?: (title: string) => Promise<{ ok?: boolean; error?: { message?: string } }> } } | undefined
+          }
+          const binding = typeof sessions.binding === 'function' ? sessions.binding(row.id) : undefined
+          const session = binding !== undefined && binding !== null ? binding.session : undefined
+          if (session === undefined || session === null || typeof session.rename !== 'function') {
+            close()
+            return
+          }
+          const onRenameFailed = (error: unknown): void => {
+            const message = error !== null && typeof error === 'object' && 'message' in error
+              ? String((error as { message: unknown }).message) : String(error)
+            showToast(archiveT('rename.failed', { message }), 5000)
+          }
+          // 直接消费返回的 promise（不加 Promise.resolve 包装：真实环境
+          // 行为相同，测试环境可同步断言）。
+          const renameResult = session.rename(title)
+          if (renameResult !== null && typeof renameResult === 'object' && typeof renameResult.then === 'function') {
+            void renameResult.then((result) => {
+              if (result !== null && typeof result === 'object' && result.ok === true) {
+                close()
+                // 标题投影到达后订阅会重渲染；这里先绕过缓存，下一次
+                // 渲染按新标题重建行。
+                sectionRenderKey = null
+              } else {
+                const message = result !== null && typeof result === 'object'
+                  && result.error !== undefined && result.error !== null
+                  && result.error.message !== undefined
+                  ? result.error.message : 'rpc'
+                showToast(archiveT('rename.failed', { message: String(message) }), 5000)
+              }
+            }, onRenameFailed)
+          } else {
+            close()
+          }
+        } catch { close() }
+      }
+      cancel.addEventListener('click', close, false)
+      ok.addEventListener('click', submit, false)
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') submit()
+      }, false)
+      actions.appendChild(cancel)
+      actions.appendChild(ok)
+      card.appendChild(titleEl)
+      card.appendChild(input)
+      card.appendChild(actions)
+    })
+  }
+  // 分叉会话：与官方 onFork 相同（fork + increaseTitle，成功后打开副本）。
+  const forkArchived = (sessionId: string): void => {
+    try {
+      const sessions = ctx.sessions as unknown as {
+        fork?: (opts: { sessionId: string; increaseTitle?: boolean }) => Promise<string>
+        open?: (id: string) => void
+      }
+      if (sessions.fork === undefined || typeof sessions.fork !== 'function') return
+      const forkResult = sessions.fork({ sessionId, increaseTitle: true })
+      void forkResult.then((childId) => {
+        if (typeof sessions.open === 'function') sessions.open(childId)
+      }, () => { /* 失败保持当前选择 */ })
+    } catch { /* ignore */ }
+  }
+  // 取消归档（不打开）：行从归档列表消失，会话回到正常列表（退出归档
+  // 视图后可见）。
+  const unarchiveOnly = (sessionId: string): void => {
+    dropRow(sessionId)
+    void fetch('/dsh-zh/api/session.unarchive', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    }).then((response) => response.json().catch(() => null))
+      .then(() => {
+        try {
+          const workspaces = ctx.workspaces as unknown as { refresh?: () => Promise<unknown> }
+          if (typeof workspaces.refresh === 'function') void workspaces.refresh()
+        } catch { /* ignore */ }
+        try {
+          const sessions = ctx.sessions as unknown as { refresh?: () => Promise<unknown> }
+          if (typeof sessions.refresh === 'function') void sessions.refresh()
+        } catch { /* ignore */ }
+      })
+      .catch(() => { /* ignore */ })
+  }
+  // 删除会话（回收站）：与会话行菜单同一主机路由与语义。
+  const confirmDelete = (row: ArchiveRow): void => {
+    showDialog((card, close) => {
+      const titleEl = document.createElement('div')
+      titleEl.setAttribute('data-dsh-zh-archive-dialog-title', '')
+      titleEl.textContent = archiveT('delete.title')
+      const descEl = document.createElement('div')
+      descEl.setAttribute('data-dsh-zh-archive-dialog-desc', '')
+      descEl.textContent = archiveT('delete.desc')
+      const actions = document.createElement('div')
+      actions.setAttribute('data-dsh-zh-archive-dialog-actions', '')
+      const cancel = document.createElement('button')
+      cancel.type = 'button'
+      cancel.textContent = archiveT('delete.cancel')
+      cancel.style.cssText = 'padding:6px 16px;border-radius:10px;border:1px solid rgba(127,127,127,0.35);background:transparent;cursor:pointer;font:inherit;font-size:14px'
+      const ok = document.createElement('button')
+      ok.type = 'button'
+      ok.textContent = archiveT('delete.ok')
+      ok.style.cssText = 'padding:6px 16px;border-radius:10px;border:none;background:#d93026;color:#fff;cursor:pointer;font:inherit;font-size:14px'
+      cancel.addEventListener('click', close, false)
+      ok.addEventListener('click', () => {
+        close()
+        void performDelete(row)
+      }, false)
+      actions.appendChild(cancel)
+      actions.appendChild(ok)
+      card.appendChild(titleEl)
+      card.appendChild(descEl)
+      card.appendChild(actions)
+    })
+  }
+  const performDelete = (row: ArchiveRow): Promise<boolean> => {
+    showToast(archiveT('delete.deleting'), 2500)
+    let currentSessionId: string | null = null
+    try {
+      const snapshot = ctx.sessions.list.getSnapshot() as unknown as SessionsSnap
+      if (snapshot !== null && typeof snapshot === 'object' && typeof snapshot.current === 'string') {
+        currentSessionId = snapshot.current
+      }
+    } catch { /* ignore */ }
+    return fetch('/dsh-zh/api/session.delete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: row.id, title: row.title, currentSessionId }),
+    }).then((response) => response.json().catch(() => null))
+      .then((parsed: { ok?: boolean; error?: { message?: string } } | null) => {
+        if (parsed === null || parsed.ok !== true) {
+          const message = parsed !== null && parsed.error !== undefined && parsed.error !== null
+            ? parsed.error.message : 'HTTP'
+          showToast(archiveT('delete.failed', { message: String(message) }), 5000)
+          return false
+        }
+        showToast(archiveT('delete.done'), 4000)
+        dropRow(row.id)
+        if (currentSessionId !== null && currentSessionId === row.id) {
+          try {
+            const sessions = ctx.sessions as unknown as { clear?: () => void }
+            if (typeof sessions.clear === 'function') sessions.clear()
+          } catch { /* ignore */ }
+        }
+        try {
+          const workspaces = ctx.workspaces as unknown as { refresh?: () => Promise<unknown> }
+          if (typeof workspaces.refresh === 'function') void workspaces.refresh()
+        } catch { /* ignore */ }
+        try {
+          const sessions = ctx.sessions as unknown as { refresh?: () => Promise<unknown> }
+          if (typeof sessions.refresh === 'function') void sessions.refresh()
+        } catch { /* ignore */ }
+        return true
+      }).catch((error: unknown) => {
+        showToast(archiveT('delete.failed', {
+          message: error instanceof Error ? error.message : String(error),
+        }), 5000)
+        return false
+      })
+  }
+
+  const openMenu = (anchorBtn: HTMLButtonElement, row: ArchiveRow, rowEl: HTMLElement): void => {
+    closeMenu()
+    menuEl = document.createElement('div')
+    menuEl.setAttribute('role', 'menu')
+    menuEl.setAttribute('data-dsh-zh-archive-menu', '')
+    const appendItem = (
+      labelKey: string, iconName: keyof typeof ARCHIVE_ICONS | null,
+      danger: boolean, onClick: () => void, params?: Record<string, string | number>,
+    ): void => {
+      const item = document.createElement('button')
+      item.type = 'button'
+      item.setAttribute('role', 'menuitem')
+      item.setAttribute('data-dsh-zh-archive-menu-item', '')
+      if (danger) item.setAttribute('data-dsh-zh-archive-menu-danger', 'true')
+      const icon = document.createElement('span')
+      icon.setAttribute('data-dsh-zh-archive-menu-icon', '')
+      if (iconName !== null) {
+        const svg = makeIcon(iconName, 16)
+        if (svg !== null) icon.appendChild(svg)
+      } else {
+        icon.textContent = '🗑'
+        icon.style.fontSize = '14px'
+      }
+      const labelEl = document.createElement('span')
+      labelEl.setAttribute('data-dsh-zh-archive-menu-label', '')
+      labelEl.textContent = archiveT(labelKey, params)
+      item.appendChild(icon)
+      item.appendChild(labelEl)
+      item.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        closeMenu()
+        onClick()
+      }, false)
+      menuEl.appendChild(item)
+    }
+    appendItem('menu.rename', 'edit', false, () => { openRenameDialog(row) })
+    appendItem('menu.fork', 'branch', false, () => { forkArchived(row.id) })
+    appendItem('menu.unarchive', 'archive', false, () => { unarchiveOnly(row.id) })
+    try {
+      if (settingsStore.getSnapshot().deleteSessionEnabled === true) {
+        appendItem('menu.delete', null, true, () => { confirmDelete(row) })
+      }
+    } catch { /* 设置读取失败时不提供删除项 */ }
+    document.body.appendChild(menuEl)
+    // 定位：按钮下方、右缘对齐；下方空间不足时改到上方。
+    try {
+      const rect = anchorBtn.getBoundingClientRect()
+      const width = menuEl.offsetWidth
+      const height = menuEl.offsetHeight
+      let left = rect.right - width
+      if (left < 8) left = 8
+      let top = rect.bottom + 4
+      if (typeof window !== 'undefined' && typeof window.innerHeight === 'number'
+        && top + height > window.innerHeight - 12) {
+        top = Math.max(12, rect.top - height - 4)
+      }
+      menuEl.style.left = `${left}px`
+      menuEl.style.top = `${top}px`
+    } catch { /* 定位失败时菜单留在默认位置 */ }
+    menuRowId = row.id
+    rowEl.setAttribute('data-dsh-zh-archive-menu-open', '')
+  }
+
+  // ── 归档行注入（官方列表流内渲染） ──
+  // 查看归档 = 切换视图：该工作区分组下的正常会话行被隐藏（可逆，
+  // HIDDEN_ROW_MARK 标记），归档行容器顶替其位置挂在分组容器内——官方
+  // 列表流的一部分，随官方滚动容器整体滚动（无独立滚动条），展开后整个
+  // 列表变长。再点一次归档按钮恢复正常会话。
+  const removeSection = (): void => {
+    if (sectionRaf !== null) { cancelAnimationFrame(sectionRaf); sectionRaf = null }
+    if (sectionEl !== null && sectionEl.parentNode !== null) sectionEl.parentNode.removeChild(sectionEl)
+    sectionEl = null
+    sectionRenderKey = null
+    closeMenu()
+    closeDialog()
+    restoreHiddenSessions()
+  }
+  // 分组容器的直接子节点是否为（或包含）工作区行——工作区行始终显示。
+  const isWorkspaceRowHost = (child: Element): boolean => {
+    if (isWorkspaceRow(child)) return true
+    try {
+      const inner = child.querySelectorAll('div[role="treeitem"][aria-expanded]')
+      for (let i = 0; i < inner.length; i += 1) {
+        if (isWorkspaceRow(inner[i])) return true
+      }
+    } catch { /* ignore */ }
+    return false
+  }
+  // 隐藏分组容器下的正常会话行（幂等；官方重渲染新增的行在下次 sync 时
+  // 同样被隐藏）。
+  const hideWorkspaceSessions = (host: HTMLElement): void => {
+    try {
+      const children = host.children
+      for (let i = 0; i < children.length; i += 1) {
+        const child = children[i] as HTMLElement
+        if (child === sectionEl) continue
+        if (child.getAttribute(HIDDEN_ROW_MARK) !== null) continue
+        if (isWorkspaceRowHost(child)) continue
+        child.setAttribute(HIDDEN_ROW_MARK, '')
+        child.style.display = 'none'
+      }
+    } catch { /* ignore */ }
+  }
+  // 恢复所有被隐藏的正常会话行（全局查询，同时只有一个归档视图）。
+  const restoreHiddenSessions = (): void => {
+    try {
+      const hidden = document.body.querySelectorAll(`[${HIDDEN_ROW_MARK}]`)
+      for (let i = 0; i < hidden.length; i += 1) {
+        const el = hidden[i] as HTMLElement
+        el.removeAttribute(HIDDEN_ROW_MARK)
+        el.style.display = ''
+      }
+    } catch { /* ignore */ }
+  }
+  // 官方列表滚动容器（.list，role=tree）。
+  const findListContainer = (): Element | null => {
+    try {
+      return document.body.querySelector('div[data-slot="sidebar.workspaces"] [role="tree"]')
+    } catch { /* ignore */ }
+    return null
+  }
+  // 目标工作区行所在的分组容器（官方滚动容器的直接子级，即该工作区的
+  // groupSection）：归档行宿主容器挂到它的末尾，与该工作区的会话行同流。
+  const groupHostOf = (row: HTMLElement): HTMLElement | null => {
+    try {
+      const treeEl = findListContainer()
+      if (treeEl === null) return null
+      let el = row.parentElement
+      while (el !== null && el !== document.body) {
+        if (el.parentElement === treeEl) return el
+        el = el.parentElement
+      }
+    } catch { /* ignore */ }
+    return null
+  }
+  // 目标工作区行定位（fiber 识别，见 workspaceInfoOfRow）。
+  const targetRowOf = (workspaceId: string): HTMLElement | null => {
+    const rows = findWorkspaceRows(document.body)
+    for (const row of rows) {
+      const info = workspaceInfoOfRow(row)
+      if (info !== null && String(info.workspaceId) === String(workspaceId)) return row
+    }
+    return null
+  }
+  // 渲染/更新容器内容（行列表 + 空状态 + 展开按钮）。
+  const renderSectionContent = (): void => {
+    if (sectionEl === null || activeTarget === null) return
+    const snap = readSnapshots()
+    const archivedIds = Array.isArray(snap.workspaces?.archivedSessionIds)
+      ? snap.workspaces!.archivedSessionIds! : []
+    const items = snap.workspaces?.items
+    const byId = (snap.sessions?.byId ?? {}) as Record<string, ArchiveSessionSummary>
+    const rows = mergedRowsOf(archivedIds, items, byId, activeTarget.workspaceId, orderedIds)
+    const currentId = snap.sessions?.current
+    const now = Date.now()
+    const shown = rows.slice(0, expandedCount)
+    // 签名含 id 序与标题/时间戳：已恢复的行原位保留（id 序不变），但
+    // 重命名（标题变化）或会话活动（时间戳变化）后要重建行。
+    const key = `${expandedCount}|${String(currentId)}|`
+      + rows.map((r) => `${r.id}:${r.title}:${r.updatedAt}`).join(',')
+    if (key === sectionRenderKey) return
+    // 行 DOM 即将重建：打开中的菜单先行关闭（锚点行会被替换）。注意必须在
+    // key 变化判定之后——打开菜单自身会触发 observer → rAF 同步 → 本函数，
+    // 内容未变时不能把刚打开的菜单关掉。
+    closeMenu()
+    sectionRenderKey = key
+    // 清空容器。
+    while (sectionEl.firstChild !== null) sectionEl.removeChild(sectionEl.firstChild)
+    if (rows.length === 0) {
+      const emptyEl = document.createElement('div')
+      emptyEl.setAttribute('data-dsh-zh-archive-empty', '')
+      emptyEl.textContent = archiveT('empty')
+      sectionEl.appendChild(emptyEl)
+      return
+    }
+    for (const row of shown) {
+      const rowEl = document.createElement('div')
+      rowEl.setAttribute('role', 'treeitem')
+      rowEl.setAttribute('data-dsh-zh-archive-row', '')
+      rowEl.setAttribute('data-dsh-zh-archive-id', row.id)
+      rowEl.setAttribute('data-dsh-zh-archive-selected', row.id === currentId ? 'true' : 'false')
+      rowEl.setAttribute('aria-selected', row.id === currentId ? 'true' : 'false')
+      // slot 占位（16px，标题缩进与官方会话行对齐）。
+      const slotEl = document.createElement('span')
+      slotEl.setAttribute('data-dsh-zh-archive-slot', '')
+      rowEl.appendChild(slotEl)
+      const titleEl = document.createElement('span')
+      titleEl.setAttribute('data-dsh-zh-archive-title', '')
+      titleEl.textContent = row.title
+      rowEl.appendChild(titleEl)
+      if (row.updatedAt > 0) {
+        const timeKey = archiveRelativeTime(row.updatedAt, now)
+        const timeEl = document.createElement('span')
+        timeEl.setAttribute('data-dsh-zh-archive-time', '')
+        timeEl.textContent = archiveT(timeKey[0], { n: timeKey[1] })
+        rowEl.appendChild(timeEl)
+      }
+      // 行尾三点按钮（与官方会话行同位置：hover 显示、时间列让位）。
+      const actionsEl = document.createElement('span')
+      actionsEl.setAttribute('data-dsh-zh-archive-actions', '')
+      const actionsBtn = document.createElement('button')
+      actionsBtn.type = 'button'
+      actionsBtn.setAttribute('data-dsh-zh-archive-actions-button', '')
+      actionsBtn.setAttribute('aria-label', archiveT('actions.aria', { name: row.title }))
+      const ellipsisIcon = makeIcon('ellipsis', 16)
+      if (ellipsisIcon !== null) actionsBtn.appendChild(ellipsisIcon)
+      actionsBtn.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (menuRowId === row.id) closeMenu()
+        else openMenu(actionsBtn, row, rowEl)
+      }, false)
+      actionsEl.appendChild(actionsBtn)
+      rowEl.appendChild(actionsEl)
+      // 整行点击 = 静默取消归档 + 打开（已恢复的行再次点击：取消归档幂等
+      // 无写入，等效于重新打开）。
+      rowEl.addEventListener('click', () => {
+        openArchived(row.id)
+      }, false)
+      sectionEl.appendChild(rowEl)
+    }
+    // 渐进展开按钮：还有未显示的行 → 「再展开 N 个归档」（N = 每批
+    // EXPAND_STEP 行，剩余不足一批时为剩余数）；全部显示且展开过 → 「收起」，
+    // 点击收回 COLLAPSED_LIMIT 行。行数不超过收起阈值时不显示按钮。
+    const hasMore = rows.length > expandedCount
+    const canCollapse = expandedCount > COLLAPSED_LIMIT
+    if (rows.length > COLLAPSED_LIMIT && (hasMore || canCollapse)) {
+      const moreBtn = document.createElement('button')
+      moreBtn.type = 'button'
+      moreBtn.setAttribute('data-dsh-zh-archive-more', '')
+      moreBtn.setAttribute('aria-expanded', hasMore ? 'false' : 'true')
+      moreBtn.textContent = hasMore
+        ? archiveT('expand', { n: Math.min(EXPAND_STEP, rows.length - expandedCount) })
+        : archiveT('collapse')
+      moreBtn.addEventListener('click', () => {
+        if (rows.length > expandedCount) expandedCount += EXPAND_STEP
+        else expandedCount = COLLAPSED_LIMIT
+        renderSectionContent()
+      }, false)
+      sectionEl.appendChild(moreBtn)
+    }
+  }
+  // 同步注入：激活时确保容器挂在目标分组容器末尾并重渲染；未激活时移除。
+  // 目标工作区行暂不可见（官方离开分组视图/重渲染瞬间）时只摘下容器、保留
+  // 归档视图状态，行回来后自动挂回。
+  const syncArchivedSection = (): void => {
+    if (activeTarget === null) {
+      removeSection()
+      syncButtonActiveMarks()
+      return
+    }
+    const row = targetRowOf(activeTarget.workspaceId)
+    if (row === null) {
+      removeSection()
+      syncButtonActiveMarks()
+      return
+    }
+    const host = groupHostOf(row)
+    if (host === null) {
+      removeSection()
+      syncButtonActiveMarks()
+      return
+    }
+    if (sectionEl === null) {
+      sectionEl = document.createElement('div')
+      sectionEl.setAttribute('data-dsh-zh-archive-section', '')
+    }
+    if (sectionEl.parentNode !== host) host.appendChild(sectionEl)
+    // 切换视图：隐藏该工作区的正常会话行（官方重渲染新增的行也会在本调用
+    // 中一并隐藏，幂等）。
+    hideWorkspaceSessions(host)
+    // 跟随官方分组的展开/收起：工作区行收起时归档行一并隐藏。
+    try {
+      sectionEl.style.display = row.getAttribute('aria-expanded') === 'false' ? 'none' : ''
+    } catch { /* ignore */ }
+    renderSectionContent()
+    syncButtonActiveMarks()
+  }
+  // rAF 节流的同步（observer/数据订阅高频触发使用）。
+  const scheduleSectionSync = (): void => {
+    if (sectionRaf !== null) return
+    sectionRaf = requestAnimationFrame(() => {
+      sectionRaf = null
+      syncArchivedSection()
+    })
+  }
+
+  // ── 工作区行解析与归档按钮注入（DOM 增强） ──
+  // 工作区行 = 分组视图里的 ProjectRowItem 行：
+  //   - 真实工作区行：有「新建会话」（+）按钮；
+  //   - 未分组桶行：无 + 按钮，行内 fiber 的 group.workspaceId === undefined。
+  // 从行内 fiber 读 group（与 session-menu 读 node.id 同法）。
+  const readGroupFromRow = (row: HTMLElement): RowGroupInfo | null => {
+    try {
+      const fiberKeys = Object.keys(row).filter((key) => key.startsWith('__reactFiber$'))
+      for (const key of fiberKeys) {
+        let fiber = (row as unknown as Record<string, unknown>)[key] as
+          { memoizedProps?: { group?: unknown }; return?: unknown } | null | undefined
+        let depth = 0
+        while (fiber !== null && fiber !== undefined && depth < 40) {
+          const memoizedProps = fiber.memoizedProps
+          if (memoizedProps !== null && memoizedProps !== undefined && typeof memoizedProps === 'object') {
+            const group = memoizedProps.group
+            if (group !== null && typeof group === 'object') {
+              const g = group as { workspaceId?: unknown; label?: unknown }
+              return {
+                workspaceId: typeof g.workspaceId === 'string' ? g.workspaceId : undefined,
+                label: typeof g.label === 'string' ? g.label : '',
+              }
+            }
+          }
+          fiber = fiber.return as typeof fiber
+          depth += 1
+        }
+      }
+    } catch { /* ignore */ }
+    return null
+  }
+  const isWorkspaceRow = (row: Element | null): boolean => {
+    if (row === null || row === undefined || row.nodeType !== 1 || typeof row.querySelector !== 'function') return false
+    if (row.getAttribute('role') !== 'treeitem') return false
+    if (row.getAttribute('aria-expanded') === null) return false
+    for (const mark of ARCHIVE_WS_NEW_SESSION) {
+      try {
+        if (row.querySelector(`button[aria-label^="${mark}"]`) !== null) return true
+      } catch { /* ignore */ }
+    }
+    const group = readGroupFromRow(row as HTMLElement)
+    return group !== null && group.workspaceId === undefined
+  }
+  const findWorkspaceRows = (root: HTMLElement | Document): HTMLElement[] => {
+    const rows: HTMLElement[] = []
+    if (root === undefined || root === null || typeof root.querySelectorAll !== 'function') return rows
+    const all = root.querySelectorAll('div[role="treeitem"][aria-expanded]')
+    for (let i = 0; i < all.length; i += 1) {
+      if (isWorkspaceRow(all[i])) rows.push(all[i] as HTMLElement)
+    }
+    return rows
+  }
+  const rowTitleOf = (row: HTMLElement): string => {
+    try {
+      const titleSpan = row.querySelector<HTMLElement>('span[class*="title"]')
+      if (titleSpan !== null && titleSpan.textContent !== '') return (titleSpan.textContent ?? '').trim()
+    } catch { /* ignore */ }
+    return ''
+  }
+  const workspaceInfoOfRow = (row: HTMLElement): { workspaceId: string; label: string } | null => {
+    const group = readGroupFromRow(row)
+    if (group !== null) {
+      if (typeof group.workspaceId === 'string') {
+        return {
+          workspaceId: group.workspaceId,
+          label: group.label !== '' ? group.label : rowTitleOf(row),
+        }
+      }
+      if (group.workspaceId === undefined) {
+        const title = rowTitleOf(row)
+        return { workspaceId: UNGROUPED_KEY, label: title !== '' ? title : archiveT('group.ungrouped') }
+      }
+    }
+    // 标题匹配工作区快照兜底（唯一匹配才返回）。
+    const title = rowTitleOf(row)
+    if (title === '') return null
+    try {
+      const snap = ctx.workspaces.list.getSnapshot() as unknown as WorkspacesSnap
+      if (snap !== null && Array.isArray(snap.items)) {
+        let matched: WorkspaceItem | null = null
+        for (const item of snap.items) {
+          if (item !== null && typeof item === 'object' && item.title === title) {
+            if (matched !== null) return null
+            matched = item
+          }
+        }
+        if (matched !== null && typeof matched.workspaceId === 'string') {
+          return { workspaceId: String(matched.workspaceId), label: title }
+        }
+      }
+    } catch { /* ignore */ }
+    return { workspaceId: UNGROUPED_KEY, label: title }
+  }
+  const syncButtonActiveMarks = (): void => {
+    try {
+      const buttons = document.body.querySelectorAll(`button[${ARCHIVE_BTN_MARK}]`)
+      for (let i = 0; i < buttons.length; i += 1) {
+        const button = buttons[i] as HTMLButtonElement
+        let active = false
+        if (activeTarget !== null) {
+          let el: HTMLElement | null = button
+          while (el !== null && el !== document.body) {
+            if (isWorkspaceRow(el)) {
+              const info = workspaceInfoOfRow(el)
+              if (info !== null && String(info.workspaceId) === String(activeTarget.workspaceId)) active = true
+              break
+            }
+            el = el.parentElement
+          }
+        }
+        button.setAttribute('data-dsh-zh-archive-active', active ? 'true' : 'false')
+      }
+    } catch { /* ignore */ }
+  }
+  const removeInjectedButtons = (row: HTMLElement): void => {
+    try {
+      const existing = row.querySelectorAll(`button[${ARCHIVE_BTN_MARK}]`)
+      for (let i = 0; i < existing.length; i += 1) {
+        const button = existing[i]
+        if (button.parentNode !== null) button.parentNode.removeChild(button)
+      }
+    } catch { /* ignore */ }
+    try {
+      row.removeAttribute(ARCHIVE_ROW_MARK)
+      row.removeAttribute('data-dsh-zh-ws-row-standalone')
+    } catch { /* ignore */ }
+  }
+  const injectButton = (row: HTMLElement): void => {
+    if (row.getAttribute(ARCHIVE_ROW_MARK) !== null) return
+    const info = workspaceInfoOfRow(row)
+    if (info === null) return
+    removeInjectedButtons(row)
+    // 优先克隆官方 + 按钮模板（继承官方图标按钮几何）；未分组行无模板时
+    // 退回自建按钮。
+    let template: HTMLButtonElement | null = null
+    for (const mark of ARCHIVE_WS_NEW_SESSION) {
+      try {
+        template = row.querySelector<HTMLButtonElement>(`button[aria-label^="${mark}"]`)
+      } catch { template = null }
+      if (template !== null) break
+    }
+    let button: HTMLButtonElement
+    if (template !== null) {
+      button = template.cloneNode(true) as HTMLButtonElement
+      while (button.firstChild !== null) button.removeChild(button.firstChild)
+      button.removeAttribute('aria-label')
+    } else {
+      button = document.createElement('button')
+      button.type = 'button'
+    }
+    button.setAttribute('aria-label', archiveT('buttonLabel'))
+    button.title = archiveT('buttonTitle')
+    button.setAttribute(ARCHIVE_BTN_MARK, '')
+    const svg = makeIcon('archive', 16)
+    if (svg !== null) button.appendChild(svg)
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const rowInfo = workspaceInfoOfRow(row)
+      if (rowInfo !== null) toggleArchive(rowInfo.workspaceId, rowInfo.label)
+    }, false)
+    if (template !== null && template.parentElement !== null) {
+      const actionsHost = template.parentElement
+      const firstAction = actionsHost!.firstElementChild
+      if (firstAction !== null && firstAction !== button) actionsHost!.insertBefore(button, firstAction)
+      else actionsHost!.appendChild(button)
+    } else {
+      row.appendChild(button)
+      row.setAttribute('data-dsh-zh-ws-row-standalone', '')
+    }
+    row.setAttribute(ARCHIVE_ROW_MARK, '')
+  }
+  const runButtonPass = (): void => {
+    if (document.body === null) return
+    const rows = findWorkspaceRows(document.body)
+    for (const row of rows) injectButton(row)
+    syncButtonActiveMarks()
+    // 官方列表变化时同步归档行注入（容器挂载点/内容）。内容有缓存、
+    // 同步走 rAF 节流，避免 observer 递归。
+    if (activeTarget !== null) scheduleSectionSync()
+  }
+  const ownsButtonNode = (node: Node): boolean => {
+    if (node === null || node === undefined || node.nodeType !== 1) return false
+    if (typeof (node as HTMLElement).getAttribute !== 'function') return false
+    return (node as HTMLElement).getAttribute(ARCHIVE_BTN_MARK) !== null
+  }
+  const ownsOwnNode = (node: Node): boolean => {
+    if (node === null || node === undefined || node.nodeType !== 1) return false
+    if (typeof (node as HTMLElement).getAttribute !== 'function') return false
+    // 直接匹配我们创建的标记。
+    if ((node as HTMLElement).getAttribute('data-dsh-zh-archive-section') !== null
+      || (node as HTMLElement).getAttribute('data-dsh-zh-archive-row') !== null
+      || (node as HTMLElement).getAttribute('data-dsh-zh-archive-more') !== null
+      || (node as HTMLElement).getAttribute('data-dsh-zh-archive-empty') !== null
+      || (node as HTMLElement).getAttribute('data-dsh-zh-archive-menu') !== null
+      || (node as HTMLElement).getAttribute('data-dsh-zh-archive-dialog-mask') !== null
+      || (node as HTMLElement).getAttribute('class') === 'dsh-zh-archive-toast') return true
+    // 祖先链检测：归档行容器/菜单/对话框内的任何后代变动都跳过。这一步是
+    // 防死循环的核心——我们自己的 append/remove 会触发 observer，若不识别为
+    // 自己人就会再次触发 runButtonPass → 同步 → 重建 → 死循环。
+    let ancestor = (node as HTMLElement).parentElement
+    while (ancestor !== null && ancestor !== document.body && ancestor !== undefined) {
+      if (typeof ancestor.getAttribute === 'function'
+        && (ancestor.getAttribute('data-dsh-zh-archive-section') !== null
+          || ancestor.getAttribute('data-dsh-zh-archive-menu') !== null
+          || ancestor.getAttribute('data-dsh-zh-archive-dialog-mask') !== null)) return true
+      ancestor = ancestor.parentElement
+    }
+    return false
+  }
+  let buttonObserver: MutationObserver | null = new MutationObserver((records) => {
+    // 关闭开关/卸载后 observer 不再有效：即使残留回调被（测试）手动触发
+    // 也不注入按钮或归档行。
+    if (buttonObserver === null) return
+    let external = false
+    for (const record of records) {
+      const added = record.addedNodes
+      if (added !== null && added !== undefined && added.length > 0) {
+        for (let i = 0; i < added.length; i += 1) {
+          if (!ownsButtonNode(added[i]) && !ownsOwnNode(added[i])) { external = true; break }
+        }
+        if (external) break
+        continue
+      }
+      if (record.target !== null && record.target !== undefined
+        && !ownsButtonNode(record.target) && !ownsOwnNode(record.target)) {
+        external = true
+        break
+      }
+    }
+    if (external) {
+      runButtonPass()
+    } else if (activeTarget !== null) {
+      // 我们自己的容器变动（如展开/收起重建）不需要重注入，但按钮激活态
+      // 可能因容器外行变化而漂移——用 rAF 节流防止递归。
+      scheduleSectionSync()
+    }
+  })
+  buttonObserver.observe(document.documentElement, { childList: true, subtree: true })
+  runButtonPass()
+
+  // ── 数据订阅：快照变化时重渲染归档行 ──
+  const dataUnsubs: Array<() => void> = []
+  try {
+    if (typeof ctx.sessions.list.subscribe === 'function') {
+      dataUnsubs.push(ctx.sessions.list.subscribe(() => {
+        if (activeTarget !== null) scheduleSectionSync()
+      }))
+    }
+  } catch { /* ignore */ }
+  try {
+    if (typeof ctx.workspaces.list.subscribe === 'function') {
+      dataUnsubs.push(ctx.workspaces.list.subscribe(() => {
+        if (activeTarget !== null) scheduleSectionSync()
+      }))
+    }
+  } catch { /* ignore */ }
+
+  // ── 设置订阅：开关相关字段变化时实时注入/移除 ──
+  dataUnsubs.push(settingsStore.subscribe(() => {
+    try {
+      runButtonPass()
+    } catch (error) {
+      console.warn('[dsh-zh] 归档按钮注入失败：' + (error instanceof Error ? error.message : String(error)))
+    }
+    if (activeTarget !== null) {
+      sectionRenderKey = null
+      syncArchivedSection()
+    }
+  }))
+
+  // ── 语言切换：更新按钮文案 + 重渲染归档行 ──
+  const localeUnsubscribe = typeof localeService.subscribe === 'function'
+    ? localeService.subscribe(() => {
+      try {
+        const buttons = document.body.querySelectorAll(`button[${ARCHIVE_BTN_MARK}]`)
+        for (let i = 0; i < buttons.length; i += 1) {
+          const btn = buttons[i] as HTMLButtonElement
+          btn.setAttribute('aria-label', archiveT('buttonLabel'))
+          btn.title = archiveT('buttonTitle')
+        }
+      } catch { /* ignore */ }
+      if (activeTarget !== null) {
+        sectionRenderKey = null
+        syncArchivedSection()
+      }
+    })
+    : null
+
+  // ── 文档级交互：菜单/对话框外部关闭 / 新建会话退出 / Escape ──
+  // 列表外点击不退出归档视图（用户期望只有再点「归档」按钮才切回默认
+  // 列表）。三点菜单与对话框独立于归档视图：点击外部先关菜单（Escape
+  // 同理，且优先于退出归档视图）。
+  const onDocumentPointerDown = (event: PointerEvent): void => {
+    const target = event.target as HTMLElement | null
+    if (target === null || target === undefined) return
+    if (typeof target.closest === 'function') {
+      if (menuEl !== null && target.closest('[data-dsh-zh-archive-menu]') === null) closeMenu()
+    }
+    if (activeTarget === null) return
+    if (typeof target.closest !== 'function') return
+    const newSessionBtn = target.closest(`button[aria-label^="${ARCHIVE_WS_NEW_SESSION[0]}"]`)
+      ?? target.closest(`button[aria-label^="${ARCHIVE_WS_NEW_SESSION[1]}"]`)
+    if (newSessionBtn !== null) leaveArchive()
+  }
+  document.addEventListener('pointerdown', onDocumentPointerDown, true)
+  const onDocumentKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape') return
+    if (menuEl !== null) { closeMenu(); return }
+    if (dialogEl !== null) { closeDialog(); return }
+    if (activeTarget !== null) leaveArchive()
+  }
+  document.addEventListener('keydown', onDocumentKeyDown, true)
+
+  // ── 清理（全部副作用可逆） ──
   return function () {
-    unsub()
-    stop()
+    if (localeDispose !== null) {
+      try { localeDispose() } catch { /* ignore */ }
+      localeDispose = null
+    }
+    activeTarget = null
+    expandedCount = COLLAPSED_LIMIT
+    orderedIds = null
+    if (buttonObserver !== null) { buttonObserver.disconnect(); buttonObserver = null }
+    if (styleObserver !== null) { styleObserver.disconnect(); styleObserver = null }
+    for (const un of dataUnsubs) {
+      try { un() } catch { /* ignore */ }
+    }
+    if (localeUnsubscribe !== null) localeUnsubscribe()
+    document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+    document.removeEventListener('keydown', onDocumentKeyDown, true)
+    clearArchiveTimers()
+    removeSection()
+    if (toastTimer !== null) { clearTimeout(toastTimer); toastTimer = null }
+    if (toastEl !== null && toastEl.parentNode !== null) toastEl.parentNode.removeChild(toastEl)
+    toastEl = null
+    try {
+      const buttons = document.body.querySelectorAll(`button[${ARCHIVE_BTN_MARK}]`)
+      for (let i = 0; i < buttons.length; i += 1) {
+        const button = buttons[i]
+        if (button.parentNode !== null) button.parentNode.removeChild(button)
+      }
+    } catch { /* ignore */ }
+    // 清除工作区行的注入标记（含 standalone 与 ARCHIVE_ROW_MARK），使重新
+    // 开启开关时按钮能再次注入。
+    try {
+      const wsRows = findWorkspaceRows(document.body)
+      for (const row of wsRows) removeInjectedButtons(row)
+    } catch { /* ignore */ }
+    try {
+      const standaloneRows = document.body.querySelectorAll('[data-dsh-zh-ws-row-standalone]')
+      for (let i = 0; i < standaloneRows.length; i += 1) {
+        standaloneRows[i].removeAttribute('data-dsh-zh-ws-row-standalone')
+      }
+    } catch { /* ignore */ }
+    try {
+      if (document.head) {
+        const styles = [
+          ...Array.from(document.head.querySelectorAll('style[data-plugin-css="dsh-zh/archive-view.css"]')),
+          ...Array.from(document.head.querySelectorAll('style[data-plugin-css="dsh-zh/archive-button.css"]')),
+        ]
+        for (const style of styles) {
+          if (style.parentNode !== null) style.parentNode.removeChild(style)
+        }
+      }
+    } catch { /* ignore */ }
   }
 }

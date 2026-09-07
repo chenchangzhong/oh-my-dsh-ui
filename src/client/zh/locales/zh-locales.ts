@@ -6,8 +6,8 @@
  *   - ZH_ARCHIVE_NS ('dsh-zh-archive')   → 归档会话视图 labels
  *
  * The SETTINGS_ZH / SETTINGS_EN dicts are imported from ../data/settings-dicts.ts.
- * The ARCHIVE_COPY dict is inlined here (duplicated from archive-view.ts source to
- * avoid circular imports).
+ * The ARCHIVE_COPY dicts are the single source for the archive view copy —
+ * archive-view.ts registers and binds ZH_ARCHIVE_NS from archiveLocales.
  */
 import { SETTINGS_ZH, SETTINGS_EN } from '../data/settings-dicts.ts'
 import { ZH_SETTINGS_NS, ZH_ARCHIVE_NS } from '../shared.ts'
