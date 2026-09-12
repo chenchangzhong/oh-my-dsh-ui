@@ -11,6 +11,7 @@ import { ZH_SETTINGS_NS } from '../shared.ts'
 import { SETTINGS_ZH, SETTINGS_EN } from '../data/settings-dicts.ts'
 import type { ZhSettingsSection, ZhPromptSection, ServiceMonitorTarget } from '../shared.ts'
 import { parseServiceAddress, isLoopbackServiceHost } from './service-monitor.ts'
+import { publishMotionPreference } from '../../smooth/settings.ts'
 
 // ─── Styles (identical to source) ────────────────────────────────────────────
 const s = {
@@ -226,6 +227,19 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
     serviceMonitorTargets: [] as ServiceMonitorTarget[],
     serviceMonitorSettingsOpen: false,
   }
+
+  // ── smooth（丝滑流式）字段 ──────────────────────────────────────────────────
+  // smooth 的设置卡注册在 `settings.plugin.item`，而当前 DSH 的「插件」页并不会
+  // 渲染插件的该项注册，所以它从来没有出现过。这里把 smooth 的设置并进「增强」
+  // 标签——两者读写的是同一个 ui-custom 命名空间，直接走 scope 即可。
+  const smoothScope = uiSnap as (ZhSettingsSection & {
+    smoothEnabled?: boolean
+    smoothThinkAutoExpand?: boolean
+    smoothMotionPreference?: string
+  }) | undefined
+  const smoothEnabled = smoothScope?.smoothEnabled !== false
+  const smoothThinkAutoExpand = smoothScope?.smoothThinkAutoExpand !== false
+  const smoothMotionPreference = smoothScope?.smoothMotionPreference ?? 'auto'
 
   // ── Service monitor card handlers ──────────────────────────────────────────
   const svcTargets: ServiceMonitorTarget[] = ui.serviceMonitorTargets ?? []
@@ -528,6 +542,33 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
           toggle(ui.batchOpsEnabled, () => settings.set('batchOpsEnabled', !ui.batchOpsEnabled))),
         row('renderUserMarkdown', t('renderUserMarkdown'), t('renderUserMarkdownDesc'),
           toggle(ui.renderUserMarkdown, () => settings.set('renderUserMarkdown', !ui.renderUserMarkdown)), true)
+      ),
+
+      // ── 丝滑流式（smooth）────────────────────────────────────────────────
+      React.createElement('div', {
+        key: 'smoothFeatures',
+        style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' },
+      },
+        React.createElement('div', { style: s.groupHeader }, t('smoothSection')),
+        row('smoothEnabled', t('smoothEnabled'), t('smoothEnabledDesc'),
+          toggle(smoothEnabled, () => settings.set('smoothEnabled', !smoothEnabled))),
+        row('smoothThinkAutoExpand', t('smoothThinkAutoExpand'), t('smoothThinkAutoExpandDesc'),
+          toggle(smoothThinkAutoExpand, () => settings.set('smoothThinkAutoExpand', !smoothThinkAutoExpand))),
+        row('smoothMotionPreference', t('smoothMotionPreference'), t('smoothMotionPreferenceDesc'),
+          selectInput(
+            smoothMotionPreference,
+            [
+              ['auto', t('smoothMotionAuto')],
+              ['force-smooth', t('smoothMotionForceSmooth')],
+              ['force-reduced', t('smoothMotionForceReduced')],
+            ],
+            (v) => {
+              settings.set('smoothMotionPreference', v)
+              // 渲染器按消息行挂载、拿不到 scope，需要显式把新偏好推给它们。
+              publishMotionPreference(v)
+            },
+            t('smoothMotionPreference'),
+          ), true),
       ),
 
       // ── 服务监控卡片（复刻官方插件设置卡的收缩样式，位于设置页最下方）──
