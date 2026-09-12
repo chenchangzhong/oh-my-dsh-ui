@@ -11,6 +11,7 @@ import {
   DEFAULT_STREAM_DEBUG_TUNING,
   DEFAULT_STREAM_SETTINGS,
   publishMotionPreference,
+  publishLogFade,
   toMotionPreference,
   type StreamDebugTuning,
   type StreamSettings,
@@ -26,6 +27,7 @@ export interface SmoothScopeSnapshot {
   smoothDebugEnabled: boolean
   smoothDebugTuning: StreamDebugTuning
   smoothMotionPreference: string
+  smoothLogFadeEnabled: boolean
 }
 
 /** Default values for smooth scope fields. */
@@ -35,6 +37,7 @@ const SMOOTH_DEFAULTS: SmoothScopeSnapshot = {
   smoothDebugEnabled: DEFAULT_STREAM_SETTINGS.debugEnabled,
   smoothDebugTuning: DEFAULT_STREAM_DEBUG_TUNING,
   smoothMotionPreference: DEFAULT_STREAM_SETTINGS.motionPreference,
+  smoothLogFadeEnabled: DEFAULT_STREAM_SETTINGS.logarithmicFade,
 }
 
 /** Parse debug tuning from a raw scope value. */
@@ -65,6 +68,7 @@ function buildSnapshot(raw: unknown): StreamSettings {
     thinkAutoExpand: typeof obj.smoothThinkAutoExpand === 'boolean' ? obj.smoothThinkAutoExpand : DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
     debugEnabled: typeof obj.smoothDebugEnabled === 'boolean' ? obj.smoothDebugEnabled : DEFAULT_STREAM_SETTINGS.debugEnabled,
     motionPreference: toMotionPreference(obj.smoothMotionPreference),
+    logarithmicFade: obj.smoothLogFadeEnabled !== false,
     debugTuning: parseDebugTuning(obj.smoothDebugTuning),
   }
 }
@@ -88,6 +92,7 @@ export function createHostSettingsApi(
         const settings = buildSnapshot(snapshot.value)
         // Mirror the preference to live renderers (they hold no scope).
         publishMotionPreference(settings.motionPreference)
+        publishLogFade(settings.logarithmicFade)
         return settings
       } catch {
         return { ...DEFAULT_STREAM_SETTINGS }
@@ -102,6 +107,10 @@ export function createHostSettingsApi(
         if (settings.motionPreference !== undefined) {
           patch.smoothMotionPreference = toMotionPreference(settings.motionPreference)
           publishMotionPreference(settings.motionPreference)
+        }
+        if (settings.logarithmicFade !== undefined) {
+          patch.smoothLogFadeEnabled = settings.logarithmicFade !== false
+          publishLogFade(settings.logarithmicFade)
         }
         if (settings.debugTuning !== undefined) {
           patch.smoothDebugTuning = {

@@ -309,6 +309,11 @@ export interface SmoothSection {
    * 性能配置强制打开且无法关掉，故给用户一个显式覆盖。
    */
   smoothMotionPreference?: 'auto' | 'force-smooth' | 'force-reduced'
+  /**
+   * 自适应对数透明度淡出：新出现的字符由半透明渐入到正常色（纯绘制层，
+   * 不改 DOM、不影响选择与复制）。默认开。
+   */
+  smoothLogFadeEnabled?: boolean
 }
 
 /** The plugin's full settings section, flat on one namespace. */

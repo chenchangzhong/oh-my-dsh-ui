@@ -33,7 +33,7 @@ import { DebugPanel } from './DebugPanel.tsx'
 import { debugRuntime } from './debugRuntime.ts'
 import { NS as SETTINGS_NS, en, zh } from './locales.ts'
 import { DEFAULT_STREAM_CONFIG, type StreamConfig } from './config.ts'
-import { DEFAULT_STREAM_SETTINGS, publishMotionPreference, type StreamSettings } from './settings.ts'
+import { DEFAULT_STREAM_SETTINGS, publishMotionPreference, publishLogFade, type StreamSettings } from './settings.ts'
 import { UI_CUSTOM_SETTINGS_NS } from '../../shared.ts'
 
 /**
@@ -158,6 +158,7 @@ class SettingsCell {
     const next = this.card?.values() ?? this.value
     // Mirror the motion preference to the live renderers, which hold no scope.
     publishMotionPreference(next.motionPreference)
+    publishLogFade(next.logarithmicFade)
     return next
   }
 
@@ -170,6 +171,7 @@ class SettingsCell {
       && next.thinkAutoExpand === this.value.thinkAutoExpand
       && next.debugEnabled === this.value.debugEnabled
       && next.motionPreference === this.value.motionPreference
+      && next.logarithmicFade === this.value.logarithmicFade
       && next.debugTuning === this.value.debugTuning
     ) return
     this.pending = pending

@@ -11,7 +11,7 @@ import { ZH_SETTINGS_NS } from '../shared.ts'
 import { SETTINGS_ZH, SETTINGS_EN } from '../data/settings-dicts.ts'
 import type { ZhSettingsSection, ZhPromptSection, ServiceMonitorTarget } from '../shared.ts'
 import { parseServiceAddress, isLoopbackServiceHost } from './service-monitor.ts'
-import { publishMotionPreference } from '../../smooth/settings.ts'
+import { publishMotionPreference, publishLogFade } from '../../smooth/settings.ts'
 
 // ─── Styles (identical to source) ────────────────────────────────────────────
 const s = {
@@ -236,9 +236,11 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
     smoothEnabled?: boolean
     smoothThinkAutoExpand?: boolean
     smoothMotionPreference?: string
+    smoothLogFadeEnabled?: boolean
   }) | undefined
   const smoothEnabled = smoothScope?.smoothEnabled !== false
   const smoothMotionPreference = smoothScope?.smoothMotionPreference ?? 'auto'
+  const smoothLogFade = smoothScope?.smoothLogFadeEnabled !== false
 
   // ── Service monitor card handlers ──────────────────────────────────────────
   const svcTargets: ServiceMonitorTarget[] = ui.serviceMonitorTargets ?? []
@@ -551,6 +553,12 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
         React.createElement('div', { style: s.groupHeader }, t('smoothSection')),
         row('smoothEnabled', t('smoothEnabled'), t('smoothEnabledDesc'),
           toggle(smoothEnabled, () => settings.set('smoothEnabled', !smoothEnabled))),
+        row('smoothLogFade', t('smoothLogFade'), t('smoothLogFadeDesc'),
+          toggle(smoothLogFade, () => {
+            settings.set('smoothLogFadeEnabled', !smoothLogFade)
+            // 渲染器拿不到 scope，需要显式把新值推给它们。
+            publishLogFade(!smoothLogFade)
+          })),
         row('smoothMotionPreference', t('smoothMotionPreference'), t('smoothMotionPreferenceDesc'),
           selectInput(
             smoothMotionPreference,

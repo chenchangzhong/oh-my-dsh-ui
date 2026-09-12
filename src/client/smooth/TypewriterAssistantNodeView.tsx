@@ -8,7 +8,11 @@ import { useSmoothStreamContent, type StreamSmoothingPreset } from './useSmoothS
 import { useFpsGuard } from './useFpsGuard.ts'
 import { FollowHost } from './FollowHost.tsx'
 import { DEFAULT_STREAM_CONFIG, type StreamMode } from './config.ts'
-import { DEFAULT_STREAM_SETTINGS, DEFAULT_MOTION_PREFERENCE, getMotionPreference, subscribeMotionPreference } from './settings.ts'
+import {
+  DEFAULT_STREAM_SETTINGS, DEFAULT_MOTION_PREFERENCE, DEFAULT_LOG_FADE,
+  getMotionPreference, subscribeMotionPreference, getLogFade, subscribeLogFade,
+} from './settings.ts'
+import { useLogarithmicFade } from './useLogarithmicFade.ts'
 import css from './TypewriterAssistantNodeView.module.css'
 
 type AssistantProps = ChatNodeViewProps<'assistant-step'>
@@ -374,6 +378,12 @@ function AnimatedMarkdownText({
   })
   const shown = reduced ? (text ?? '') : (displayed ?? '')
   const live = typing && !reduced
+  // Adaptive logarithmic opacity fade: newly revealed characters start
+  // translucent and settle to ink over FADE_DURATION_MS. Paint-only (CSS Custom
+  // Highlight ranges), so DOM, selection and copy are untouched; it degrades to
+  // a no-op where Highlight / color-mix are unavailable.
+  const logFade = useSyncExternalStore(subscribeLogFade, getLogFade, () => DEFAULT_LOG_FADE)
+  useLogarithmicFade(followRootRef, logFade && !reduced, live, speedCpsRef)
 
   useEffect(() => {
     const root = followRootRef.current
@@ -482,13 +492,19 @@ function AnimatedReasoning({
   const [expanded, setExpanded] = useState(running && thinkAutoExpand)
   const summaryRef = useRef<HTMLSpanElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
+  const fadeRootRef = useRef<HTMLDivElement>(null)
+  const localFadeSpeedRef = useRef(35)
+  const fadeSpeedRef = followSpeedCpsRef ?? localFadeSpeedRef
   const displayed = useSmoothStreamContent(text, {
     enabled: running && !reduced,
     preset,
     shouldHoldBack,
-    speedCpsRef: followSpeedCpsRef,
+    speedCpsRef: fadeSpeedRef,
     revealScaleRef: followRevealScaleRef,
   })
+  // Same adaptive fade as the answer, scoped to the expanded thinking body.
+  const logFade = useSyncExternalStore(subscribeLogFade, getLogFade, () => DEFAULT_LOG_FADE)
+  useLogarithmicFade(fadeRootRef, logFade && !reduced && expanded, running, fadeSpeedRef)
   const shown = running && !reduced ? displayed : text
   const summary = running ? latestLine(shown) : firstLine(text)
   // Read `zh`'s per-line think height so the smooth-rendered block keeps the same
@@ -540,6 +556,7 @@ function AnimatedReasoning({
           <div
             ref={bodyRef}
             className={css.thinkBody}
+            ref={fadeRootRef}
             style={{
               maxHeight: `${Math.round(lineHeight * thinkMaxLines.max)}px`,
               overflowY: 'auto',

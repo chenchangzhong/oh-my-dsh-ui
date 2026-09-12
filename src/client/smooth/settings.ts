@@ -53,6 +53,33 @@ export function subscribeMotionPreference(listener: () => void): () => void {
   return () => { motionPreferenceListeners.delete(listener) }
 }
 
+/** Default for the adaptive logarithmic opacity fade (new glyphs fade in). */
+export const DEFAULT_LOG_FADE = true
+
+// Live mirror of the fade switch, for the same reason as the motion preference:
+// renderers are mounted per message row and carry no settings scope.
+let liveLogFade: boolean = DEFAULT_LOG_FADE
+const logFadeListeners = new Set<() => void>()
+
+/** Read the live logarithmic-fade switch. */
+export function getLogFade(): boolean {
+  return liveLogFade
+}
+
+/** Publish the fade switch read from the settings scope to live renderers. */
+export function publishLogFade(value: unknown): void {
+  const next = value !== false
+  if (next === liveLogFade) return
+  liveLogFade = next
+  for (const listener of [...logFadeListeners]) listener()
+}
+
+/** Subscribe to fade-switch changes (useSyncExternalStore contract). */
+export function subscribeLogFade(listener: () => void): () => void {
+  logFadeListeners.add(listener)
+  return () => { logFadeListeners.delete(listener) }
+}
+
 /** Runtime knobs exposed only while the diagnostics switch is enabled. */
 export interface StreamDebugTuning {
   /** Multiplier applied to the reveal cadence (1 = preset default). */
@@ -109,6 +136,11 @@ export interface StreamSettings {
   debugEnabled: boolean
   /** How the OS reduce-motion preference is honoured (see {@link MotionPreference}). */
   motionPreference: MotionPreference
+  /**
+   * Adaptive logarithmic opacity fade: newly revealed characters start
+   * translucent and settle to ink. Paint-only, default on.
+   */
+  logarithmicFade: boolean
   /** Values edited by the diagnostics panel. */
   debugTuning: StreamDebugTuning
 }
@@ -119,5 +151,6 @@ export const DEFAULT_STREAM_SETTINGS: StreamSettings = {
   thinkAutoExpand: true,
   debugEnabled: false,
   motionPreference: DEFAULT_MOTION_PREFERENCE,
+  logarithmicFade: DEFAULT_LOG_FADE,
   debugTuning: DEFAULT_STREAM_DEBUG_TUNING,
 }

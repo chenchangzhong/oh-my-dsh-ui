@@ -61,9 +61,9 @@ export interface SmoothStreamCardFace {
 /** Bridge the host settingsScope onto a staged settings form. */
 export class SmoothStreamCardController {
   private readonly store = createSnapshotStore<SmoothStreamCardState>(this.projection())
-  private loadedBase: Pick<StreamSettings, 'enabled' | 'thinkAutoExpand' | 'motionPreference'> | undefined
+  private loadedBase: Pick<StreamSettings, 'enabled' | 'thinkAutoExpand' | 'motionPreference' | 'logarithmicFade'> | undefined
   private loadedDebug: Pick<StreamSettings, 'debugEnabled' | 'debugTuning'> | undefined
-  private stagedBase: Pick<StreamSettings, 'enabled' | 'thinkAutoExpand' | 'motionPreference'> | undefined
+  private stagedBase: Pick<StreamSettings, 'enabled' | 'thinkAutoExpand' | 'motionPreference' | 'logarithmicFade'> | undefined
   private stagedDebug: Pick<StreamSettings, 'debugEnabled' | 'debugTuning'> | undefined
   private saving = false
   private failed = false
@@ -131,6 +131,7 @@ export class SmoothStreamCardController {
         enabled: typeof obj.smoothEnabled === 'boolean' ? obj.smoothEnabled : DEFAULT_STREAM_SETTINGS.enabled,
         thinkAutoExpand: typeof obj.smoothThinkAutoExpand === 'boolean' ? obj.smoothThinkAutoExpand : DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
         motionPreference: toMotionPreference(obj.smoothMotionPreference),
+        logarithmicFade: obj.smoothLogFadeEnabled !== false,
       }
       if (obj.smoothDebugEnabled !== undefined || obj.smoothDebugTuning !== undefined) {
         this.loadedDebug = {
@@ -156,12 +157,13 @@ export class SmoothStreamCardController {
       hooks: { smoothStreamCard: this.store },
       edit: (patch) => {
         if (this.saving) return
-        if (patch.enabled !== undefined || patch.thinkAutoExpand !== undefined || patch.motionPreference !== undefined) {
+        if (patch.enabled !== undefined || patch.thinkAutoExpand !== undefined || patch.motionPreference !== undefined || patch.logarithmicFade !== undefined) {
           this.stagedBase = {
             ...this.baseValues(),
             ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
             ...(patch.thinkAutoExpand === undefined ? {} : { thinkAutoExpand: patch.thinkAutoExpand }),
-            ...(patch.motionPreference === undefined ? {} : { motionPreference: patch.motionPreference }),
+            ... (patch.motionPreference === undefined ? {} : { motionPreference: patch.motionPreference }),
+            ...(patch.logarithmicFade === undefined ? {} : { logarithmicFade: patch.logarithmicFade }),
           }
         }
         if (patch.debugEnabled !== undefined || patch.debugTuning !== undefined) {
@@ -206,11 +208,12 @@ export class SmoothStreamCardController {
     }
   }
 
-  private baseValues(): Pick<StreamSettings, 'enabled' | 'thinkAutoExpand' | 'motionPreference'> {
+  private baseValues(): Pick<StreamSettings, 'enabled' | 'thinkAutoExpand' | 'motionPreference' | 'logarithmicFade'> {
     return this.stagedBase ?? this.loadedBase ?? {
       enabled: DEFAULT_STREAM_SETTINGS.enabled,
       thinkAutoExpand: DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
       motionPreference: DEFAULT_STREAM_SETTINGS.motionPreference,
+      logarithmicFade: DEFAULT_STREAM_SETTINGS.logarithmicFade,
     }
   }
 
@@ -290,6 +293,7 @@ export class SmoothStreamCardController {
           if (this.stagedBase.enabled !== undefined) scope.set('smoothEnabled', this.stagedBase.enabled)
           if (this.stagedBase.thinkAutoExpand !== undefined) scope.set('smoothThinkAutoExpand', this.stagedBase.thinkAutoExpand)
           if (this.stagedBase.motionPreference !== undefined) scope.set('smoothMotionPreference', this.stagedBase.motionPreference)
+          if (this.stagedBase.logarithmicFade !== undefined) scope.set('smoothLogFadeEnabled', this.stagedBase.logarithmicFade)
         }
         if (this.stagedDebug !== undefined) {
           if (this.stagedDebug.debugEnabled !== undefined) scope.set('smoothDebugEnabled', this.stagedDebug.debugEnabled)
