@@ -1,18 +1,27 @@
-# 上游仓库地址
+# 上游仓库地址与整合状态
 
 ## 项目身份
 
-**当前项目**：`oh-my-dsh-ui`（即原 `dsh-client-ui-custom`）
-- 本地目录：`/Users/zhong/project/dsh-plugins/ui-custom/`（项目根目录即为插件源码）
+**当前项目**：`oh-my-dsh-ui`
+- 本地目录：`/Users/zhong/project/dsh-plugins/oh-my-dsh-ui/`（项目根目录即为插件源码）
 - GitHub：`https://github.com/chenchangzhong/oh-my-dsh-ui`
 
 这是一个 DSH Web UI 客制化插件，通过 `features` 白名单机制整合了三个来源的功能：
 
 | Feature | 来源 | 说明 |
 |---------|------|------|
-| `appearance` / `usage` / `motion` / `markdown` | 原生 | DSH UI 增强（壁纸/动效/用量统计等） |
+| `appearance` / `usage` / `motion` / `markdown` | 原生（源自 yoli-mi） | DSH UI 增强（壁纸/动效/用量统计等） |
 | `zh` | 整合自 `deepseek-harness-zh_pro` | 中文界面增强 |
 | `smooth` | 整合自 `dsh-smooth-stream` | 丝滑流式打字机 |
+
+实际 `FEATURES` 见 `src/shared.ts`：
+
+```ts
+export const FEATURES = ['markdown', 'appearance', 'usage', 'motion', 'zh', 'smooth'] as const
+```
+
+> 上游 yoli-mi 原版还有 `shortcuts` / `history` / `marketplace` / `pin` 四个模块，
+> 本项目自建立起**未纳入**（不在 `FEATURES` 中，代码也不存在）。
 
 ---
 
@@ -21,105 +30,152 @@
 | Remote 名 | GitHub 地址 | 关系 |
 |-----------|-------------|------|
 | `oh-my-dsh-ui` | https://github.com/chenchangzhong/oh-my-dsh-ui | 本地 fork（可 push） |
-| `yoli-mi` | https://github.com/yoli-mi/dsh-client-ui-custom | 主上游（oh-my-dsh-ui 的源头） |
+| `yoli-mi` | https://github.com/yoli-mi/dsh-client-ui-custom | 主上游（appearance/usage/motion/markdown 来源） |
 | `upstream` | https://github.com/magian1127/deepseek-harness-zh_pro | `zh` Feature 上游 |
-| `dsh-smooth-stream` | https://github.com/magian1127/dsh-smooth-stream | `smooth` Feature 上游（**无法访问**） |
+| `dsh-smooth-stream` | https://github.com/Laplace-bit/dsh-smooth-stream | `smooth` Feature 上游（**remote 地址待更正**） |
+
+> ⚠️ `dsh-smooth-stream` remote 当前指向 `git@github.com:magian1127/dsh-smooth-stream.git`，
+> 该地址已 404；仓库已迁移至 **Laplace-bit/dsh-smooth-stream**。
 
 ---
 
-## 上游详情
+## 谱系事实（重要）
+
+本仓库与三个上游**均无共同祖先**（`git merge-base` 全部为空）：
+
+- 根提交 `63758d5` 把「已整合好的 oh-my-dsh-ui（含 zh/smooth）」与 `deepseek-harness-zh_pro` 快照一并纳入；
+- `5df4f72`（调整结构）把 `dsh-client-ui-custom/` 提升为仓库根，并删除 `deepseek-harness-zh_pro/` 子目录（其能力已重写进 `src/client/zh/` + `src/server/`）。
+
+因此**不存在 git merge / rebase 的合并路径**，上游更新只能逐项移植（cherry-pick 不可用，
+行级 diff 也会因本地深度重写而失真），必须做**功能级**比对。
+
+---
+
+## 上游详情与整合状态
+
+### magian1127/deepseek-harness-zh_pro（`zh` Feature 上游）
+
+- **分支**：`main`，当前 **v0.9.3**（`0522430`，2026-09-10）
+- **本地基线**：约 **v0.7.0**（2026-08-21）
+- **本地整合位置**：`src/client/zh/`（Client 半边）+ `src/server/`（Host 半边），均为**精简重写版**而非直接拷贝
+  （例：上游 `trash.ts` 282 行 → 本地 3 行，改用 `@dsh-community/trash-utils`）
+
+**上游能力整合状态**（2026-09 一轮合并后的实际状态）：
+
+| 上游提交 | 内容 | 状态 |
+|---------|------|------|
+| `ccd93b4` | sessionPersistence 句柄化契约（0.1.3+ 删除会话不再假删除） | ✅ 已整合（`readRaw → stat → list` 三级取 header + 目录扫描定位；定位失败直接中止） |
+| `0522430` | DSH 0.1.5 适配 | ✅ 已整合（`command` 命名空间、trajectory/turnUsage 键、StatsPills 结构、四位空格分组） |
+| `79f47ec` / `ad75b24` | 0.1.2-rc.1 / 0.1.2-alpha.2 词条与本地化对齐 | ✅ 已整合（`subagent` 术语、子代理模型选择卡、pluginInventory、程序模式、menu.download） |
+| `5bf3460` | TurnUsagePanel 用量 pill 的 K/M 缩写中文化 | ✅ 已整合 |
+| `b213835` / `d1fa3ec` | 安全加固（按 kind 限物理删除、恢复可重试、取消归档写链语义） | ✅ 已整合 |
+| `b166ffc`+`2d3602b`+`87d5842`+`137694a` | 服务监控（侧栏面板、进程归属、命令行脱敏、负缓存修复） | ✅ 已整合（Host 783 行 + Client 789 行，裁剪了上游 CLI 部分） |
+| `545dc28`+`0446d17`+`8a7c1d3`+`fc4cec2`+`7d0807f` | 会话批量操作 | ⚠️ 部分整合：官方会话列表的多选/批量删除/批量归档、菜单批量项、已删除集合与归档视图过滤均已就位；**归档视图内的行多选未移植**（本地 archive-view 为精简重写版且含自有修复） |
+| `2c15b36` | 上下文注入中文化开关 + 官方特征守卫 | 不适用（本地已移除 prompt 注入，无对应开关） |
+| `543657b` | Open Design 中文化注入 | 不适用（上游改的是 `model-locale.ts`，本地无该模块） |
+| `src/bin/cli/*`、`hot-mount`、`hot-reload` | CLI 与热重载体系 | 不适用（本地无对应体系） |
+| `assemble-patch`、`chinese-prompt` | 提示词注入管线 | 不适用（本地已移除 prompt 注入，仅保留 `zhAutoArchiveDays`） |
+
+> `dom-labels.ts` / `traj-patterns.ts` 的**精简**（上游在 0.1.5 适配中删除了约 80 条已失效的 DOM 改写表）
+> 本地按保守策略**保留**了：这些条目在 0.1.5 下不命中也无害，删掉则要承担判断失误就丢失中文的风险。
+> 若实测发现某块界面中文未生效，按上游 `0522430` 精简该表即可。
 
 ### yoli-mi/dsh-client-ui-custom（主上游）
 
-- **地址**：https://github.com/yoli-mi/dsh-client-ui-custom
-- **分支**：`main`
-- **本地领先/落后**：本地 `5ed0628` = `yoli-mi/main`（无共同祖先，独立历史）
-- **关键 commit**：`3f19e4d` — 修复 bundle 注册名（`@deepseek-ai` → `@ha-na-bi`）
-- **备注**：242 个 commit 中绝大部分是 `motion` 动效的反复增删，属于噪声；本地已移除 motion，核心注册名问题本地已正确
+- **分支**：`main`，最后提交 `3f19e4d`（2026-08-24），**早于本仓库建立时间（08-28）**
+- 因此该上游**没有待合并的新提交**
+- 该上游 242 个提交中绝大部分是 `motion` 动效的反复增删（`revert: remove the animation feature entirely` 重复上百次），属噪声
+- 唯一可能相关的修复 `3f19e4d`（bundle 注册名 `@deepseek-ai` → `@ha-na-bi`）**对本地不适用**：
+  本地 `lib/client.js` 的 bundle id 为 `oh-my-dsh-ui`，与 `cordis.patch.yml` 的 `name: 'oh-my-dsh-ui'` 一致
+- 本地未纳入的模块：`shortcuts/` + `settings/`（快捷键）、`history/`（浮動历史条）、`marketplace/`（插件市场）、`pin/`（固定轮次），
+  以及 `actions.ts` / `composer.ts` / `custom.module.css` / `locales.ts`
 
-### magian1127/deepseek-harness-zh_pro（zh Feature 上游）
+### Laplace-bit/dsh-smooth-stream（`smooth` Feature 上游）
 
-- **地址**：https://github.com/magian1127/deepseek-harness-zh_pro
-- **分支**：`main`（v0.9.0）
-- **本地版本**：v0.7.0（commit `63758d5`）
-- **差距**：39 个新提交
-- **关键新功能**：服务监控、批量操作、归档视图增强、session.delete 路由
-- **本地整合状态**：`src/client/zh/`（Client 半边）+ `src/server/`（Host 半边）已集成
+- **地址**：https://github.com/Laplace-bit/dsh-smooth-stream （原 `magian1127/dsh-smooth-stream` 已迁移）
+- **当前版本**：**v0.6.1**（`fa828cb`，2026-09-11）
+- **本地整合状态**：`src/client/smooth/` 为**深度定制分支**，非实时同步
 
-### magian1127/dsh-smooth-stream（smooth Feature 上游）
+关键差异：上游用 loopback RPC 通道 `/smooth-stream` 读写设置，
+本地已改为 `ctx.settingsScope`（`ui-custom` 命名空间），见 `smooth-settings-adapter.ts`。
+因此上游 `666e498`（DSH 0.1.5-rc.1 下 RPC 通道挂载失败的修复）**对本地不适用**。
 
-- **地址**：https://github.com/Laplace-bit/dsh-smooth-stream
-- **本地状态**：无法访问（remote 报错 404）
-- **本地整合状态**：`src/client/smooth/` 已集成（深度定制，非实时同步）
+**可借鉴的上游改动**（需按语义移植，不可直接 cherry-pick）：
+
+| 上游提交 | 内容 |
+|---------|------|
+| `9696ec0` | 消除完成跳变与回弹漂移（fast handoff + scroll-delta 校正） |
+| `8a9e4e0` | 完成时遵循 Host turn-process fold，折叠 inline reasoning |
+| `139eb1b` | 自适应对数透明度淡出（CSS Custom Highlight，仅 paint 层） |
+| `d412aef` | 三态动效偏好（auto / force-smooth / force-reduced） |
 
 ---
 
 ## 项目结构
 
 ```
-oh-my-dsh-ui/（即 ui-custom/ 项目根目录）
+oh-my-dsh-ui/
 ├── src/
 │   ├── shared.ts              # FEATURES 数组 + 插件配置接口定义
-│   ├── index.ts              # Host 入口：注册 cordis.patch + schema + settings
-│   ├── invariant.ts          # 插件标识常量
-│   ├── css-modules.d.ts      # CSS Module 类型声明
-│   ├── client/               # ===== Client 半边（浏览器） =====
-│   │   ├── index.ts         # registerFeatures()：按 features 白名单挂载各 Feature
-│   │   ├── config.ts        # CustomThemeConfig + DEFAULTS + normalizeConfig()
-│   │   ├── apply.ts         # 配置 → CSS 变量写入 <html>
-│   │   ├── presets.ts       # 6 种内置视觉预设
-│   │   ├── custom.css      # 主题 token 级联覆盖
-│   │   ├── appearance/      # 壁纸/毛玻璃/强调色/透明度/字体/质感
-│   │   ├── motion/          # 入场动效
-│   │   ├── shortcuts/      # 快捷键自定义
-│   │   ├── usage/           # 用量统计面板
-│   │   ├── usage-overlay.ts # 用量浮层
-│   │   ├── preview-bar.ts   # 预览条
-│   │   ├── markdown/        # 用户消息 Markdown 渲染
-│   │   ├── zh/              # ===== 整合自 zh_pro =====
-│   │   │   ├── index.ts     # applyZhFeature() 入口
-│   │   │   ├── shared.ts    # zh 共享类型
-│   │   │   ├── store/       # zh 设置 store
-│   │   │   ├── data/        # 语言词典（terms、dom-labels、settings-dicts 等）
-│   │   │   ├── locales/     # 界面文案
-│   │   │   └── logic/       # DOM 增强逻辑（dom-enhance、archive-view、session-menu 等）
-│   │   ├── smooth/          # ===== 整合自 smooth-stream =====
-│   │   │   ├── index.ts     # applySmoothFeature() 入口
-│   │   │   ├── config.ts    # smooth 设置配置
-│   │   │   ├── settings.ts  # 设置页组件
-│   │   │   ├── locales.ts   # 界面文案
-│   │   │   ├── TypewriterAssistantNodeView.tsx
-│   │   │   ├── TypewriterToolNodeView.tsx
-│   │   │   ├── useSmoothStreamContent.ts
-│   │   │   ├── teleprompterGlide.ts
-│   │   │   ├── useProgressiveDomText.ts
-│   │   │   ├── auto-collapse-controller.ts
-│   │   │   └── ...
-│   │   ├── ui-enhance/       # UI 增强设置页
-│   │   └── theme-section.ts  # 主题设置区块
-│   └── server/               # ===== Host 半边（Electron 主进程） =====
-│       ├── index.ts          # Host 入口
-│       ├── constants.ts      # 常量定义
-│       ├── types.ts          # 类型定义
-│       ├── util.ts           # 工具函数
+│   ├── index.ts               # Host 入口：注册 cordis.patch + schema + settings
+│   ├── invariant.ts           # 插件标识常量
+│   ├── css-modules.d.ts       # CSS Module 类型声明
+│   ├── client/                # ===== Client 半边（浏览器） =====
+│   │   ├── index.ts           # registerFeatures()：按 features 白名单挂载各 Feature
+│   │   ├── config.ts          # CustomThemeConfig + DEFAULTS + normalizeConfig()
+│   │   ├── apply.ts           # 配置 → CSS 变量写入 <html>
+│   │   ├── presets.ts         # 内置视觉预设
+│   │   ├── color.ts           # 颜色工具
+│   │   ├── custom.css         # 主题 token 级联覆盖
+│   │   ├── snapshot-store.ts  # 轻量快照 store
+│   │   ├── theme-section.ts   # 主题设置区块
+│   │   ├── preview-bar.ts / usage-overlay.ts
+│   │   ├── appearance/        # 壁纸/毛玻璃/强调色/透明度/字体/质感
+│   │   ├── motion/            # 入场动效
+│   │   ├── usage/             # 用量统计面板
+│   │   ├── markdown/          # 用户消息 Markdown 渲染
+│   │   ├── ui-enhance/        # UI 增强设置页
+│   │   ├── zh/                # ===== 整合自 zh_pro =====
+│   │   │   ├── index.ts       # applyZh() 入口
+│   │   │   ├── shared.ts      # zh 共享类型与设置默认值
+│   │   │   ├── store/         # 设置 store（prompt-store / settings-store）
+│   │   │   ├── data/          # 词典（terms、zh-dict、dom-labels、settings-dicts、traj-patterns）
+│   │   │   ├── locales/       # 界面文案
+│   │   │   └── logic/         # DOM 增强（apply、dom-enhance、archive-view、auto-archive、
+│   │   │                      #   session-menu、settings-section、format-utils、register-section）
+│   │   └── smooth/            # ===== 整合自 smooth-stream =====
+│   │       ├── index.ts       # apply() 入口
+│   │       ├── config.ts / settings.ts / locales.ts
+│   │       ├── TypewriterAssistantNodeView.tsx / TypewriterToolNodeView.tsx
+│   │       ├── useSmoothStreamContent.ts / useProgressiveDomText.ts
+│   │       ├── teleprompterGlide.ts / useFpsGuard.ts
+│   │       ├── AnimatedDisclosure.tsx / FollowHost.tsx
+│   │       ├── SmoothStreamCard.tsx / SmoothStreamCardController.ts
+│   │       ├── smooth-settings-adapter.ts（settingsScope 适配层）
+│   │       ├── DebugPanel.tsx / debugRuntime.ts
+│   │       └── locales.ts
+│   └── server/                # ===== Host 半边（Electron 主进程） =====
+│       ├── index.ts           # Host 入口 installAll()
+│       ├── constants.ts       # 常量定义
+│       ├── types.ts           # 类型定义
+│       ├── util.ts            # 工具函数
 │       ├── session-delete.ts  # 会话删除路由（/dsh-zh/api/session.delete）
-│       └── trash.ts          # 系统回收站封装
-├── lib/                      # tsdown 构建产物
-│   ├── client.js            # 浏览器半边 bundle（~400KB，CSS 已内联）
-│   ├── index.js             # Host 半边入口
-│   └── invariant.js        # 插件标识
-├── cordis.patch.yml         # 持久 bundle 行（id: oh-my-dsh-ui）
-├── package.json              # 包名 oh-my-dsh-ui
-├── tsdown.config.ts         # 构建配置
-├── tests/                   # 单元测试
-└── docs/                    # 文档
+│       └── trash.ts           # 回收站封装（@dsh-community/trash-utils）
+├── lib/                       # tsdown 构建产物
+│   ├── client.js              # 浏览器半边 bundle（bundle id = oh-my-dsh-ui）
+│   ├── index.js               # Host 半边入口
+│   ├── invariant.js           # 插件标识
+│   └── types/                 # 类型声明
+├── cordis.patch.yml           # 持久 bundle 行（id: oh-my-dsh-ui）
+├── package.json               # 包名 oh-my-dsh-ui
+├── tsdown.config.ts           # 构建配置
+├── tests/                     # 单元测试（appearance / color / motion / theme-section / usage）
+└── docs/                      # 文档
 ```
 
 ---
 
 ## Feature 白名单机制
-
-**当前 FEATURES**：`['markdown', 'appearance', 'usage', 'motion', 'zh', 'smooth']`
 
 ```ts
 // src/shared.ts
@@ -137,8 +193,8 @@ export function resolveFeatures(raw): Set<PluginFeature> {
 配置示例：
 
 ```yaml
-- id: ui-custom
-  name: '@ha-na-bi/dsh-client-ui-custom'
+- id: oh-my-dsh-ui
+  name: 'oh-my-dsh-ui'
   config:
     features: [appearance, zh]     # 只安装外观 + 中文增强
     preset: 'ink-teal'
@@ -149,9 +205,13 @@ export function resolveFeatures(raw): Set<PluginFeature> {
 ## 构建与安装
 
 ```bash
+cd /Users/zhong/project/dsh-plugins/oh-my-dsh-ui
+
 # 打包（TypeScript → lib/）
-cd /Users/zhong/project/dsh-plugins/ui-custom
 ./node_modules/.bin/tsdown
+
+# 单元测试
+./node_modules/.bin/vitest run
 
 # 软链安装（已配置好，无需操作）
 # ~/.dsh/profiles/web/node_modules/oh-my-dsh-ui → 本地目录
@@ -175,4 +235,15 @@ DSH 插件每个 Feature 都分两侧运行：
 | **Host** | Electron 主进程 | 注册 settings schema、webServer 路由、`systemPrompt` 包装等 |
 | **Client** | 浏览器 | DOM 增强、locale 补丁、设置页 UI、流式打字机等 |
 
-当前 `zh` Feature 的 Host 端位于 `src/server/`（session-delete 路由），`smooth` Feature 的 Host 端逻辑已简化或移除（流式完全由 Client 接管）。
+当前 `zh` Feature 的 Host 端位于 `src/server/`（session-delete / trash 路由），
+`smooth` Feature 的 Host 端逻辑已简化或移除（流式完全由 Client 接管）。
+
+---
+
+## 目标运行环境
+
+- **DSH Desktop**：2.0.7
+- **dsh CLI**：0.1.5-rc.1
+
+> `zh` Feature 的词典与 DOM 改写表基线来自 zh_pro v0.7.0（对应更早的 DSH 版本）。
+> DSH 0.1.5 起大量界面已由官方词典化，旧 DOM 层改写会失效或冗余 —— 移植上游 `0522430` 时需一并处理。

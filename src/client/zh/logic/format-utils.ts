@@ -142,6 +142,23 @@ function trimNumber(x) {
   return s
 }
 
+/**
+ * 把带千分位逗号的精确整数转成四位分级、空格分隔
+ * （64,272,077 -> 6427 2077、482,447 -> 48 2447、2,400,000 -> 240 0000、
+ * 123,456,789 -> 1 2345 6789）。按万级分组、不换算万/亿单位、保持精确；
+ * 非千分位格式原样返回。
+ */
+function formatExactNumberToZh(raw) {
+  const s = String(raw)
+  if (!/^\d{1,3}(,\d{3})+$/.test(s)) return s
+  const digits = s.replace(/,/g, '')
+  const groups = []
+  for (let end = digits.length; end > 0; end -= 4) {
+    groups.unshift(digits.slice(Math.max(0, end - 4), end))
+  }
+  return groups.join(' ')
+}
+
 /** 参数需要转换的键（ns -> key -> 参数名 -> 转换函数）。 */
 // DSH 0.1.2 起 stats/message 键由 conversation 迁至 chat。
 const PARAM_TRANSFORMS = {
@@ -150,6 +167,14 @@ const PARAM_TRANSFORMS = {
     'stats.toolCall': { duration: formatEnDurationToZh },
     'stats.ttftAverage': { duration: formatEnDurationToZh },
     'stats.tokens': { input: formatCompactNumberToZh, output: formatCompactNumberToZh },
+    // TurnUsagePanel / StatsPills 用量计数：可能携带 K/M 缩写（如 2.4M / 15.8K），
+    // 也可能是精确整数（千分位逗号分组，如 2,400,000）——两者都转成中文读数，
+    // 精确整数按四位分级、不舍入。
+    'message.turnUsage.count': { count: function (raw) {
+      const compact = formatCompactNumberToZh(raw)
+      if (compact !== String(raw)) return compact
+      return formatExactNumberToZh(raw)
+    } },
   },
   conversation: {
     'input.accessMode': { name: function (raw) {
@@ -159,4 +184,4 @@ const PARAM_TRANSFORMS = {
   },
 }
 
-export { enStepCount, enToolCallCount, applyPatterns, rewriteText, resolvePairs, applyPairs, formatZhSeconds, formatEnDurationToZh, formatCompactNumberToZh, trimNumber, interpolateZh, PARAM_TRANSFORMS }
+export { enStepCount, enToolCallCount, applyPatterns, rewriteText, resolvePairs, applyPairs, formatZhSeconds, formatEnDurationToZh, formatCompactNumberToZh, formatExactNumberToZh, trimNumber, interpolateZh, PARAM_TRANSFORMS }

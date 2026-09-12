@@ -57,7 +57,17 @@ const UiCustomSectionSchema = z.object({
   thinkMode: z.union(['button', 'scroll']).default('button'),
   deleteSessionEnabled: z.boolean().default(true),
   archiveViewEnabled: z.boolean().default(true),
+  batchOpsEnabled: z.boolean().default(true),
   zhAutoArchiveDays: z.number().default(7),
+  // 服务监控（默认关：进程归属/定位按平台尽力而为）
+  serviceMonitorEnabled: z.boolean().default(false),
+  serviceMonitorIntervalSec: z.number().default(10),
+  serviceMonitorTargets: z.array(z.object({
+    name: z.string().default(''),
+    host: z.string(),
+    port: z.number(),
+  })).default([]),
+  serviceMonitorSettingsOpen: z.boolean().default(false),
   // ── smooth feature（丝滑流式，默认与 dsh-smooth-stream StreamSettings 一致）──
   smoothEnabled: z.boolean().default(true),
   smoothPreset: z.union(['realtime', 'balanced', 'silky']).default('balanced'),

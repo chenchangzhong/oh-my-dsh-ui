@@ -49,8 +49,15 @@ const STATS_FULL_STYLES: Array<[string, string]> = [
 ]
 const STATS_BASE_FONT = 12
 const STATS_MIN_FONT = 9
-const STATS_COUNTS_ZH = /^\s*\d+\s*轮\s*·\s*\d+\s*步\s*$/
-const STATS_COUNTS_EN = /^\s*\d+\s*turns?\s*·\s*\d+\s*steps?\s*$/
+// 0.1.5 StatsPills 的 pill（button/span）样式子集：不强行拉满宽度，只放开
+// 省略号并保持单行，让 fit 字号逻辑基于 label 内容宽度工作。
+const STATS_PILL_STYLES: Array<[string, string]> = [
+  ['white-space', 'nowrap'], ['overflow', 'hidden'],
+  ['text-overflow', 'clip'], ['max-width', 'none'],
+]
+// 0.1.5 起计数组以空格分隔（「9 轮 203 步」），旧版用「 · 」，两者都认。
+const STATS_COUNTS_ZH = /^\s*\d+\s*轮(?:\s*·\s*|\s+)\d+\s*步\s*$/
+const STATS_COUNTS_EN = /^\s*\d+\s*turns?(?:\s*·\s*|\s+)\d+\s*steps?\s*$/
 
 // ─── Helper predicates ────────────────────────────────────────────────────────
 function isStatsCounts(text: string): boolean {
@@ -267,7 +274,22 @@ export function installChineseEnhance(zhCtx: ZhApplyContext): () => void {
     if (settingsStore.getSnapshot().statsFull !== true) return
     if (!isStatsCounts(textNode.data)) return
     const group = textNode.parentElement
-    if (group?.nodeType !== 1 || group.tagName !== 'SPAN') return
+    if (group?.nodeType !== 1) return
+    // 0.1.5 StatsPills：计数组 span[class*="label"] 位于 button/span[class*="pill"]。
+    if (group.tagName === 'SPAN'
+      && (group.getAttribute('class') ?? '').indexOf('label') !== -1
+      && group.parentElement?.nodeType === 1
+      && (group.parentElement.tagName === 'BUTTON' || group.parentElement.tagName === 'SPAN')) {
+      const pill = group.parentElement
+      if (pill.getAttribute(STATS_FULL_KEY) === null) {
+        for (const [k, v] of STATS_PILL_STYLES) pill.style.setProperty(k, v, 'important')
+        pill.setAttribute(STATS_FULL_KEY, '')
+      }
+      fitStatsRow(pill)
+      return
+    }
+    // 旧版 StatsLine：DIV 行 > 首个 SPAN 计数组（0.1.4 及之前的结构）。
+    if (group.tagName !== 'SPAN') return
     const row = group.parentElement
     if (row?.nodeType !== 1 || row.tagName !== 'DIV') return
     if (row.firstElementChild !== group) return

@@ -47,6 +47,7 @@ import { ZH_ARCHIVE_NS } from '../shared.ts'
 import { archiveLocales } from '../locales/zh-locales.ts'
 import { settingsStore } from '../store/settings-store.ts'
 import type { ZhApplyContext } from './apply.ts'
+import { fetchDeletedSessionIds, isSessionDeleted } from './session-menu.ts'
 
 // ─── Archive view CSS (rules aligned with official Rows.module.css) ──────────
 const ARCHIVE_VIEW_CSS = [
@@ -238,6 +239,10 @@ type ArchiveT = (key: string, params?: Record<string, string | number>) => strin
 // ─── Install (gated by the 「查看已归档」 settings toggle) ───────────────────
 export function installArchiveView(zhCtx: ZhApplyContext): () => void {
   const { ctx } = zhCtx
+  // Deleted sessions are hidden via the official archive set (upstream exposes no
+  // way to unload a live agent), so refresh that set from the host up front —
+  // otherwise a deleted session "comes back" as an archived row.
+  void fetchDeletedSessionIds()
   let activeDispose: (() => void) | null = null
   const startArchiveView = (): void => {
     if (activeDispose !== null) return
@@ -457,7 +462,8 @@ function runArchiveView(ctx: ClientContext): () => void {
     // 快照进入时的归档行序（见 orderedIds 声明处注释）。
     const snap = readSnapshots()
     orderedIds = archivedRowsOf(
-      Array.isArray(snap.workspaces?.archivedSessionIds) ? snap.workspaces!.archivedSessionIds! : [],
+      (Array.isArray(snap.workspaces?.archivedSessionIds) ? snap.workspaces!.archivedSessionIds! : [])
+        .filter(id => !isSessionDeleted(String(id))),
       snap.workspaces?.items,
       (snap.sessions?.byId ?? {}) as Record<string, ArchiveSessionSummary>,
       String(workspaceId),
@@ -922,8 +928,8 @@ function runArchiveView(ctx: ClientContext): () => void {
   const renderSectionContent = (): void => {
     if (sectionEl === null || activeTarget === null) return
     const snap = readSnapshots()
-    const archivedIds = Array.isArray(snap.workspaces?.archivedSessionIds)
-      ? snap.workspaces!.archivedSessionIds! : []
+    const archivedIds = (Array.isArray(snap.workspaces?.archivedSessionIds)
+      ? snap.workspaces!.archivedSessionIds! : []).filter(id => !isSessionDeleted(String(id)))
     const items = snap.workspaces?.items
     const byId = (snap.sessions?.byId ?? {}) as Record<string, ArchiveSessionSummary>
     const rows = mergedRowsOf(archivedIds, items, byId, activeTarget.workspaceId, orderedIds)

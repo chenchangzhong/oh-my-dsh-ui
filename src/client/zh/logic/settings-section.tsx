@@ -9,7 +9,8 @@ import React from 'react'
 import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { ZH_SETTINGS_NS } from '../shared.ts'
 import { SETTINGS_ZH, SETTINGS_EN } from '../data/settings-dicts.ts'
-import type { ZhSettingsSection, ZhPromptSection } from '../shared.ts'
+import type { ZhSettingsSection, ZhPromptSection, ServiceMonitorTarget } from '../shared.ts'
+import { parseServiceAddress, isLoopbackServiceHost } from './service-monitor.ts'
 
 // ─── Styles (identical to source) ────────────────────────────────────────────
 const s = {
@@ -151,6 +152,13 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
     return () => { unsubUi(); unsubPrompt() }
   }, [settings, promptSettings])
 
+  // ── Service monitor card: the fold state persists in settings, while the
+  //    add/edit drafts are local state (so typing never writes the scope). ──
+  const [svcDraft, setSvcDraft] = React.useState({ name: '', addr: '' })
+  const [svcError, setSvcError] = React.useState(false)
+  const [svcEditDrafts, setSvcEditDrafts] = React.useState<Record<string, { name?: string; addr?: string }>>({})
+  const [svcEditErrorIndex, setSvcEditErrorIndex] = React.useState<number | null>(null)
+
   const row = (key: string, title: string, desc: string, control: React.ReactNode, noDivider = false): React.ReactElement => (
     React.createElement('div', { key, style: Object.assign({}, s.row, noDivider ? { borderBottom: 'none' } : {}) },
       React.createElement('div', { style: s.rowText },
@@ -212,6 +220,253 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
     thinkingAuto: true, thinkMaxLines: 20, thinkMaxLinesFrom: 'latest' as const,
     thinkMode: 'button' as const, deleteSessionEnabled: true, archiveViewEnabled: true,
     renderUserMarkdown: false,
+    batchOpsEnabled: true,
+    serviceMonitorEnabled: false,
+    serviceMonitorIntervalSec: 10,
+    serviceMonitorTargets: [] as ServiceMonitorTarget[],
+    serviceMonitorSettingsOpen: false,
+  }
+
+  // ── Service monitor card handlers ──────────────────────────────────────────
+  const svcTargets: ServiceMonitorTarget[] = ui.serviceMonitorTargets ?? []
+  const setSvcTargets = (next: ServiceMonitorTarget[]): void => { settings.set('serviceMonitorTargets', next) }
+
+  const addServiceTarget = (): void => {
+    const parsed = parseServiceAddress(svcDraft.addr)
+    // Only loopback addresses: the host probe supports loopback literals only
+    // (anything else reports permanently offline).
+    if (parsed === null || !isLoopbackServiceHost(parsed.host)) { setSvcError(true); return }
+    setSvcError(false)
+    setSvcTargets(svcTargets.concat([
+      { name: svcDraft.name.trim().slice(0, 60), host: parsed.host, port: parsed.port },
+    ]))
+    setSvcDraft({ name: '', addr: '' })
+  }
+
+  const removeServiceTarget = (index: number): void => {
+    const next = svcTargets.slice()
+    next.splice(index, 1)
+    setSvcTargets(next)
+    const drafts = Object.assign({}, svcEditDrafts)
+    delete drafts[String(index)]
+    setSvcEditDrafts(drafts)
+    if (svcEditErrorIndex === index) setSvcEditErrorIndex(null)
+  }
+
+  // Inline edit commit (Enter or blur): unchanged rows return early, missing
+  // fields fall back to the stored value, and an invalid address keeps the
+  // draft and marks that row red instead of writing.
+  const commitServiceTarget = (index: number): void => {
+    const draft = svcEditDrafts[String(index)]
+    if (draft === undefined) return
+    const stored = svcTargets[index]
+    if (stored === null || stored === undefined) return
+    const draftName = typeof draft.name === 'string' ? draft.name : stored.name
+    const draftAddr = typeof draft.addr === 'string'
+      ? draft.addr
+      : stored.host + ':' + String(stored.port)
+    const parsed = parseServiceAddress(draftAddr)
+    if (parsed === null) { setSvcEditErrorIndex(index); return }
+    // Loopback is required only when the address actually changed; renaming a
+    // pre-existing non-loopback entry stays allowed (the host reports it offline).
+    if ((parsed.host !== stored.host || parsed.port !== stored.port)
+      && !isLoopbackServiceHost(parsed.host)) { setSvcEditErrorIndex(index); return }
+    const next = svcTargets.slice()
+    next.splice(index, 1, { name: draftName.trim().slice(0, 60), host: parsed.host, port: parsed.port })
+    setSvcTargets(next)
+    const drafts = Object.assign({}, svcEditDrafts)
+    delete drafts[String(index)]
+    setSvcEditDrafts(drafts)
+    setSvcEditErrorIndex(null)
+  }
+
+  // ── Collapsible card styles (mirrors the official plugin settings card) ────
+  const svcCardStyle = (open: boolean): React.CSSProperties => ({
+    border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.28))',
+    borderRadius: 12,
+    background: open
+      ? 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,0.06))'
+      : 'var(--dsw-alias-bg-layer-3, transparent)',
+    borderColor: open ? 'var(--dsw-alias-label-dimmed, rgba(127,127,127,0.45))' : undefined,
+    transition: 'border-color .16s, background .16s',
+  })
+  const svcCardHeadStyle: React.CSSProperties = {
+    width: '100%', appearance: 'none', border: 0, background: 'none',
+    font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 12,
+  }
+  const svcCardHeadTextStyle: React.CSSProperties = { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }
+  const svcCardNameStyle: React.CSSProperties = { fontSize: 15, fontWeight: 600, lineHeight: '1.4', color: 'var(--dsw-alias-label-primary, inherit)' }
+  const svcCardDescStyle: React.CSSProperties = { fontSize: 13, lineHeight: 1.5, color: 'var(--dsw-alias-label-tertiary, #666)' }
+  const svcCardBadgeStyle: React.CSSProperties = {
+    flex: 'none', borderRadius: 999, padding: '1px 8px', fontSize: 11, lineHeight: '17px',
+    fontWeight: 500, whiteSpace: 'nowrap',
+    background: 'var(--dsw-alias-bg-module-platform, rgba(127,127,127,0.12))',
+    color: 'var(--dsw-alias-label-secondary, inherit)',
+  }
+  const svcChevronStyle = (open: boolean): React.CSSProperties => ({
+    flex: 'none', display: 'inline-flex', alignItems: 'center',
+    color: 'var(--dsw-alias-label-tertiary, #666)',
+    transition: 'transform .16s',
+    transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+  })
+  const svcCardBodyStyle: React.CSSProperties = {
+    borderTop: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.28))',
+    margin: '0 16px', padding: '4px 0 12px',
+  }
+  const svcTextNameStyle: React.CSSProperties = {
+    flex: '0 1 120px', minWidth: 0, boxSizing: 'border-box',
+    border: '1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.35))',
+    background: 'var(--dsw-specific-input-minor, transparent)',
+    color: 'var(--dsw-alias-label-primary, inherit)',
+    fontSize: 13, lineHeight: '20px',
+  }
+  const svcTextAddrStyle: React.CSSProperties = Object.assign({}, svcTextNameStyle, { flex: '0 1 220px' })
+  const svcGhostButtonStyle: React.CSSProperties = {
+    flex: 'none', padding: '4px 12px', borderRadius: 8,
+    border: '1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.35))',
+    background: 'transparent', color: 'var(--dsw-alias-label-secondary, inherit)',
+    cursor: 'pointer', font: 'inherit', fontSize: 13, lineHeight: '20px',
+  }
+  const svcAddButtonStyle: React.CSSProperties = {
+    flex: 'none', padding: '4px 14px', borderRadius: 8, border: 0,
+    background: 'var(--dsw-alias-state-business-primary, #4D6BFE)',
+    color: 'var(--dsw-alias-label-primary-inverted, #fff)',
+    cursor: 'pointer', font: 'inherit', fontSize: 13, lineHeight: '20px',
+  }
+  const svcErrorStyle: React.CSSProperties = {
+    fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-state-error-primary, #d93026)',
+  }
+
+  const serviceMonitorCard = (): React.ReactElement => {
+    const open = ui.serviceMonitorSettingsOpen === true
+    return (
+      <div key="serviceMonitorCard" style={svcCardStyle(open)}>
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={t('serviceMonitor')}
+          onClick={() => settings.set('serviceMonitorSettingsOpen', !open)}
+          style={svcCardHeadStyle}
+        >
+          <span style={svcCardHeadTextStyle}>
+            <span style={svcCardNameStyle}>{t('serviceMonitor')}</span>
+            <span style={svcCardDescStyle}>{t('serviceMonitorCardDesc')}</span>
+          </span>
+          {svcTargets.length > 0
+            ? <span style={svcCardBadgeStyle}>{String(svcTargets.length)}</span>
+            : null}
+          <span style={svcChevronStyle(open)} aria-hidden="true">
+            <svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+              <path d="M3.5 5.5L7 9L10.5 5.5" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        </button>
+        {open
+          ? (
+            <div style={svcCardBodyStyle}>
+              {row('serviceMonitor', t('serviceMonitor'), t('serviceMonitorDesc'),
+                toggle(ui.serviceMonitorEnabled, () => settings.set('serviceMonitorEnabled', !ui.serviceMonitorEnabled), false, t('serviceMonitor')),
+                true)}
+              {row('serviceMonitorInterval', t('serviceMonitorInterval'), t('serviceMonitorIntervalDesc'),
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="number" min={2} max={300} step={1}
+                    value={ui.serviceMonitorIntervalSec}
+                    style={s.inputNum}
+                    aria-label={t('serviceMonitorInterval')}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10)
+                      if (!isNaN(n)) settings.set('serviceMonitorIntervalSec', Math.max(2, Math.min(300, Math.round(n))))
+                    }}
+                  />
+                  <span style={s.desc}>{t('serviceMonitorIntervalUnit')}</span>
+                </div>)}
+              <div key="serviceTargets" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
+                <div style={Object.assign({}, s.rowText, { flex: '0 0 auto' })}>
+                  <div style={s.rowTitle}>{t('serviceTargetsLabel')}</div>
+                  <div style={s.desc}>{t('serviceTargetsDesc')}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    value={svcDraft.name}
+                    placeholder={t('serviceTargetNamePlaceholder')}
+                    aria-label={t('serviceTargetNamePlaceholder')}
+                    style={svcTextNameStyle}
+                    onChange={(e) => { setSvcError(false); setSvcDraft({ name: e.target.value, addr: svcDraft.addr }) }}
+                  />
+                  <input
+                    type="text"
+                    value={svcDraft.addr}
+                    placeholder={t('serviceTargetAddrPlaceholder')}
+                    aria-label={t('serviceTargetAddrPlaceholder')}
+                    style={svcTextAddrStyle}
+                    onChange={(e) => { setSvcError(false); setSvcDraft({ name: svcDraft.name, addr: e.target.value }) }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') addServiceTarget() }}
+                  />
+                  <button type="button" onClick={() => addServiceTarget()} style={svcAddButtonStyle}>
+                    {t('serviceTargetAdd')}
+                  </button>
+                </div>
+                {svcError ? <div style={svcErrorStyle}>{t('serviceTargetInvalid')}</div> : null}
+                {svcTargets.map((item, index) => {
+                  const draft = svcEditDrafts[String(index)]
+                  const nameValue = draft !== undefined && typeof draft.name === 'string' ? draft.name : item.name
+                  const addrValue = draft !== undefined && typeof draft.addr === 'string'
+                    ? draft.addr
+                    : item.host + ':' + String(item.port)
+                  const invalid = svcEditErrorIndex === index
+                  const setDraftField = (field: 'name' | 'addr') => (e: React.ChangeEvent<HTMLInputElement>) => {
+                    const base = { name: nameValue, addr: addrValue }
+                    const nextDraft = Object.assign({}, base, { [field]: e.target.value })
+                    const drafts = Object.assign({}, svcEditDrafts)
+                    drafts[String(index)] = nextDraft
+                    setSvcEditDrafts(drafts)
+                    if (svcEditErrorIndex === index) setSvcEditErrorIndex(null)
+                  }
+                  return (
+                    <div key={'svc-target-' + String(index)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input
+                        type="text"
+                        value={nameValue}
+                        placeholder={t('serviceTargetNamePlaceholder')}
+                        aria-label={t('serviceTargetNamePlaceholder')}
+                        style={svcTextNameStyle}
+                        onChange={setDraftField('name')}
+                        onKeyDown={(e) => { if (e.key === 'Enter') commitServiceTarget(index) }}
+                        onBlur={() => commitServiceTarget(index)}
+                      />
+                      <input
+                        type="text"
+                        value={addrValue}
+                        placeholder={t('serviceTargetAddrPlaceholder')}
+                        aria-label={t('serviceTargetAddrPlaceholder')}
+                        style={invalid
+                          ? Object.assign({}, svcTextAddrStyle, { borderColor: 'var(--dsw-alias-state-error-primary, #d93026)' })
+                          : svcTextAddrStyle}
+                        onChange={setDraftField('addr')}
+                        onKeyDown={(e) => { if (e.key === 'Enter') commitServiceTarget(index) }}
+                        onBlur={() => commitServiceTarget(index)}
+                      />
+                      <button
+                        type="button"
+                        aria-label={t('serviceTargetRemove')}
+                        onClick={() => removeServiceTarget(index)}
+                        style={svcGhostButtonStyle}
+                      >
+                        {t('serviceTargetRemove')}
+                      </button>
+                    </div>
+                  )
+                })}
+                {svcEditErrorIndex !== null ? <div style={svcErrorStyle}>{t('serviceTargetInvalid')}</div> : null}
+              </div>
+            </div>
+          )
+          : null}
+      </div>
+    )
   }
 
   return React.createElement('div', { style: s.section },
@@ -268,10 +523,15 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
       },
         React.createElement('div', { style: s.groupHeader }, t('otherFeatures')),
         row('deleteSession', t('deleteSession'), t('deleteSessionDesc'),
-          toggle(ui.deleteSessionEnabled, () => settings.set('deleteSessionEnabled', !ui.deleteSessionEnabled)), true),
+          toggle(ui.deleteSessionEnabled, () => settings.set('deleteSessionEnabled', !ui.deleteSessionEnabled))),
+        row('batchOps', t('batchOps'), t('batchOpsDesc'),
+          toggle(ui.batchOpsEnabled, () => settings.set('batchOpsEnabled', !ui.batchOpsEnabled))),
         row('renderUserMarkdown', t('renderUserMarkdown'), t('renderUserMarkdownDesc'),
-          toggle(ui.renderUserMarkdown, () => settings.set('renderUserMarkdown', !ui.renderUserMarkdown)))
-      )
+          toggle(ui.renderUserMarkdown, () => settings.set('renderUserMarkdown', !ui.renderUserMarkdown)), true)
+      ),
+
+      // ── 服务监控卡片（复刻官方插件设置卡的收缩样式，位于设置页最下方）──
+      serviceMonitorCard()
     )
   )
 }

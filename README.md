@@ -14,13 +14,16 @@
 
 ### 简介
 
-Dsh-client-ui-custom 是一个纯前端插件，它为用户提供了浮动历史记录条、用户消息md渲染、外观调试、插件市场、快捷键、用量统计和动效功能。
+oh-my-dsh-ui 是一个纯前端的 DSH Web UI 客制化插件：提供外观定制、入场动效、
+用量统计与用户消息 Markdown 渲染，并整合了**中文界面增强**（`zh`）与
+**丝滑流式打字机**（`smooth`）两个第三方能力。
 
-- **修改了通用设置项** —— 在「设置 → 通用」里新增了历史记录条（位置、数量）和用户消息 Markdown 渲染开关；
-- **修改了插件项** —— 在「设置 → 插件」里新增了「插件市场」；
-- **新增了四个设置页** —— 「外观」「快捷键」「用量统计」「动效」。
+- **新增设置页** —— 「外观」「用量统计」「动效」；
+- **修改通用设置页** —— 新增用户消息 Markdown 渲染开关；
+- **中文界面增强（zh）** —— 中文化词典与界面增强、思考折叠、归档视图、会话删除（回收站）等；
+- **丝滑流式（smooth）** —— 逐字揭示的流式输出与行高平滑跟随。
 
-所有功能默认关闭，不配置时保持与原生界面一致，全程零 shell 改动。
+`features` 缺省或为空时全部功能启用，可按需用白名单裁剪，全程零 shell 改动。
 
 ### 宣传视频
 
@@ -28,19 +31,18 @@ Dsh-client-ui-custom 是一个纯前端插件，它为用户提供了浮动历�
 
 ### 功能选择（按需安装）
 
-插件由七个**相互独立**的功能模块组成：`appearance`（外观）、`shortcuts`（快捷键）、
-`usage`（用量统计）、`history`（历史记录条）、`markdown`（用户消息 Markdown
-渲染）、`marketplace`（插件市场）、`motion`（动效）。可在插件配置里用 `features`
-白名单选择要安装的功能：
+插件由六个**相互独立**的功能模块组成：`appearance`（外观）、`usage`（用量统计）、
+`markdown`（用户消息 Markdown 渲染）、`motion`（动效）、`zh`（中文界面增强）、
+`smooth`（丝滑流式）。可在插件配置里用 `features` 白名单选择要安装的功能：
 
 ```yaml
-- id: ui-custom
-  name: '@ha-na-bi/dsh-client-ui-custom'
+- id: oh-my-dsh-ui
+  name: 'oh-my-dsh-ui'
   config:
-    features: [shortcuts, usage]   # 只安装「快捷键」+「用量统计」
+    features: [appearance, zh]   # 只安装「外观」+「中文增强」
 ```
 
-`features` 缺省或为空时，七个功能全部启用。
+`features` 缺省或为空时，六个功能全部启用。
 
 ---
 
@@ -49,11 +51,11 @@ Dsh-client-ui-custom 是一个纯前端插件，它为用户提供了浮动历�
 | 位置 | 类型 | 内容 |
 | --- | --- | --- |
 | 设置 → 外观 | 新增页面 | 主题定制，包括壁纸、玻璃、强调色、表面不透明度、字体与质感 |
-| 设置 → 快捷键 | 新增页面 | 自定义快捷键，包括新建对话、切换模型、思考强度等 |
 | 设置 → 应用用量 | 新增页面 | 用量统计，使用四窗口聚合、趋势图，展示会话用量排行 |
 | 设置 → 动效 | 新增页面 | 对话/侧边栏/新建对话入场动效与选中框动效，含三套一键预设 |
-| 设置 → 通用 | 修改原有页 | 新增浮动历史条（可调节位置，数量）、用户消息 Markdown 渲染开关 |
-| 设置 → 插件 | 修改原有页 | 新增「插件市场」，收录第三方插件目录 |
+| 设置 → 通用 | 修改原有页 | 新增用户消息 Markdown 渲染开关 |
+| 设置 → 中文增强 | 新增页面 | 中文界面增强（zh）的开关与词典选项 |
+| 设置 → 丝滑流式 | 新增卡片 | 流式打字机的开关与调试参数（smooth） |
 
 ---
 
@@ -138,51 +140,6 @@ config:
 
 ---
 
-### 快捷键（设置 → 快捷键）
-
-新增的设置页，提供可自定义的键位绑定。值存在 `ui-custom` settings
-命名空间里，运行时的修改无需重启即可生效（loader 配置作为组合层 base，
-「恢复默认」会回到 loader 默认值）。
-
-| 动作 | 作用 |
-| --- | --- |
-| `newConversation` | 新建对话（与侧栏「新建会话」按钮一致） |
-| `switchModel` | 循环切换到会话目录中的下一个模型（循环；新模型使用自身默认思考强度） |
-| `cycleThinking` | 循环切换当前模型的思考强度（off → … → max，循环） |
-| `sendMessage` | 输入框发送手势（默认 `Enter`） |
-| `newline` | 输入框换行手势（默认 `Shift+Enter`） |
-| `usagePanel` | 呼出应用用量面板（默认未绑定，可在设置中开启，如 `Mod+Alt+U`） |
-| `defaultWorkspace` | `newConversation` 打开的目标工作区（空 = 当前/最近） |
-| `modelShortcuts` | 一对一模型直达：每个组合键跳到指定模型（combo / provider / model） |
-
-<img src="https://cdn.jsdelivr.net/gh/yoli-mi/dsh-client-ui-custom@main/assets/shortcuts.png" width="720" alt="快捷键设置页">
-
-实例：
-
-```yaml
-config:
-  shortcuts:
-    newConversation: 'Mod+Alt+N'
-    switchModel: 'Mod+Alt+M'
-    cycleThinking: 'Mod+Alt+T'
-```
-
-习惯 Enter 换行？把发送改为 `Mod+Enter`、换行改为 `Enter` 即可（两个手势
-同时命中时发送优先）：
-
-```yaml
-config:
-  shortcuts:
-    sendMessage: 'Mod+Enter'
-    newline: 'Enter'
-```
-
-模型动作走与内置模型选择器相同的 `session.models` / `session.selectModel`
-RPC，输入区的模型显示会自动同步；被寻址的子代理会话会被跳过（与 UI 一致）。
-不带 `Mod` 的组合键在输入框聚焦时不会触发，避免劫持正常打字。
-
----
-
 ### 用量统计（设置 → 应用用量）
 
 用量统计页会统计展示各会话的用量总和（token-meter + session-stats），用户可自选时间跨度
@@ -190,7 +147,7 @@ RPC，输入区的模型显示会自动同步；被寻址的子代理会话会�
 缓存命中、使用时长、会话数与步数**，并带用量趋势图与会话排行。
 会话列表行已携带 Host 计算好的投影基线，无需额外 RPC。
 
-面板可通过快捷键在任何界面呼出。
+面板可通过内置快捷键 `Mod+Alt+U` 在任何界面呼出。
 
 ---
 
@@ -220,32 +177,39 @@ RPC，输入区的模型显示会自动同步；被寻址的子代理会话会�
 
 ---
 
+### 中文界面增强（zh）
+
+整合自 `deepseek-harness-zh_pro` 的中文化能力，设置页提供以下开关：
+
+- **界面中文化** —— 通过词典（terms / zh-dict）与 DOM 标签改写覆盖官方未翻译的界面文案；
+- **思考折叠** —— 默认展开最近若干行，支持「按钮 / 滚动」两种展开模式，可选择展开最新或最早一条；
+- **统计行** —— 会话统计以整行宽度展示；
+- **对话宽度** —— 可调聊天列宽度（默认 90%）；
+- **归档视图** —— 在官方会话列表流中注入「已归档」视图，支持取消归档；
+- **会话删除** —— 将会话日志目录移入系统回收站，并可从回收站恢复；
+- **自动归档** —— 新建会话界面打开时，将闲置超过 N 天的会话加入官方归档列表（默认 7 天，`0` = 关闭）。
+
+> DSH 0.1.5 起大量界面已由官方词典化，本模块的词典基线对应更早版本，
+> 部分 DOM 层改写会失效或冗余。
+
+---
+
+### 丝滑流式（smooth）
+
+整合自 `dsh-smooth-stream` 的流式打字机：助手输出按帧逐字揭示，并让增长中的
+对话行平滑跟随，而不是按 chunk 突然跳出。设置卡片提供开关与调试参数
+（揭示速率、队列压力、弹簧刚度/阻尼等）。
+
+与上游不同，本插件的设置通过宿主 `settingsScope`（`ui-custom` 命名空间）读写，
+不使用上游的 loopback RPC 通道。
+
+---
+
 ### 通用设置项的改动
-
-在「设置 → 通用设置」里新增内容：
-
-**浮动历史条（位置 / 数量）** —— 记录某段会话的历史内容：
-- **位置**：`left` / `right` / `off`（默认 `off`，关闭时不显示）；
-- **数量**：显示最近多少回合（默认 10，`0` = 全部）；
-- 点击某段历史条目即可平滑滚动到对应消息，条目来自已挂载的会话快照，纯 DOM 跳转，无额外 RPC；
-- 支持**悬挂**：在消息操作行（复制/分支之间）可选择将某段会话悬挂到历史条上，
-  置顶回合忽略数量限制、始终显示并带有强调色边框）。
 
 **用户消息 Markdown 渲染** —— 默认关闭；开启后你自己的消息按 Markdown
 渲染（标题、列表、代码块、`@子代理` / `@技能` 引用等），关闭时与原生
 纯文本外观一致。
-
-<img src="https://cdn.jsdelivr.net/gh/yoli-mi/dsh-client-ui-custom@main/assets/general-settings.png" width="720" alt="通用设置">
-
----
-
-### 插件项的改动
-
-在「设置 → 插件」里新增第三个 tab **「插件市场」**，通过调用Github API 发现带有dsh-plugin topic的项目，
-为用户提供**第三方** DSH 插件目录。
-
-
-<img src="https://cdn.jsdelivr.net/gh/yoli-mi/dsh-client-ui-custom@main/assets/marketplace.png" width="720" alt="插件市场">
 
 ---
 
@@ -256,8 +220,8 @@ RPC，输入区的模型显示会自动同步；被寻址的子代理会话会�
    `~/.dsh/profiles/web/cordis.patch.yml`（或你 profile 中对应的 `dsh.client` roster）：
 
 ```yaml
-- id: ui-custom
-  name: '@ha-na-bi/dsh-client-ui-custom'
+- id: oh-my-dsh-ui
+  name: 'oh-my-dsh-ui'
   config:
     preset: 'ink-teal'        # 选择预设；下面任意字段会覆盖它
     wallpaper: '/my-wall.jpg'
@@ -278,7 +242,7 @@ RPC，输入区的模型显示会自动同步；被寻址的子代理会话会�
   合并并对每个字段做钳制（config.ts），再把 `--dsu-*` 自定义属性写到
   `<html>`（apply.ts）。runner 会把 roster 行的 `config` 作为
   `apply(ctx, config)` 的第二个参数传入。
-- 样式表（custom.module.css）消费这些变量，用比主题表更高优先级的选择器
+- 样式表（custom.css）消费这些变量，用比主题表更高优先级的选择器
   在 `body` / `body[data-ds-dark-theme]` 上重新声明主题 token，插件总是
   赢得级联，且不修改任何插件或 shell 源码。
 - 毛玻璃给 `#root` 加 `backdrop-filter`，半透明表面透过它显示壁纸。
@@ -289,26 +253,29 @@ RPC，输入区的模型显示会自动同步；被寻址的子代理会话会�
 - 框架结构：
 
 ```
-oh-my-dsh-ui/（即 ui-custom/ 根目录）
+oh-my-dsh-ui/
 ├── src/
+│   ├── shared.ts         # FEATURES + 插件配置接口
+│   ├── index.ts          # 主机入口：schema / settings 注册
 │   ├── client/           # 浏览器半边
-│   │   ├── index.ts     # 插件入口：解析预设 → 规范化 → 应用
+│   │   ├── index.ts     # registerFeatures()：按 features 白名单挂载
 │   │   ├── config.ts    # CustomThemeConfig、DEFAULTS、normalizeConfig（类型收窄+钳制）
 │   │   ├── presets.ts   # ThemePreset 注册表
 │   │   ├── apply.ts     # config → DOM：--dsu-* 变量、customCss、customVars
 │   │   ├── custom.css   # 消费 --dsu-* 变量的 token 覆盖
-│   │   └── …            # 其余功能子目录（appearance/ shortcuts/ usage/ markdown/ motion/ zh/ smooth/）
-│   └── server/          # 主机半边
-├── lib/                 # tsdown 构建产物
-├── tests/              # 配置管线单元测试
-└── README.md           # 本文档（中文 / English 双语）
+│   │   └── …            # 功能子目录（appearance/ usage/ markdown/ motion/ ui-enhance/ zh/ smooth/）
+│   └── server/           # 主机半边（session-delete / trash 路由）
+├── lib/                  # tsdown 构建产物
+├── cordis.patch.yml      # 持久 bundle 行（id: oh-my-dsh-ui）
+├── tests/               # 配置管线单元测试
+└── README.md            # 本文档（中文 / English 双语）
 ```
 
 ### 注意事项
 
 - profile 的 `cordis.patch.yml` 改动需要重启 `dsh web` 才生效。
 - 壁纸必须能被浏览器访问（例如放在 Web 服务静态根目录下，或外部 URL）。
-- 插件自带的设置页（外观、快捷键、用量统计等）修改**实时生效**、无需重启；
+- 插件自带的设置页（外观、用量统计、动效等）修改**实时生效**、无需重启；
   通过内置「插件配置」页直接编辑 loader 层配置暂不支持（待 `ui-settings-plugins` 的 schema）。
 
 ---
@@ -317,35 +284,35 @@ oh-my-dsh-ui/（即 ui-custom/ 根目录）
 
 ### Overview
 
-Dsh-client-ui-custom is a pure front-end plugin that provides a floating
-history strip, user-message Markdown rendering, appearance customization,
-a plugin marketplace, keyboard shortcuts, and usage statistics.
+Dsh-client-ui-custom is a pure front-end customization plugin for the DSH web
+UI: appearance theming, entrance motion, usage statistics and user-message
+Markdown rendering — plus two integrated third-party capabilities: **Chinese
+UI enhancement** (`zh`) and **smooth streaming** (`smooth`).
 
-- **Adds to General settings** — new rows under Settings → General for the
-  floating history strip (position / count) and the user-message Markdown
-  rendering toggle;
-- **Adds to Plugin settings** — a new "Plugin Marketplace" under Settings → Plugins;
-- **Adds three new settings pages** — Appearance, Shortcuts, and Usage statistics.
+- **New settings pages** — Appearance, App Usage and Motion;
+- **Adds to General settings** — a user-message Markdown rendering toggle;
+- **Chinese UI enhancement (zh)** — dictionaries and DOM-level localization, thinking fold, archive view, session delete (trash), auto-archive;
+- **Smooth streaming (smooth)** — per-frame typewriter reveal with glide follow.
 
-All features are off by default; without configuration the UI stays identical
-to stock, with zero shell modifications.
+When `features` is absent or empty every feature is enabled; trim it with the
+whitelist as needed. Zero shell modifications.
 
 ### Feature selection (install on demand)
 
-The plugin is composed of seven **independent** feature modules: `appearance`,
-`shortcuts`, `usage` (usage statistics), `history` (history strip), `markdown`
-(user-message Markdown rendering), `marketplace` (plugin marketplace), and
-`motion` (entrance animations). Use the `features` whitelist in the plugin
-config to choose which to install:
+The plugin is composed of six **independent** feature modules: `appearance`,
+`usage` (usage statistics), `markdown` (user-message Markdown rendering),
+`motion` (entrance animations), `zh` (Chinese UI enhancement) and `smooth`
+(smooth streaming). Use the `features` whitelist in the plugin config to
+choose which to install:
 
 ```yaml
-- id: ui-custom
-  name: '@ha-na-bi/dsh-client-ui-custom'
+- id: oh-my-dsh-ui
+  name: 'oh-my-dsh-ui'
   config:
-    features: [shortcuts, usage]   # install only shortcuts + usage stats
+    features: [appearance, zh]   # install only appearance + Chinese enhancement
 ```
 
-When `features` is absent or empty, all seven features are enabled.
+When `features` is absent or empty, all six features are enabled.
 
 ---
 
@@ -354,11 +321,11 @@ When `features` is absent or empty, all seven features are enabled.
 | Where | Kind | What |
 | --- | --- | --- |
 | Settings → Appearance | new page | custom theming: wallpaper, glass, accent, surface opacity, fonts & texture |
-| Settings → Shortcuts | new page | custom keybindings: new conversation, model switch, thinking effort, direct model jumps, etc. |
 | Settings → App Usage | new page | usage stats: aggregated over a selectable time span, with a trend chart and session ranking |
 | Settings → Motion | new page | entrance motion for conversation / sidebar / new conversation, selection box, three one-click presets |
-| Settings → General | added rows | floating history strip (adjustable position / count), user-message Markdown toggle |
-| Settings → Plugins | added tab | "Plugin Marketplace": third-party plugin catalog |
+| Settings → General | added row | user-message Markdown toggle |
+| Settings → Chinese | new page | Chinese UI enhancement (zh): dictionary switches and options |
+| Settings → Smooth streaming | added card | smooth streaming switches and debug tuning (smooth) |
 
 ---
 
@@ -447,54 +414,6 @@ config:
 
 ---
 
-### Shortcuts (Settings → Shortcuts)
-
-A new settings page with customizable keybindings. Values live in the
-`ui-custom` settings namespace, so runtime changes apply immediately without a
-restart (the loader config acts as the composition base, and Reset reverts to
-the loader defaults).
-
-| Action | What it does |
-| --- | --- |
-| `newConversation` | Start a new conversation (same as the sidebar's New Session button) |
-| `switchModel` | Cycle to the next model in the session's catalog (wraps; the new model starts at its own default reasoning effort) |
-| `cycleThinking` | Cycle the current model's reasoning effort (off → … → max, wraps) |
-| `sendMessage` | Composer send gesture (default: `Enter`) |
-| `newline` | Composer newline gesture (default: `Shift+Enter`) |
-| `usagePanel` | Pop the app-usage panel (unbound by default — enable it in Settings, e.g. `Mod+Alt+U`) |
-| `defaultWorkspace` | The workspace where `newConversation` opens (empty = current/recent) |
-| `modelShortcuts` | One-to-one model jumps: each combo goes straight to a specific model (combo / provider / model) |
-
-<img src="https://cdn.jsdelivr.net/gh/yoli-mi/dsh-client-ui-custom@main/assets/shortcuts.png" width="720" alt="Shortcuts settings page">
-
-Example:
-
-```yaml
-config:
-  shortcuts:
-    newConversation: 'Mod+Alt+N'
-    switchModel: 'Mod+Alt+M'
-    cycleThinking: 'Mod+Alt+T'
-```
-
-Used to Enter for newlines? Set send to `Mod+Enter` and newline to `Enter`
-(when both gestures hit at once, send wins):
-
-```yaml
-config:
-  shortcuts:
-    sendMessage: 'Mod+Enter'
-    newline: 'Enter'
-```
-
-Model actions go through the same `session.models` / `session.selectModel`
-RPCs as the built-in model selector, so the model shown in the composer stays
-in sync; addressed subagent sessions are skipped (same as the UI). Combos
-without `Mod` do not fire while an input is focused, so they never hijack
-normal typing.
-
----
-
 ### Usage statistics (Settings → App Usage)
 
 The usage-statistics page aggregates each session's total usage (token-meter +
@@ -504,7 +423,7 @@ usage time, and session & step counts**, together with a usage trend chart and
 a session ranking. The session list rows already carry the host-computed
 projection baseline, so no extra RPCs are needed.
 
-The panel can be popped up from any screen via a shortcut.
+The panel can be popped up from any screen via the built-in `Mod+Alt+U` shortcut.
 
 ---
 
@@ -544,36 +463,42 @@ sidebar selection box is fully removed while off.
 
 ---
 
+### Chinese UI enhancement (zh)
+
+Integrated from `deepseek-harness-zh_pro`. The settings page exposes:
+
+- **UI localization** — dictionaries (terms / zh-dict) plus DOM label rewriting for text the official locale leaves in English;
+- **Thinking fold** — expand the most recent N lines by default, with "button" / "scroll" expand modes and a latest/earliest choice;
+- **Stats row** — render session stats across the full row width;
+- **Chat width** — adjustable chat-column width (default 90%);
+- **Archive view** — inject an "archived" view into the official conversation list, with unarchive support;
+- **Session delete** — move a session's log directory into the OS trash, restorable from the trash list;
+- **Auto-archive** — when the new-session UI opens, sessions idle for more than N days join the official archive list (default 7 days, `0` = off).
+
+> Since DSH 0.1.5 much of the UI is localized upstream; this module's
+> dictionaries target an earlier baseline, so some DOM-level rewrites are now
+> inert or redundant.
+
+---
+
+### Smooth streaming (smooth)
+
+Integrated from `dsh-smooth-stream`: assistant output is revealed character by
+character per frame, and growing chat rows glide instead of jumping per chunk.
+The settings card exposes the master switch and debug tuning (reveal rate,
+queue pressure, spring stiffness/damping, …).
+
+Unlike upstream, settings here are read and written through the host
+`settingsScope` (`ui-custom` namespace) rather than upstream's loopback RPC
+channel.
+
+---
+
 ### General settings additions
-
-New additions under Settings → General:
-
-**Floating history strip (position / count)** — records the history of a
-conversation:
-- **Position**: `left` / `right` / `off` (default `off` — hidden when off);
-- **Count**: how many recent turns to show (default 10, `0` = all);
-- Clicking an entry smooth-scrolls to the matching message; entries come from
-  the mounted session snapshot, so jumping is a pure DOM operation — no extra
-  RPCs;
-- **Pinning** is supported: from the message action row (between copy and
-  branch) you can pin a turn onto the strip; pinned turns ignore the count
-  limit, always show, and carry an accent-colored border.
 
 **User-message Markdown rendering** — off by default; when enabled your own
 messages render as Markdown (headings, lists, code blocks, `@subagent` /
 `@skill` references, …); when off, they look the same as stock plain text.
-
-<img src="https://cdn.jsdelivr.net/gh/yoli-mi/dsh-client-ui-custom@main/assets/general-settings.png" width="720" alt="General settings">
-
----
-
-### Plugin settings additions
-
-A third tab, **"Plugin Marketplace"**, is added under Settings → Plugins: it
-calls the GitHub API to discover projects tagged with the `dsh-plugin` topic,
-providing a catalog of **third-party** DSH plugins.
-
-<img src="https://cdn.jsdelivr.net/gh/yoli-mi/dsh-client-ui-custom@main/assets/marketplace.png" width="720" alt="Plugin marketplace">
 
 ---
 
@@ -585,8 +510,8 @@ providing a catalog of **third-party** DSH plugins.
    roster in your profile):
 
 ```yaml
-- id: ui-custom
-  name: '@ha-na-bi/dsh-client-ui-custom'
+- id: oh-my-dsh-ui
+  name: 'oh-my-dsh-ui'
   config:
     preset: 'ink-teal'        # pick a preset; any field below overrides it
     wallpaper: '/my-wall.jpg'
@@ -608,7 +533,7 @@ is already in this checkout.
   `DEFAULTS ← preset ← config` and clamps every field (config.ts), then writes
   the `--dsu-*` custom properties onto `<html>` (apply.ts). The runner passes
   the roster row's `config` to `apply(ctx, config)` as the second argument.
-- The stylesheet (custom.module.css) consumes these variables and re-declares
+- The stylesheet (custom.css) consumes these variables and re-declares
   the theme tokens on `body` / `body[data-ds-dark-theme]` with selectors that
   out-specify the theme sheets, so the plugin always wins the cascade — no
   plugin or shell source is modified.
@@ -621,16 +546,22 @@ is already in this checkout.
 - Framework layout:
 
 ```
-packages/client/ui-custom/
-├── src/client/
-│   ├── index.ts          # plugin entry: resolve preset → normalize → apply
-│   ├── config.ts         # CustomThemeConfig, DEFAULTS, normalizeConfig (type narrowing + clamping)
-│   ├── presets.ts        # ThemePreset registry — the extension surface for art choices
-│   ├── apply.ts          # config → DOM: --dsu-* vars, customCss, customVars
-│   ├── custom.module.css # token overrides consuming the --dsu-* vars
-│   └── …                 # remaining feature subdirectories (appearance/ settings/ usage/ marketplace/ history/ pin/ markdown/)
-├── tests/                # config pipeline unit tests
-└── README.md             # this file (中文 / English bilingual)
+oh-my-dsh-ui/
+├── src/
+│   ├── shared.ts          # FEATURES + plugin config interfaces
+│   ├── index.ts           # host entry: schema / settings registration
+│   ├── client/            # browser half
+│   │   ├── index.ts       # registerFeatures(): mount per features whitelist
+│   │   ├── config.ts      # CustomThemeConfig, DEFAULTS, normalizeConfig (type narrowing + clamping)
+│   │   ├── presets.ts     # ThemePreset registry
+│   │   ├── apply.ts       # config → DOM: --dsu-* vars, customCss, customVars
+│   │   ├── custom.css     # token overrides consuming the --dsu-* vars
+│   │   └── …              # feature subdirectories (appearance/ usage/ markdown/ motion/ ui-enhance/ zh/ smooth/)
+│   └── server/            # host half (session-delete / trash routes)
+├── lib/                   # tsdown build output
+├── cordis.patch.yml       # persistent bundle row (id: oh-my-dsh-ui)
+├── tests/                 # config pipeline unit tests
+└── README.md              # this file (中文 / English bilingual)
 ```
 
 ### Notes
@@ -639,7 +570,7 @@ packages/client/ui-custom/
   `dsh web` restart.
 - The wallpaper must be reachable by the browser (e.g. placed under the web
   server's static root, or an external URL).
-- The plugin's own settings pages (Appearance, Shortcuts, App Usage, …) apply
+- The plugin's own settings pages (Appearance, App Usage, Motion, …) apply
   changes immediately without a restart; editing the loader-layer config
   directly through the built-in Plugin Configuration page is not supported yet
   (pending the `ui-settings-plugins` schema).

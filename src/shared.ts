@@ -275,6 +275,19 @@ export interface ZhSection {
   zhAutoArchiveDays?: number
   /** 用户消息 Markdown 渲染。默认关。 */
   renderUserMarkdown?: boolean
+  /** 会话批量操作：行首复选框多选 + 批量删除/归档。默认开。 */
+  batchOpsEnabled?: boolean
+  /**
+   * 服务监控：侧栏面板显示本机在会话期间新出现的监听服务。
+   * **默认关**——进程归属/定位能力按平台尽力而为，用户显式开启才工作。
+   */
+  serviceMonitorEnabled?: boolean
+  /** 服务监控面板刷新间隔（秒，2–300，默认 10）。 */
+  serviceMonitorIntervalSec?: number
+  /** 自定义监控项（主机对每项做 TCP 探活，与自动发现条目一并显示）。 */
+  serviceMonitorTargets?: Array<{ name: string; host: string; port: number }>
+  /** 设置页「服务监控」分组的折叠态。 */
+  serviceMonitorSettingsOpen?: boolean
 }
 
 /**

@@ -20,6 +20,19 @@ export type UsageOverlayProps =
  */
 export function UsageOverlay({ t, useSessions, useUsageVisible }: UsageOverlayProps) {
   const visible = useUsageVisible((value) => value)
+  // Global hotkey: Mod+Alt+U toggles the panel. The `shortcuts` module that used
+  // to own this action is not part of this plugin, so the binding lives here.
+  useEffect(() => {
+    const onHotkey = (event: KeyboardEvent): void => {
+      if (event.repeat || event.isComposing) return
+      if (!event.altKey || !(event.metaKey || event.ctrlKey)) return
+      if (event.code !== 'KeyU' && event.key.toLowerCase() !== 'u') return
+      event.preventDefault()
+      usageOverlay.toggle()
+    }
+    window.addEventListener('keydown', onHotkey)
+    return () => window.removeEventListener('keydown', onHotkey)
+  }, [])
   useEffect(() => {
     if (!visible) return
     const onKeyDown = (event: KeyboardEvent): void => {

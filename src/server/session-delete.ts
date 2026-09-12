@@ -7,15 +7,28 @@
 //     session slot from the workspace ledger — no restore flag kept.
 //
 // Implementation notes:
-//   1. Locate sessions via sessionPersistence service (list/inspect/locate/
-//      readRaw) to get authoritative cwd, id, and physical log path.  locate()
-//      is a zero-side-effect location hint; the JSONL backend resolves it to
-//      the real file (session.jsonl[.zstd]).  We move its parent directory
-//      (unique to the session; may contain future session artefacts).
-//   2. Deletion order: move physical dir → remove workspace ledger slot →
-//      remove from archive set → handle in-memory active session.  Any step
-//      failure reports the error but tries to leave state intact; physical
-//      move failure aborts to avoid "removed from list but log still there".
+//   1. Target resolution prefers the authoritative header from the upstream
+//      service face, and stays compatible across the contract change:
+//        - 0.1.2-rc.1 exposes list / readRaw / locate; locate() is a
+//          zero-side-effect hint and the JSONL backend resolves it to the real
+//          file (session.jsonl[.zstd]); we move its parent directory (unique to
+//          the session; may contain future session artefacts).
+//        - 0.1.3-alpha.1 onwards the public face is handle-based
+//          (create/open/stat/list): readRaw / locate are no longer public and
+//          list() returns { header, ... } snapshots.  The header then comes
+//          from stat(), and the physical directory is scanned from the DSH
+//          session root layout `<root>/<project dir>/<session id>/`
+//          (locateSessionDirById, exact directory-name match — the upstream
+//          encoding algorithm is not copied).
+//      When the target cannot be located the delete ABORTS (loud error, no
+//      data touched).  It never degrades to a "logical delete": detaching the
+//      ledger slot while the log stays in place leaves the session in the
+//      list / "ungrouped" bucket.
+//   2. Deletion order: move physical dir (must succeed, abort otherwise) →
+//      remove workspace ledger slot → register the trash inventory → hide an
+//      in-memory (live) session via the official archive set.  Any step
+//      failure leaves state intact; there is never a state where the list
+//      dropped the session while the log is still in place.
 //   3. Active session: only "running" sessions refuse deletion (writing log
 //      while moving files is unsafe).  Idle open sessions are allowed; we
 //      cancel pending messages and wait for idle convergence before moving.
@@ -24,15 +37,22 @@
 //      routes (compatible with deepseek-harness-zh_pro client).  Inventory is
 //      lost on process restart (expected — contents managed by the OS).
 
-import { dirname } from 'node:path'
-import { rm } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
+import { readdir, rm, stat as fsStat } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { PKG } from './util.js'
 import { log, warn } from './util.js'
 import { trashItem, restoreItem } from './trash.js'
+import {
+  ensureFreshScan, getServiceMonitorSnapshot, openServiceOwnerDirectory, probeTargets, resolveServiceOwner,
+} from './service-monitor.js'
 import type { HostContext } from './types.js'
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
+
+/** Backend kinds confirmed to be a recyclable JSONL log directory. */
+const CONFIRMED_JSONL_KINDS = new Set(['jsonl', 'jsonl-zstd'])
 
 export function isValidSessionId(id: string): boolean {
   return SESSION_ID_PATTERN.test(id)
@@ -105,9 +125,18 @@ interface DeleteDeps {
     get(id: string): unknown
   }
   sessionPersistence?: {
-    list?(): Promise<Array<{ id: string; cwd?: string }>>
+    list?(): Promise<Array<{ id: string; cwd?: string } | { header?: { id: string; cwd?: string } }>>
+    /** 0.1.2-rc.1 public face: zero-side-effect physical location hint. */
     locate?(meta: { id: string; cwd?: string }): { kind: string; path: string } | undefined
+    /** 0.1.2-rc.1 public face: read the artifact (carries the header meta). */
     readRaw?(id: string): Promise<{ meta: { id: string; cwd?: string } } | undefined>
+    /**
+     * DSH 0.1.3-alpha.1+ public face: readRaw / locate are no longer public and
+     * the snapshot returned here carries the header instead of a path.
+     */
+    stat?(id: string): Promise<
+      { header?: { id: string; cwd?: string }; meta?: { id: string; cwd?: string } } | undefined
+    >
   }
   workspaceRegistry?: {
     list(): Array<{
@@ -131,10 +160,67 @@ interface DeleteDeps {
 
 const IDLE_CONVERGE_TIMEOUT_MS = 3000
 
+/**
+ * Deleted-session ids (process memory): deleteSession records every successful
+ * delete, restoreSession removes it. The archive view fetches this set to filter
+ * sessions that were deleted but still have an in-memory agent — upstream exposes
+ * no API to unload a live agent, so the delete flow hides such sessions through
+ * the official archive set, and without this reverse filter they would come back
+ * in the archive view (measured 2026-09 regression).
+ */
+const deletedSessionIds = new Set<string>()
+
+/** Ids that count as deleted: the explicit set ∪ the trash inventory. */
+function collectDeletedSessionIds(): string[] {
+  const ids = new Set(deletedSessionIds)
+  for (const item of sessionTrash.list()) ids.add(item.sessionId)
+  return [...ids]
+}
+
+/**
+ * Self-heal after a hot reload (which drops this module's memory): any archived
+ * id whose log directory no longer exists was deleted, so record it again. Keeps
+ * the archive view honest across reloads.
+ */
+async function pruneDeletedSessionIds(deps: DeleteDeps): Promise<void> {
+  let archived: readonly string[] = []
+  try {
+    const domain = deps.storageDomain?.get?.('workspace') as
+      | { global?: { get?(): { archivedSessionIds?: readonly string[] } | undefined } }
+      | undefined
+    archived = domain?.global?.get?.()?.archivedSessionIds ?? []
+  } catch {
+    return
+  }
+  for (const raw of archived) {
+    const sessionId = String(raw)
+    if (deletedSessionIds.has(sessionId)) continue
+    if (sessionTrash.get(sessionId) !== undefined) continue
+    if (await locateSessionDirById(sessionId) === null) deletedSessionIds.add(sessionId)
+  }
+}
+
+let unarchiveWarningIssued = false
+
+/**
+ * 把会话从工作区归档集合移除（取消归档）。
+ * workspaceRegistry 当前只公开 archiveSession，没有 unarchive / 事务写 API；
+ * 因而只通过 storageDomain 做归档集合持久化，不写 registry 私有 state，避免
+ * 绕过 registry 的串行器（等上游公开 API 后再恢复内存缓存同步）。
+ *
+ * 写入无事务保障，但 global.set 排队在域的单一 FIFO 写链上：set resolve 时
+ * 所有先前写入均已完成，随后的同步 get 读到的是链上权威真值。因此写后重读
+ * 一次，目标 id 仍在则基于真值重放一次过滤；无法覆盖的仅剩「排队更晚的官方
+ * archiveSession 落地并覆盖本写」——那属于归档请求后到、归档生效，语义本应如此。
+ */
 export async function unarchiveSession(
   deps: DeleteDeps,
   sessionId: string,
 ): Promise<{ ok: boolean; changed: boolean }> {
+  if (!unarchiveWarningIssued) {
+    unarchiveWarningIssued = true
+    warn('workspaceRegistry 当前没有公开 unarchive 或事务写 API，仅执行归档集合持久化；等待上游公开 API')
+  }
   const storage = deps.storageDomain
   if (storage === undefined || typeof storage.get !== 'function') return { ok: false, changed: false }
   let domain: { global?: unknown } | undefined
@@ -156,36 +242,90 @@ export async function unarchiveSession(
   }
   if (state === undefined || state === null) return { ok: false, changed: false }
   const archived = state.archivedSessionIds ?? []
-  const next = archived.filter(id => String(id) !== sessionId)
-  const changed = next.length !== archived.length
-  const nextState = { ...state, archivedSessionIds: next }
-  if (changed) {
-    try {
-      await global.set(nextState as { archivedSessionIds: readonly string[] })
-    } catch (error) {
-      warn(`取消归档会话 ${sessionId} 失败: ${error instanceof Error ? error.message : String(error)}`)
-      return { ok: false, changed: false }
-    }
+  const removeFrom = (ids: readonly string[]): readonly string[] | null => {
+    const next = ids.filter(id => String(id) !== sessionId)
+    return next.length !== ids.length ? next : null
   }
+  const first = removeFrom(archived)
+  if (first === null) return { ok: true, changed: false }
   try {
-    const registryAny = deps.workspaceRegistry as unknown as { state?: unknown }
-    if (registryAny !== undefined && registryAny !== null && typeof registryAny === 'object') {
-      ;(registryAny as { state: unknown }).state = nextState
+    await global.set({ archivedSessionIds: first })
+    // 域 FIFO 写链上串行：resolve 后重读即权威真值。目标 id 仍在（先前并发
+    // 的 archiveSession 已落地、被本写覆盖）则基于真值重放一次过滤。
+    const reread = global.get()?.archivedSessionIds
+    if (reread !== undefined && reread.some(id => String(id) === sessionId)) {
+      const retry = removeFrom(reread)
+      if (retry !== null) await global.set({ archivedSessionIds: retry })
     }
-  } catch {
-    // cache sync failure — session stays hidden until restart; persistence is updated
+  } catch (error) {
+    warn(`取消归档会话 ${sessionId} 失败: ${error instanceof Error ? error.message : String(error)}`)
+    return { ok: false, changed: false }
   }
-  return { ok: true, changed }
+  return { ok: true, changed: true }
 }
 
+/**
+ * DSH session store root: `DSH_HOME/sessions` (default `~/.dsh/sessions`),
+ * matching the `dshHomePath('sessions')` deployment convention.  Since
+ * 0.1.3-alpha.1 the public service face no longer exposes physical paths, so
+ * recycling relies on scanning this root.
+ */
+function sessionRootDir(): string {
+  const home = process.env.DSH_HOME !== undefined && process.env.DSH_HOME !== ''
+    ? process.env.DSH_HOME
+    : join(homedir(), '.dsh')
+  return join(home, 'sessions')
+}
+
+/**
+ * Locate a session's physical log directory by scanning
+ * `<root>/<project dir>/<session id>/`.  Session ids are safe characters
+ * (`[A-Za-z0-9_-]`, so the encoded directory name equals the id) while project
+ * directory names use a DSH-private encoding — hence enumerate the project
+ * directories and match the id segment exactly, which stays immune to changes
+ * in that layout algorithm.  Returns null when no such directory exists.
+ */
+async function locateSessionDirById(sessionId: string): Promise<string | null> {
+  const root = sessionRootDir()
+  let projects: string[] = []
+  try {
+    const entries = await readdir(root, { withFileTypes: true })
+    projects = entries.filter(entry => entry.isDirectory()).map(entry => entry.name)
+  } catch {
+    return null // Root missing (no sessions) or unreadable: not locatable.
+  }
+  for (const project of projects) {
+    const candidate = join(root, project, sessionId)
+    try {
+      const info = await fsStat(candidate)
+      if (info.isDirectory()) return candidate
+    } catch {
+      // No such session under this project directory; keep looking.
+    }
+  }
+  return null
+}
+
+/**
+ * Resolve a session's physical log directory (absolute path) and display info.
+ * Returns null when the session cannot be located at all (backend exposes no
+ * location and/or the log never landed on disk).
+ *
+ * Contract evolution: 0.1.2-rc.1 exposes `readRaw`/`locate` (locate yields the
+ * physical path); 0.1.3-alpha.1 onwards is handle-based (create/open/stat/list)
+ * and no longer exposes a path, so the directory is recovered by
+ * {@link locateSessionDirById}.
+ */
 async function resolveSessionTarget(
   deps: DeleteDeps,
   sessionId: string,
-): Promise<{ header: { id: string; cwd?: string }; dir: string | null } | null> {
+): Promise<{ header: { id: string; cwd?: string }; dir: string | null; kind: string | null } | null> {
   const persistence = deps.sessionPersistence
   if (persistence === undefined) return null
 
   let header: { id: string; cwd?: string } | undefined
+  // 1) Legacy contract: readRaw returns the artifact carrying the header —
+  //    cheaper than scanning every session.
   if (typeof persistence.readRaw === 'function') {
     try {
       const artifact = await persistence.readRaw(sessionId)
@@ -196,37 +336,71 @@ async function resolveSessionTarget(
       header = undefined
     }
   }
+  // 2) New contract: stat returns a snapshot carrying the header, without
+  //    reading the full log.
+  if (header === undefined && typeof persistence.stat === 'function') {
+    try {
+      const snapshot = await persistence.stat(sessionId)
+      if (snapshot !== undefined && snapshot !== null && snapshot.header !== undefined) {
+        header = snapshot.header
+      }
+    } catch {
+      header = undefined
+    }
+  }
+  // 3) Last resort: scan list() headers (both old `{id,cwd}` arrays and new
+  //    `{header}` snapshots).
   if (header === undefined && typeof persistence.list === 'function') {
     try {
-      const headers = await persistence.list()
-      const match = headers.find(candidate => String(candidate.id) === sessionId)
-      if (match !== undefined) header = match
+      const candidates = await persistence.list()
+      const match = candidates.find(candidate => {
+        const candidateId = (candidate as { id?: string }).id
+          ?? (candidate as { header?: { id?: string } }).header?.id
+        return String(candidateId) === sessionId
+      })
+      if (match !== undefined) {
+        header = (match as { header?: { id: string; cwd?: string } }).header
+          ?? (match as { id: string; cwd?: string })
+      }
     } catch {
       header = undefined
     }
   }
   if (header === undefined) return null
 
+  // 4) Legacy contract: locate() yields the physical path, whose parent is the
+  //    session-private directory.  The reported kind doubles as the recyclable
+  //    backend signal.
   let dir: string | null = null
+  let kind: string | null = null
   if (typeof persistence.locate === 'function') {
     try {
       const location = persistence.locate(header)
-      if (location !== undefined && location !== null && typeof location.path === 'string' && location.path !== '') {
-        const parent = dirname(location.path)
-        if (parent !== '' && parent !== '.') dir = parent
+      if (location !== undefined && location !== null && typeof location.kind === 'string') {
+        kind = location.kind
+        if (CONFIRMED_JSONL_KINDS.has(location.kind) && typeof location.path === 'string' && location.path !== '') {
+          const parent = dirname(location.path)
+          if (parent !== '' && parent !== '.') dir = parent
+        }
       }
     } catch {
       dir = null
     }
   }
-  return { header, dir }
+  // 5) New contract: no locate (or an unconfirmed kind) — scan the layout.
+  //    A confirmed non-JSONL backend is never scanned.
+  if (dir === null && kind === null) {
+    dir = await locateSessionDirById(sessionId)
+    if (dir !== null) kind = 'jsonl'
+  }
+  return { header, dir, kind }
 }
 
 export async function deleteSession(
   deps: DeleteDeps,
   sessionId: string,
   options: { trash: boolean; title?: string; currentSessionId?: string },
-): Promise<{ ok: true; trashed: boolean; hint?: string } | { ok: false; code: string; message: string }> {
+): Promise<{ ok: true; trashed: boolean } | { ok: false; code: string; message: string }> {
   const agent = deps.agents?.get(sessionId) as
     | { status?: string; cancel?: (cause: unknown, options?: unknown) => void; whenIdle?: () => Promise<unknown> }
     | undefined
@@ -249,28 +423,49 @@ export async function deleteSession(
     }
   }
 
+  // Locate the physical directory. When the target cannot be resolved (no
+  // header from the service face, or the layout scan finds nothing) the delete
+  // ABORTS rather than degrading to a "logical delete": detaching the ledger
+  // first would drop the session into the official "ungrouped" bucket while
+  // its log stays in place (measured on DSH 0.1.3-alpha.1, where the
+  // handle-based sessionPersistence face dropped locate/readRaw).
   const target = await resolveSessionTarget(deps, sessionId)
-  const cwd = target === null ? '' : (target.header as { cwd?: string }).cwd ?? ''
+  if (target === null) {
+    warn(`删除会话 ${sessionId} 中止：无法定位会话日志目录`)
+    return {
+      ok: false,
+      code: 'locate-failed',
+      message: '无法定位会话日志目录，已中止删除（未改动任何数据）。',
+    }
+  }
+  const cwd = target.header.cwd ?? ''
   const title = options.title !== undefined && options.title !== '' ? options.title : sessionId
 
+  // A missing directory or a non-recyclable backend aborts for the same reason:
+  // only moving the log out of the store counts as a delete.
+  if (target.dir === null || target.kind === null || !CONFIRMED_JSONL_KINDS.has(target.kind)) {
+    warn(`删除会话 ${sessionId} 中止：后端类型不支持移入回收站（kind=${String(target.kind)}）`)
+    return {
+      ok: false,
+      code: 'unsupported-backend',
+      message: '该会话的日志后端不支持移入系统回收站，已中止删除（未改动任何数据）。',
+    }
+  }
+
   let trashLocation = ''
-  let dirRemoved = false
-  if (target !== null && target.dir !== null) {
-    try {
-      if (options.trash) {
-        const result = await trashItem(target.dir)
-        trashLocation = result.location
-      } else {
-        await rm(target.dir, { recursive: true, force: true })
-        trashLocation = target.dir
-      }
-      dirRemoved = true
-    } catch (error) {
-      return {
-        ok: false,
-        code: 'trash-failed',
-        message: `移入回收站失败：${error instanceof Error ? error.message : String(error)}`,
-      }
+  try {
+    if (options.trash) {
+      const result = await trashItem(target.dir)
+      trashLocation = result.location
+    } else {
+      await rm(target.dir, { recursive: true, force: true })
+      trashLocation = target.dir
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'trash-failed',
+      message: `移入回收站失败：${error instanceof Error ? error.message : String(error)}`,
     }
   }
 
@@ -288,7 +483,7 @@ export async function deleteSession(
     }
   }
 
-  if (dirRemoved && options.trash && target !== null && target.dir !== null) {
+  if (options.trash) {
     sessionTrash.remember({
       sessionId,
       title,
@@ -309,13 +504,8 @@ export async function deleteSession(
     }
   }
 
-  return {
-    ok: true,
-    trashed: dirRemoved && options.trash,
-    ...(target !== null && target.dir === null
-      ? { hint: '该会话日志无法定位，已从列表移除（后端不支持回收）。' }
-      : {}),
-  }
+  deletedSessionIds.add(sessionId)
+  return { ok: true, trashed: options.trash }
 }
 
 export async function restoreSession(
@@ -327,24 +517,38 @@ export async function restoreSession(
   } catch (error) {
     return { ok: false, code: 'restore-failed', message: `恢复失败：${error instanceof Error ? error.message : String(error)}` }
   }
+  // 重新挂回工作区：找到 cwd 匹配的 workspace（恢复后日志已回原位）。
   const registry = deps.workspaceRegistry
+  let reattachFailed = registry === undefined
   if (registry !== undefined) {
     try {
       const workspaces = registry.list()
-      for (const workspace of workspaces) {
-        if (workspace.path === entry.cwd) {
-          if (!workspace.sessionIds.includes(entry.sessionId)) {
-            await workspace.attachSession(entry.sessionId)
-          }
-          break
-        }
+      const workspace = workspaces.find(candidate => candidate.path === entry.cwd)
+      if (workspace === undefined) {
+        reattachFailed = true
+      } else if (!workspace.sessionIds.includes(entry.sessionId)) {
+        await workspace.attachSession(entry.sessionId)
       }
     } catch (error) {
+      reattachFailed = true
       warn(`恢复会话 ${entry.sessionId} 后重新挂载工作区失败: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
-  await unarchiveSession(deps, entry.sessionId)
+  // 删除驻留内存的会话时会把它加入归档集合（隐藏）；恢复后取消归档。
+  // attach 已失败时跳过：失败路径不动账本（归档集合保留、条目可重试），
+  // 避免「目录已恢复 + 归档集合被顺手清理」的部分副作用泄漏。
+  const unarchive = reattachFailed
+    ? { ok: false, changed: false }
+    : await unarchiveSession(deps, entry.sessionId)
+  if (reattachFailed || !unarchive.ok) {
+    return {
+      ok: false,
+      code: 'reattach-failed',
+      message: '目录已恢复到原位置，但重新挂载工作区/取消归档未完成；请重试恢复或在列表刷新后检查',
+    }
+  }
   sessionTrash.forget(entry.sessionId)
+  deletedSessionIds.delete(entry.sessionId)
   return { ok: true }
 }
 
@@ -386,6 +590,41 @@ function writeJson(res: RouteResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body))
 }
 
+/** Panel refresh interval (seconds → ms, capped at 300s). 0 = always rescan. */
+function parseScanMaxAgeMs(raw: unknown): number {
+  const seconds = typeof raw === 'number' && Number.isFinite(raw) ? Math.round(raw) : Number.parseInt(String(raw ?? ''), 10)
+  if (!Number.isFinite(seconds) || seconds <= 0) return 0
+  return Math.min(300, seconds) * 1000
+}
+
+/**
+ * Service-monitor snapshot route: fetching checks the scan cache (a rescan runs
+ * only once the panel's refresh interval has elapsed); a POST body additionally
+ * carries the user-defined targets, which are probed in parallel with the scan.
+ * @returns whether the route handled the request.
+ */
+async function handleServiceMonitorRoutes(
+  req: RouteRequest,
+  res: RouteResponse,
+  pathname: string,
+  payload: Record<string, unknown>,
+  url: URL,
+): Promise<boolean> {
+  if (pathname !== '/dsh-zh/api/service-monitor') return false
+  const maxAgeMs = req.method === 'GET'
+    ? parseScanMaxAgeMs(url.searchParams.get('intervalSec'))
+    : parseScanMaxAgeMs(payload.intervalSec)
+  const [, probeResults] = await Promise.all([
+    ensureFreshScan(process.platform, maxAgeMs),
+    req.method === 'GET' ? Promise.resolve([]) : probeTargets(payload.targets),
+  ])
+  writeJson(res, 200, {
+    ok: true,
+    value: Object.assign(getServiceMonitorSnapshot(), { targets: probeResults as unknown[] }),
+  })
+  return true
+}
+
 /**
  * Install /dsh-zh/api routes: session delete / trash list / restore.
  * Route prefix kept as /dsh-zh/api/* for client compatibility with
@@ -402,6 +641,16 @@ export function installSessionDeleteRoute(ctx: HostContext, deps: () => DeleteDe
     const handler = async (req: RouteRequest, res: RouteResponse): Promise<void> => {
       if (!isTrustedApiRequest(req)) {
         writeJson(res, 403, { ok: false, error: { code: 'forbidden', message: 'forbidden' } })
+        return
+      }
+      const url = new URL(req.url ?? '/', 'http://dsh.internal')
+      const pathname = url.pathname
+      // GET only serves the service-monitor snapshot: fetching it checks the scan
+      // cache, so a rescan happens only once the panel's refresh interval
+      // (carried as ?intervalSec=) has elapsed.
+      if (req.method === 'GET') {
+        if (await handleServiceMonitorRoutes(req, res, pathname, {}, url)) return
+        writeJson(res, 404, { ok: false, error: { code: 'not-found', message: 'unknown method' } })
         return
       }
       if (req.method !== 'POST') {
@@ -421,9 +670,44 @@ export function installSessionDeleteRoute(ctx: HostContext, deps: () => DeleteDe
         return
       }
 
-      const url = new URL(req.url ?? '/', 'http://dsh.internal')
-      const pathname = url.pathname
       try {
+        if (await handleServiceMonitorRoutes(req, res, pathname, payload, url)) return
+        if (pathname === '/dsh-zh/api/service-monitor/resolve') {
+          // Resolve the listening process for one endpoint (hover-triggered),
+          // cached per endpoint; the scan sweep drops the cache once the service
+          // stops listening. A non-local target yields value.owner = null.
+          try {
+            const owner = await resolveServiceOwner(process.platform, payload.address, payload.port)
+            writeJson(res, 200, { ok: true, value: { owner } })
+          } catch {
+            writeJson(res, 200, { ok: true, value: { owner: null } })
+          }
+          return
+        }
+        if (pathname === '/dsh-zh/api/service-monitor/open') {
+          // Reveal the listening process's directory in the file manager: the host
+          // reads the endpoint's ALREADY-CACHED owner; a request-supplied path is
+          // never accepted.
+          try {
+            const opened = await openServiceOwnerDirectory(process.platform, payload.address, payload.port)
+            if (opened === null) {
+              writeJson(res, 404, { ok: false, error: { code: 'owner-unavailable', message: '未定位到监听进程目录' } })
+              return
+            }
+            writeJson(res, 200, { ok: true, value: opened })
+          } catch (error) {
+            warn(`打开服务目录失败: ${error instanceof Error ? error.message : String(error)}`)
+            writeJson(res, 500, { ok: false, error: { code: 'open-failed', message: '打开服务目录失败，请稍后重试。' } })
+          }
+          return
+        }
+        if (pathname === '/dsh-zh/api/session.deleted') {
+          // Deleted-session set (used by the archive view to filter). Self-heals
+          // first (a hot reload drops the in-memory set), then merges the trash list.
+          await pruneDeletedSessionIds(deps())
+          writeJson(res, 200, { ok: true, value: { ids: collectDeletedSessionIds() } })
+          return
+        }
         if (pathname === '/dsh-zh/api/session.unarchive') {
           const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : ''
           if (!isValidSessionId(sessionId)) {
@@ -455,7 +739,7 @@ export function installSessionDeleteRoute(ctx: HostContext, deps: () => DeleteDe
             writeJson(res, 400, { ok: false, error: { code: result.code, message: result.message } })
             return
           }
-          writeJson(res, 200, { ok: true, value: result })
+          writeJson(res, 200, { ok: true, value: { ...result, deletedIds: collectDeletedSessionIds() } })
           return
         }
         if (pathname === '/dsh-zh/api/trash.list') {

@@ -15,6 +15,7 @@ const TERMS = {
   fullAccess: [['Full access', '完全访问']],
   agent: [[' agent', '代理'], ['，agent', '，代理']],
   agentLabel: [['Agent', '代理']],
+  subagent: [['subagent', '子代理'], ['Subagent', '子代理']],
   modelId: [['模型 ID', '模型标识'], [' ID', '标识']],
   providerId: [['Provider ID', '提供方标识'], [' ID', '标识']],
   surface: [['surface', '界面']],

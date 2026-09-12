@@ -5,13 +5,37 @@ const ZH = {
   chat: {
     'message.retry.status': '{label}（{retry}/{maximum}） · {seconds}秒',
   },
+  command: {
+    // 0.1.5 起斜杠命令描述走 command 命名空间（ui-commands），上游 zh 已
+    // 本地化（description.xxx）；此处保留本插件的既定叫法，按键级覆盖。
+    'description.compact': '压缩较早的对话历史',
+    'description.export': '将会话日志下载为 ZIP 压缩包',
+    'description.feedback': '记录对本会话的反馈',
+    'description.goal': '设置或查看长期任务的目标',
+    'description.permission': '切换权限预设（沙箱模式 + 审批策略）',
+    // description.plan 与上游「进入或退出计划模式」叫法一致，无需覆盖。
+  },
   model: {
     retry: '重试',
+  },
+  trajectory: {
+    // 0.1.5 轨迹视图完全词典化（trajectory 命名空间），但 zh 值仍夹带英文
+    // 残留（Round/token/tok/tok-s/Schema）。整句覆盖只处理无法用术语替换
+    // 修正的键，其余走 ZH_PARTIAL。
+    // source.goalRound 上游 zh 为「目标 · Round {round}」：术语替换无法重排
+    // 语序，整句覆盖为「目标 · 第 {round} 轮」。
+    'source.goalRound': '目标 · 第 {round} 轮',
   },
   cordis: {
     // 上游 zh 词典漏翻：Cordis 面板按钮标题与运行数量。
     'panel.trigger': 'Cordis 插件',
     'panel.runningCount': '{count} 个运行中',
+  },
+  'settings.agentPreset': {
+    // 用户自定义叫法：上游官方名为「PTC 模式」，按既定要求改称「程序模式」；
+    // 描述中的「PTC 模式 SDK」同步译作「程序模式开发包」。整句覆盖，不随上游措辞变化。
+    presetPtcName: '程序模式',
+    presetPtcDescription: '具备标准模式的全部能力，并通过程序模式开发包呈现工具，让模型用一个 TypeScript 程序组合多步操作。',
   },
   '*': {
     retry: '重试', submit: '提交', submitting: '正在提交', save: '保存', cancel: '取消',
@@ -44,6 +68,15 @@ const ZH_PARTIAL = {
     'message.maxTokens': ['token'],
     'message.ttft': ['token'],
     'message.tokensPerSecond': ['tokPerSec'],
+    // 上游 0.1.2-alpha.2 起回答末尾的用量/耗时统计（TurnUsagePanel）与轮次
+    // 过程摘要行，模板仍夹带英文单元（{count} tok / 首 token 用时 / subagent）。
+    'message.turnUsage.count': ['tok'],
+    'message.turnTime.ttft': ['token'],
+    'message.turnProcess.subagents.one': ['subagent'],
+    'message.turnProcess.subagents.other': ['subagent'],
+    // 0.1.5 StatsPills 统计对话框（stats.dialog.*）：zh 值仍夹带英文。
+    'stats.dialog.usageTitle': [['Token', '词元']],
+    'stats.dialog.ttft': ['token'],
   },
   conversation: {
     'access.confirm.title': ['fullAccess'],
@@ -61,6 +94,16 @@ const ZH_PARTIAL = {
     'toolbar.calls': ['trajCalls'],
     'toolbar.expandCalls': ['trajExpandCalls'],
     'toolbar.collapseCalls': ['trajCollapseCalls'],
+    // 0.1.5 轨迹视图词典化后 zh 值仍夹带英文残留，术语层修正：
+    'unit.tokens': ['tok'],
+    'unit.tokensPerSecond': ['tokPerSec'],
+    'usage.tokens': [['Token', '词元']],
+    'tab.schema': [['Schema', '模式']],
+    'record.schemaUnavailable': [['Schema', '模式']],
+    'timing.firstTokenUnavailable': ['token'],
+    'timing.outputTokensUnavailable': ['token'],
+    'timing.ttft': ['token'],
+    'timeline.ttftDecoding': ['token'],
   },
   'settings.models': {
     intro: ['api'],
@@ -95,6 +138,13 @@ const ZH_PARTIAL = {
     agentLoopTitle: ['agentLabel'],
     agentLoopDescription: ['agentLabel'],
     webSearchApiKey: ['apiKey'],
+    // 上游 0.1.2-rc.1 新增的子代理模型选择卡：zh 模板仍夹带 Agent/Subagent。
+    subagentModelSelectionTitle: ['subagent'],
+    subagentModelSelectionDescription: ['subagent', 'agentLabel'],
+    subagentModelSelectionToggle: ['subagent', 'agentLabel'],
+    subagentModelSelectionChoose: ['subagent', 'agentLabel'],
+    subagentModelSelectionAllowed: ['agentLabel'],
+    subagentModelSelectionOff: ['subagent', 'agentLabel'],
   },
   'settings.agentPreset': {
     title: ['agentLabel'],
@@ -106,7 +156,9 @@ const ZH_PARTIAL = {
     presetStandardDescription: ['agentLabel', 'shell', 'skills'],
     presetCodeName: ['ptc'],
     presetCodeDescription: ['codeModeSdk'],
-    presetMinimalDescription: ['bash', 'strReplaceEditor', 'agentLabel'],
+    // 0.1.5 minimal 描述为「仅提供持久 shell 的单工具编码 Agent.」，已不含
+    // bash / str_replace_editor 字面量，仅 Agent 术语仍生效。
+    presetMinimalDescription: ['agentLabel'],
     presetCordisDescription: ['agentLabel', 'preset'],
   },
   'settings.permission': {
@@ -135,6 +187,9 @@ const ZH_PARTIAL = {
   },
   'settings.pluginInventory': {
     cordis: ['cordisStatus'],
+    // 上游 0.1.2-rc.1 插件清单面板：预设切换与按会话提供说明仍夹带 Agent。
+    switcherLabel: ['agentLabel'],
+    presetProvidedDetail: ['agentLabel'],
   },
   'session-log-download': {
     // 上游 zh 词典里夹带英文 Session（导出会话 ZIP 的弹窗文案），键级修正。
@@ -144,6 +199,8 @@ const ZH_PARTIAL = {
     'dialog.successDescription': ['session'],
     'dialog.errorTitle': ['session'],
     'dialog.commandFailed': ['session'],
+    // 0.1.5 上游新增的菜单项（下载 Session 日志）仍夹带英文。
+    'menu.download': ['session'],
   },
 }
 

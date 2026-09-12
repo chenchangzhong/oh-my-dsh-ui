@@ -15,6 +15,7 @@ import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   ZH_SETTINGS_NS,
   ZH_SETTINGS_DEFAULTS,
+  type ServiceMonitorTarget,
   type ZhSettingsSection,
 } from '../shared.ts'
 
@@ -34,11 +35,35 @@ const SCOPE_PENDING = Object.freeze({
   deleteSessionEnabled: ZH_SETTINGS_DEFAULTS.deleteSessionEnabled,
   archiveViewEnabled: ZH_SETTINGS_DEFAULTS.archiveViewEnabled,
   renderUserMarkdown: ZH_SETTINGS_DEFAULTS.renderUserMarkdown,
+  batchOpsEnabled: ZH_SETTINGS_DEFAULTS.batchOpsEnabled,
+  serviceMonitorEnabled: ZH_SETTINGS_DEFAULTS.serviceMonitorEnabled,
+  serviceMonitorIntervalSec: ZH_SETTINGS_DEFAULTS.serviceMonitorIntervalSec,
+  serviceMonitorTargets: ZH_SETTINGS_DEFAULTS.serviceMonitorTargets,
+  serviceMonitorSettingsOpen: ZH_SETTINGS_DEFAULTS.serviceMonitorSettingsOpen,
 })
 
 /** Clamp a numeric setting within [min, max]. */
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.round(n)))
+}
+
+/**
+ * Normalize user-defined monitored targets: keep only structurally valid
+ * `{ name, host, port }` items (guards against hand-edited scope data).
+ */
+function normalizeServiceTargets(value: unknown): ServiceMonitorTarget[] {
+  if (!Array.isArray(value)) return []
+  const result: ServiceMonitorTarget[] = []
+  for (let i = 0; i < value.length && result.length < 100; i += 1) {
+    const item = value[i] as { name?: unknown; host?: unknown; port?: unknown } | null
+    if (item === null || typeof item !== 'object') continue
+    const name = typeof item.name === 'string' ? item.name.slice(0, 60) : ''
+    const host = typeof item.host === 'string' ? item.host.trim().slice(0, 100) : ''
+    const port = typeof item.port === 'number' ? Math.round(item.port) : 0
+    if (host === '' || port < 1 || port > 65535) continue
+    result.push({ name, host, port })
+  }
+  return result
 }
 
 /**
@@ -68,6 +93,13 @@ function normalize(raw: unknown): SettingsSnapshot {
     deleteSessionEnabled: snap.deleteSessionEnabled !== false,
     archiveViewEnabled: snap.archiveViewEnabled !== false,
     renderUserMarkdown: snap.renderUserMarkdown === true,
+    batchOpsEnabled: snap.batchOpsEnabled !== false,
+    serviceMonitorEnabled: snap.serviceMonitorEnabled === true,
+    serviceMonitorIntervalSec: typeof snap.serviceMonitorIntervalSec === 'number'
+      ? clamp(snap.serviceMonitorIntervalSec, 2, 300)
+      : ZH_SETTINGS_DEFAULTS.serviceMonitorIntervalSec,
+    serviceMonitorTargets: normalizeServiceTargets(snap.serviceMonitorTargets),
+    serviceMonitorSettingsOpen: snap.serviceMonitorSettingsOpen === true,
   }
 }
 
@@ -123,7 +155,9 @@ class SettingsStore {
     let normalized: unknown = value
     if (field === 'chatWidth') normalized = clamp(Number(value), 50, 100)
     else if (field === 'thinkMaxLines') normalized = clamp(Number(value), 0, 200)
-    else if (field === 'zhComplete' || field === 'statsFull' || field === 'thinkingAuto' || field === 'deleteSessionEnabled' || field === 'archiveViewEnabled' || field === 'chatWidthEnabled' || field === 'renderUserMarkdown')
+    else if (field === 'serviceMonitorIntervalSec') normalized = clamp(Number(value), 2, 300)
+    else if (field === 'serviceMonitorTargets') normalized = normalizeServiceTargets(value)
+    else if (field === 'zhComplete' || field === 'statsFull' || field === 'thinkingAuto' || field === 'deleteSessionEnabled' || field === 'archiveViewEnabled' || field === 'chatWidthEnabled' || field === 'renderUserMarkdown' || field === 'batchOpsEnabled' || field === 'serviceMonitorEnabled' || field === 'serviceMonitorSettingsOpen')
       normalized = Boolean(value)
     else if (field === 'thinkMaxLinesFrom') normalized = value === 'earliest' ? 'earliest' : 'latest'
     else if (field === 'thinkMode') normalized = value === 'scroll' ? 'scroll' : 'button'

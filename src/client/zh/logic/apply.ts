@@ -27,8 +27,10 @@ import { SETTINGS_ZH, SETTINGS_EN } from '../data/settings-dicts.ts'
 import { ZH_SETTINGS_NS } from '../shared.ts'
 import { installAutoArchive } from './auto-archive.ts'
 import { installChineseEnhance } from './dom-enhance.ts'
-import { installSessionMenu } from './session-menu.ts'
+import { installSessionMenu, readSessionIdFromRow } from './session-menu.ts'
+import { installSessionBatch } from './session-batch.ts'
 import { installArchiveView } from './archive-view.ts'
+import { installServiceMonitor } from './service-monitor.ts'
 import { settingsStore } from '../store/settings-store.ts'
 
 export interface ZhApplyContext {
@@ -88,8 +90,16 @@ export function applyZh(ctx: ClientContext, opts?: ApplyZhOptions): () => void {
   // 4. Session menu: inject "Delete session" into the session row menu.
   const disposeSessionMenu = installSessionMenu(zhCtx)
 
-  // 5. Archive view: pure-DOM archived session list injected into the session browser.
+  // 5. Session batch: row-leading checkboxes + multi-select state. The menu
+  //    additions and the bulk execution itself live in session-menu.ts.
+  const disposeSessionBatch = installSessionBatch(ctx, readSessionIdFromRow)
+
+  // 6. Archive view: pure-DOM archived session list injected into the session browser.
   const disposeArchiveView = installArchiveView(zhCtx)
+
+  // 7. Service monitor: side-panel list of local services that started listening
+  //    during this session (polls the host's /dsh-zh/api/service-monitor route).
+  const disposeServiceMonitor = installServiceMonitor(ctx)
 
   // Return a single teardown that reverses the full registration.
   return function () {
@@ -97,6 +107,8 @@ export function applyZh(ctx: ClientContext, opts?: ApplyZhOptions): () => void {
     disposeAutoArchive()
     disposeChineseEnhance()
     disposeSessionMenu()
+    disposeSessionBatch()
     disposeArchiveView()
+    disposeServiceMonitor()
   }
 }
