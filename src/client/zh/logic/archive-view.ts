@@ -47,7 +47,7 @@ import { ZH_ARCHIVE_NS } from '../shared.ts'
 import { archiveLocales } from '../locales/zh-locales.ts'
 import { settingsStore } from '../store/settings-store.ts'
 import type { ZhApplyContext } from './apply.ts'
-import { fetchDeletedSessionIds, isSessionDeleted } from './session-menu.ts'
+import { fetchDeletedSessionIds, isSessionDeleted, readSessionIdFromRow } from './session-menu.ts'
 import { batchSelection, createBatchCheck, toggleBatchSelection } from './session-batch.ts'
 
 // ─── Archive view CSS (rules aligned with official Rows.module.css) ──────────
@@ -1204,51 +1204,92 @@ function runArchiveView(ctx: ClientContext): () => void {
     } catch { /* ignore */ }
   }
   // ── 多选联动（归档行与官方会话行共用 session-batch 的一份选择状态）──────────
-  /** 当前归档视图展示着的归档行 id（以 DOM 为准；视图外的行不参与全选）。 */
-  const visibleArchivedIds = (): string[] => {
+  // 全选范围 = 该工作区**当前视图**：
+  //   - 归档视图开着且属于该工作区时，只取归档行；
+  //   - 否则只取正常列表里那些已经注入了复选框的官方会话行。
+  // 视图外的行不掺和（与上游 fc4cec2 同语义）。
+  const selectableIdsOf = (workspaceId: string, row: HTMLElement): string[] => {
     const ids: string[] = []
+    const host = groupHostOf(row)
+    if (host === null) return ids
+    const inArchive = activeTarget !== null && String(activeTarget.workspaceId) === String(workspaceId)
+    if (inArchive && sectionEl !== null && sectionEl.parentNode === host) {
+      try {
+        const archRows = sectionEl.querySelectorAll<HTMLElement>('[data-dsh-zh-archive-row]')
+        for (let i = 0; i < archRows.length; i += 1) {
+          if (archRows[i].querySelector(`input[${BATCH_CHECK_ATTR}]`) === null) continue
+          const id = archRows[i].getAttribute('data-dsh-zh-archive-id')
+          if (id !== null && id !== '') ids.push(id)
+        }
+      } catch { /* ignore */ }
+      return ids
+    }
     try {
-      if (sectionEl === null) return ids
-      const rows = sectionEl.querySelectorAll('[data-dsh-zh-archive-id]')
-      for (let i = 0; i < rows.length; i += 1) {
-        const id = rows[i].getAttribute('data-dsh-zh-archive-id')
-        if (id !== null && id !== '') ids.push(id)
+      const normalRows = host.querySelectorAll<HTMLElement>('div[class*="sessionRow"][role="treeitem"]')
+      for (let i = 0; i < normalRows.length; i += 1) {
+        if (normalRows[i].querySelector(`input[${BATCH_CHECK_ATTR}]`) === null) continue
+        const id = readSessionIdFromRow(normalRows[i])
+        if (id !== null) ids.push(id)
       }
     } catch { /* ignore */ }
     return ids
   }
-  /** 把选择状态同步回归档行上的复选框。 */
-  const syncArchivedChecks = (): void => {
+  /** 只把本次操作涉及的行的复选框同步到目标态（不误改视图外的行）。 */
+  const setChecksForIds = (row: HTMLElement, ids: string[], checked: boolean): void => {
+    const host = groupHostOf(row)
+    if (host === null) return
+    const idSet = new Set(ids)
+    const candidates: HTMLElement[] = []
     try {
-      if (sectionEl === null) return
-      const boxes = sectionEl.querySelectorAll<HTMLInputElement>(`input[${BATCH_CHECK_ATTR}]`)
-      for (let i = 0; i < boxes.length; i += 1) {
-        const box = boxes[i]
-        const rowEl = typeof box.closest === 'function' ? box.closest('[data-dsh-zh-archive-id]') : null
-        const id = rowEl !== null ? rowEl.getAttribute('data-dsh-zh-archive-id') : null
-        if (id !== null && id !== '') box.checked = batchSelection.has(id)
-      }
+      const normalRows = host.querySelectorAll<HTMLElement>('div[class*="sessionRow"][role="treeitem"]')
+      for (let i = 0; i < normalRows.length; i += 1) candidates.push(normalRows[i])
     } catch { /* ignore */ }
-  }
-  /** 刷新所有「全选」按钮的高亮：当前视图可勾选会话全选中时点亮。 */
-  const syncSelectAllMarks = (): void => {
-    try {
-      const ids = visibleArchivedIds()
-      const allOn = ids.length > 0 && ids.every(id => batchSelection.has(id))
-      const buttons = document.body.querySelectorAll<HTMLElement>(`button[${SELECT_ALL_MARK}]`)
-      for (let i = 0; i < buttons.length; i += 1) {
-        buttons[i].setAttribute(SELECT_ALL_ACTIVE, allOn ? 'true' : 'false')
-      }
-    } catch { /* ignore */ }
+    if (sectionEl !== null && sectionEl.parentNode === host) {
+      try {
+        const archRows = sectionEl.querySelectorAll<HTMLElement>('[data-dsh-zh-archive-row]')
+        for (let i = 0; i < archRows.length; i += 1) candidates.push(archRows[i])
+      } catch { /* ignore */ }
+    }
+    for (const target of candidates) {
+      const box = target.querySelector<HTMLInputElement>(`input[${BATCH_CHECK_ATTR}]`)
+      if (box === null) continue
+      const archId = target.getAttribute('data-dsh-zh-archive-id')
+      const id = archId !== null ? archId : readSessionIdFromRow(target)
+      if (id !== null && idSet.has(id)) box.checked = checked
+    }
   }
   /** 全选/取消：当前视图可勾选会话若已全部选中则全部取消，否则全部选中。 */
-  const toggleSelectAllInView = (): void => {
-    const ids = visibleArchivedIds()
+  const toggleSelectAllFor = (workspaceId: string, row: HTMLElement): void => {
+    const ids = selectableIdsOf(workspaceId, row)
     if (ids.length === 0) return
     const allOn = ids.every(id => batchSelection.has(id))
-    for (const id of ids) toggleBatchSelection(id, !allOn)
-    syncArchivedChecks()
+    const target = !allOn
+    for (const id of ids) toggleBatchSelection(id, target)
+    setChecksForIds(row, ids, target)
     syncSelectAllMarks()
+  }
+  /** 刷新「全选」按钮高亮：按钮所属工作区当前可勾选会话全选中时点亮。 */
+  const syncSelectAllMarks = (): void => {
+    try {
+      const buttons = document.body.querySelectorAll<HTMLElement>(`button[${SELECT_ALL_MARK}]`)
+      for (let i = 0; i < buttons.length; i += 1) {
+        const button = buttons[i]
+        let active = false
+        let el: HTMLElement | null = button
+        while (el !== null && el !== document.body) {
+          if (isWorkspaceRow(el)) {
+            const info = workspaceInfoOfRow(el)
+            if (info !== null) {
+              const ids = selectableIdsOf(info.workspaceId, el)
+              active = ids.length > 0 && ids.every(id => batchSelection.has(id))
+            }
+            break
+          }
+          el = el.parentElement
+        }
+        button.setAttribute(SELECT_ALL_ACTIVE, active ? 'true' : 'false')
+      }
+    } catch { /* ignore */ }
   }
   /** 四宫格图标（全部选中）。 */
   const makeSelectAllIcon = (): SVGSVGElement | null => {
@@ -1343,7 +1384,8 @@ function runArchiveView(ctx: ClientContext): () => void {
     selectAll.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
-      toggleSelectAllInView()
+      const rowInfo = workspaceInfoOfRow(row)
+      if (rowInfo !== null) toggleSelectAllFor(rowInfo.workspaceId, row)
     }, false)
     if (button.parentNode !== null) button.parentNode.insertBefore(selectAll, button)
     else row.appendChild(selectAll)
