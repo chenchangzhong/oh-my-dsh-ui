@@ -61,16 +61,60 @@ export class SmoothStreamCardController {
   private upgradeFailed = false
   private restartRequired = false
   private loadStatus: 'loading' | 'ready' | 'unavailable' = 'loading'
+  private scopeUnsubscribe: (() => void) | undefined
 
   constructor(private readonly ctx: ClientContext) {}
 
   start(): void {
     void this.load()
+    // Settings may be written from outside this card (the enhance tab writes the
+    // same ui-custom namespace directly). Without this subscription the card —
+    // and `takeoverEnabled()` through it — would never notice such a write, so
+    // the toggle would appear to do nothing at runtime.
+    try {
+      const scope = this.ctx.settingsScope as unknown as { subscribe?: (cb: () => void) => () => void }
+      if (scope !== null && scope !== undefined && typeof scope.subscribe === 'function') {
+        this.scopeUnsubscribe = scope.subscribe(() => { this.syncFromScope() })
+      }
+    } catch { /* scope unavailable: keep the loaded values */ }
   }
 
   stop(): void {
+    if (this.scopeUnsubscribe !== undefined) {
+      try { this.scopeUnsubscribe() } catch { /* ignore */ }
+      this.scopeUnsubscribe = undefined
+    }
     this.loadStatus = 'loading'
     this.publish()
+  }
+
+  /**
+   * Refresh the cached values from the scope WITHOUT resetting the load status.
+   *
+   * `load()` first flips to 'loading', which would briefly make
+   * `takeoverEnabled()` false and tear the takeover down and straight back up;
+   * an external write only needs the values refreshed.
+   */
+  private syncFromScope(): void {
+    try {
+      const snapshot = this.ctx.settingsScope.getSnapshot()
+      const value = (snapshot as { value?: unknown }).value
+      if (value === undefined || value === null || typeof value !== 'object') return
+      const obj = value as Record<string, unknown>
+      this.loadedBase = {
+        enabled: typeof obj.smoothEnabled === 'boolean' ? obj.smoothEnabled : DEFAULT_STREAM_SETTINGS.enabled,
+        thinkAutoExpand: typeof obj.smoothThinkAutoExpand === 'boolean' ? obj.smoothThinkAutoExpand : DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
+        motionPreference: toMotionPreference(obj.smoothMotionPreference),
+      }
+      if (obj.smoothDebugEnabled !== undefined || obj.smoothDebugTuning !== undefined) {
+        this.loadedDebug = {
+          debugEnabled: typeof obj.smoothDebugEnabled === 'boolean' ? obj.smoothDebugEnabled : DEFAULT_STREAM_SETTINGS.debugEnabled,
+          debugTuning: this.parseDebugTuning(obj.smoothDebugTuning),
+        }
+      }
+      this.loadStatus = 'ready'
+      this.publish()
+    } catch { /* keep the previous values on failure */ }
   }
 
   getSnapshot(): SmoothStreamCardState {

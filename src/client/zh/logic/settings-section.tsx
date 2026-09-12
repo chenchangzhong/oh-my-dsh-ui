@@ -238,7 +238,6 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
     smoothMotionPreference?: string
   }) | undefined
   const smoothEnabled = smoothScope?.smoothEnabled !== false
-  const smoothThinkAutoExpand = smoothScope?.smoothThinkAutoExpand !== false
   const smoothMotionPreference = smoothScope?.smoothMotionPreference ?? 'auto'
 
   // ── Service monitor card handlers ──────────────────────────────────────────
@@ -552,8 +551,6 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
         React.createElement('div', { style: s.groupHeader }, t('smoothSection')),
         row('smoothEnabled', t('smoothEnabled'), t('smoothEnabledDesc'),
           toggle(smoothEnabled, () => settings.set('smoothEnabled', !smoothEnabled))),
-        row('smoothThinkAutoExpand', t('smoothThinkAutoExpand'), t('smoothThinkAutoExpandDesc'),
-          toggle(smoothThinkAutoExpand, () => settings.set('smoothThinkAutoExpand', !smoothThinkAutoExpand))),
         row('smoothMotionPreference', t('smoothMotionPreference'), t('smoothMotionPreferenceDesc'),
           selectInput(
             smoothMotionPreference,
