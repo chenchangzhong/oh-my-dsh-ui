@@ -33,7 +33,7 @@ import { DebugPanel } from './DebugPanel.tsx'
 import { debugRuntime } from './debugRuntime.ts'
 import { NS as SETTINGS_NS, en, zh } from './locales.ts'
 import { DEFAULT_STREAM_CONFIG, type StreamConfig } from './config.ts'
-import { DEFAULT_STREAM_SETTINGS, type StreamSettings } from './settings.ts'
+import { DEFAULT_STREAM_SETTINGS, publishMotionPreference, type StreamSettings } from './settings.ts'
 import { UI_CUSTOM_SETTINGS_NS } from '../../shared.ts'
 
 /**
@@ -155,7 +155,10 @@ class SettingsCell {
   private read(): StreamSettings {
     const snapshot = this.card?.getSnapshot()
     if (snapshot === undefined || snapshot.status !== 'ready') return this.value
-    return this.card?.values() ?? this.value
+    const next = this.card?.values() ?? this.value
+    // Mirror the motion preference to the live renderers, which hold no scope.
+    publishMotionPreference(next.motionPreference)
+    return next
   }
 
   private refresh(): void {
@@ -166,6 +169,7 @@ class SettingsCell {
       && next.enabled === this.value.enabled
       && next.thinkAutoExpand === this.value.thinkAutoExpand
       && next.debugEnabled === this.value.debugEnabled
+      && next.motionPreference === this.value.motionPreference
       && next.debugTuning === this.value.debugTuning
     ) return
     this.pending = pending

@@ -73,6 +73,7 @@ const UiCustomSectionSchema = z.object({
   smoothPreset: z.union(['realtime', 'balanced', 'silky']).default('balanced'),
   smoothThinkAutoExpand: z.boolean().default(true),
   smoothDebugEnabled: z.boolean().default(false),
+  smoothMotionPreference: z.union(['auto', 'force-smooth', 'force-reduced']).default('auto'),
   // feature whitelist: which independently selectable features mount on the
   // web client (absent/empty = all; see resolveFeatures on the client side)
   features: z.array(z.union([...FEATURES])).default([]),

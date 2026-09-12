@@ -10,6 +10,8 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   DEFAULT_STREAM_DEBUG_TUNING,
   DEFAULT_STREAM_SETTINGS,
+  publishMotionPreference,
+  toMotionPreference,
   type StreamDebugTuning,
   type StreamSettings,
 } from './settings.ts'
@@ -23,6 +25,7 @@ export interface SmoothScopeSnapshot {
   smoothThinkAutoExpand: boolean
   smoothDebugEnabled: boolean
   smoothDebugTuning: StreamDebugTuning
+  smoothMotionPreference: string
 }
 
 /** Default values for smooth scope fields. */
@@ -31,6 +34,7 @@ const SMOOTH_DEFAULTS: SmoothScopeSnapshot = {
   smoothThinkAutoExpand: DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
   smoothDebugEnabled: DEFAULT_STREAM_SETTINGS.debugEnabled,
   smoothDebugTuning: DEFAULT_STREAM_DEBUG_TUNING,
+  smoothMotionPreference: DEFAULT_STREAM_SETTINGS.motionPreference,
 }
 
 /** Parse debug tuning from a raw scope value. */
@@ -60,6 +64,7 @@ function buildSnapshot(raw: unknown): StreamSettings {
     enabled: typeof obj.smoothEnabled === 'boolean' ? obj.smoothEnabled : DEFAULT_STREAM_SETTINGS.enabled,
     thinkAutoExpand: typeof obj.smoothThinkAutoExpand === 'boolean' ? obj.smoothThinkAutoExpand : DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
     debugEnabled: typeof obj.smoothDebugEnabled === 'boolean' ? obj.smoothDebugEnabled : DEFAULT_STREAM_SETTINGS.debugEnabled,
+    motionPreference: toMotionPreference(obj.smoothMotionPreference),
     debugTuning: parseDebugTuning(obj.smoothDebugTuning),
   }
 }
@@ -80,7 +85,10 @@ export function createHostSettingsApi(
     read(): StreamSettings {
       try {
         const snapshot = (scope as { getSnapshot: () => { value: unknown } }).getSnapshot()
-        return buildSnapshot(snapshot.value)
+        const settings = buildSnapshot(snapshot.value)
+        // Mirror the preference to live renderers (they hold no scope).
+        publishMotionPreference(settings.motionPreference)
+        return settings
       } catch {
         return { ...DEFAULT_STREAM_SETTINGS }
       }
@@ -91,6 +99,10 @@ export function createHostSettingsApi(
         if (settings.enabled !== undefined) patch.smoothEnabled = settings.enabled
         if (settings.thinkAutoExpand !== undefined) patch.smoothThinkAutoExpand = settings.thinkAutoExpand
         if (settings.debugEnabled !== undefined) patch.smoothDebugEnabled = settings.debugEnabled
+        if (settings.motionPreference !== undefined) {
+          patch.smoothMotionPreference = toMotionPreference(settings.motionPreference)
+          publishMotionPreference(settings.motionPreference)
+        }
         if (settings.debugTuning !== undefined) {
           patch.smoothDebugTuning = {
             ...DEFAULT_STREAM_DEBUG_TUNING,

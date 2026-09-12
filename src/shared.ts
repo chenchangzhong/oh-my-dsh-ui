@@ -303,6 +303,12 @@ export interface SmoothSection {
   smoothThinkAutoExpand?: boolean
   /** 渲染诊断面板。默认关。 */
   smoothDebugEnabled?: boolean
+  /**
+   * 动效偏好：'auto'（跟随系统，默认）/ 'force-smooth'（无视系统设置强制平滑）/
+   * 'force-reduced'（始终按原始文本渲染）。系统偏好常被远程桌面、浏览器开关、
+   * 性能配置强制打开且无法关掉，故给用户一个显式覆盖。
+   */
+  smoothMotionPreference?: 'auto' | 'force-smooth' | 'force-reduced'
 }
 
 /** The plugin's full settings section, flat on one namespace. */

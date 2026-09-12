@@ -84,6 +84,23 @@ export function SmoothStreamCard(props: SmoothStreamCardProps) {
                   </span>
                   <span className={css.hint}>{t('thinkAutoExpandHint')}</span>
                 </label>
+                <label className={state.enabled ? css.field : `${css.field} ${css.fieldDisabled}`}>
+                  <span className={css.fieldHead}>
+                    <span className={css.label}>{t('motionPreference')}</span>
+                    <select
+                      value={state.motionPreference}
+                      disabled={!state.writable || state.saving || !state.enabled}
+                      onChange={(event) => {
+                        props.edit({ motionPreference: event.target.value as 'auto' | 'force-smooth' | 'force-reduced' })
+                      }}
+                    >
+                      <option value="auto">{t('motionAuto')}</option>
+                      <option value="force-smooth">{t('motionForceSmooth')}</option>
+                      <option value="force-reduced">{t('motionForceReduced')}</option>
+                    </select>
+                  </span>
+                  <span className={css.hint}>{t('motionPreferenceHint')}</span>
+                </label>
                 <label className={state.debugAvailable ? css.field : `${css.field} ${css.fieldDisabled}`}>
                   <span className={css.fieldHead}>
                     <span className={css.label}>{t('debugEnabled')}</span>

@@ -10,6 +10,49 @@
 /** Settings namespace used by the smooth feature within ui-custom. */
 export const STREAM_SETTINGS_NS = 'smooth-stream'
 
+/**
+ * How the OS `prefers-reduced-motion` preference is honoured.
+ *
+ * `auto` keeps the accessibility-first bypass (default). The other two exist
+ * because the OS preference is frequently forced on by tooling — remote desktop,
+ * browser flags, performance profiles — which used to silence smoothing entirely
+ * with no way back.
+ */
+export type MotionPreference = 'auto' | 'force-smooth' | 'force-reduced'
+
+/** Default motion preference. */
+export const DEFAULT_MOTION_PREFERENCE: MotionPreference = 'auto'
+
+/** Parse an unknown value into a MotionPreference (anything invalid → default). */
+export function toMotionPreference(value: unknown): MotionPreference {
+  return value === 'force-smooth' || value === 'force-reduced' ? value : DEFAULT_MOTION_PREFERENCE
+}
+
+// Live mirror of the preference. The renderers have no settings scope of their
+// own (they are mounted per message row), so they subscribe to this instead of
+// threading the scope through every props chain.
+let liveMotionPreference: MotionPreference = DEFAULT_MOTION_PREFERENCE
+const motionPreferenceListeners = new Set<() => void>()
+
+/** Read the live motion preference (see {@link subscribeMotionPreference}). */
+export function getMotionPreference(): MotionPreference {
+  return liveMotionPreference
+}
+
+/** Publish the preference read from the settings scope to live renderers. */
+export function publishMotionPreference(value: unknown): void {
+  const next = toMotionPreference(value)
+  if (next === liveMotionPreference) return
+  liveMotionPreference = next
+  for (const listener of [...motionPreferenceListeners]) listener()
+}
+
+/** Subscribe to motion-preference changes (useSyncExternalStore contract). */
+export function subscribeMotionPreference(listener: () => void): () => void {
+  motionPreferenceListeners.add(listener)
+  return () => { motionPreferenceListeners.delete(listener) }
+}
+
 /** Runtime knobs exposed only while the diagnostics switch is enabled. */
 export interface StreamDebugTuning {
   /** Multiplier applied to the reveal cadence (1 = preset default). */
@@ -64,6 +107,8 @@ export interface StreamSettings {
   thinkAutoExpand: boolean
   /** Whether the live renderer diagnostics panel is enabled. */
   debugEnabled: boolean
+  /** How the OS reduce-motion preference is honoured (see {@link MotionPreference}). */
+  motionPreference: MotionPreference
   /** Values edited by the diagnostics panel. */
   debugTuning: StreamDebugTuning
 }
@@ -73,5 +118,6 @@ export const DEFAULT_STREAM_SETTINGS: StreamSettings = {
   enabled: true,
   thinkAutoExpand: true,
   debugEnabled: false,
+  motionPreference: DEFAULT_MOTION_PREFERENCE,
   debugTuning: DEFAULT_STREAM_DEBUG_TUNING,
 }

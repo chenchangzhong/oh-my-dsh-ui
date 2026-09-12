@@ -8,6 +8,8 @@ export type SmoothStreamLocaleKey =
   | 'title' | 'description'
   | 'enabled' | 'enabledHint'
   | 'thinkAutoExpand' | 'thinkAutoExpandHint'
+  | 'motionPreference' | 'motionPreferenceHint'
+  | 'motionAuto' | 'motionForceSmooth' | 'motionForceReduced'
   | 'debugEnabled' | 'debugEnabledHint' | 'debugUnavailable'
   | 'debugPanelTitle' | 'debugPanelToggle' | 'debugPanelClose' | 'debugGuide'
   | 'debugLive' | 'debugIdle' | 'debugUnsaved'
@@ -36,6 +38,11 @@ export const en: Record<SmoothStreamLocaleKey, string> = {
   enabledHint: 'Let this feature render and follow streaming replies. Turn off to use the built-in renderer.',
   thinkAutoExpand: 'Auto-expand thinking',
   thinkAutoExpandHint: 'Open the thinking block while it streams. Turn off to keep it collapsed.',
+  motionPreference: 'Motion preference',
+  motionPreferenceHint: 'How the system "reduce motion" preference is honoured. Some environments force it on with no way to turn it off; choose Force smooth to override.',
+  motionAuto: 'Follow system',
+  motionForceSmooth: 'Force smooth',
+  motionForceReduced: 'Force raw text',
   debugEnabled: 'Show render diagnostics',
   debugEnabledHint: 'Show live streaming and scroll metrics on the right side of the chat.',
   debugUnavailable: 'Live diagnostics require a newer version.',
@@ -114,6 +121,11 @@ export const zh: Record<SmoothStreamLocaleKey, string> = {
   enabledHint: '由本特性渲染并跟随流式回复；关闭后使用内置渲染。',
   thinkAutoExpand: '自动展开思考',
   thinkAutoExpandHint: '思考块在流式时自动展开；关闭后保持折叠，可手动展开。',
+  motionPreference: '动效偏好',
+  motionPreferenceHint: '系统「减弱动态效果」的遵循方式。某些环境会强制打开且无法关闭，此时可选「强制平滑」覆盖。',
+  motionAuto: '跟随系统',
+  motionForceSmooth: '强制平滑',
+  motionForceReduced: '强制原始文本',
   debugEnabled: '显示渲染调试面板',
   debugEnabledHint: '在聊天右侧显示流式渲染和滚动的实时参数。',
   debugUnavailable: '当前版本不支持实时调试。',

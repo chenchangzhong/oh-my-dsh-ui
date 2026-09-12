@@ -8,24 +8,39 @@ import { useSmoothStreamContent, type StreamSmoothingPreset } from './useSmoothS
 import { useFpsGuard } from './useFpsGuard.ts'
 import { FollowHost } from './FollowHost.tsx'
 import { DEFAULT_STREAM_CONFIG, type StreamMode } from './config.ts'
-import { DEFAULT_STREAM_SETTINGS } from './settings.ts'
+import { DEFAULT_STREAM_SETTINGS, DEFAULT_MOTION_PREFERENCE, getMotionPreference, subscribeMotionPreference } from './settings.ts'
 import css from './TypewriterAssistantNodeView.module.css'
 
 type AssistantProps = ChatNodeViewProps<'assistant-step'>
 type MarkdownProps = Pick<ComponentProps<typeof MarkdownText>, 'labels' | 'fileMentions' | 'text'>
 
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(
+/**
+ * Whether smoothing must fall back to raw text rendering.
+ *
+ * The OS preference is the default input, but the user setting overrides it in
+ * either direction (see MotionPreference): tooling that forces reduce-motion
+ * used to silence smoothing with no way back, and `force-reduced` lets a user
+ * opt out even when the OS preference is off.
+ */
+function useReducedMotion(): boolean {
+  const systemReduced = useSyncExternalStore(
+    (onChange: () => void) => {
+      if (typeof window === 'undefined' || window.matchMedia === undefined) return () => {}
+      const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+      query.addEventListener('change', onChange)
+      return () => query.removeEventListener('change', onChange)
+    },
     () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true,
+    () => false,
   )
-  useEffect(() => {
-    if (typeof window === 'undefined' || window.matchMedia === undefined) return
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const onChange = () => setReduced(query.matches)
-    query.addEventListener('change', onChange)
-    return () => query.removeEventListener('change', onChange)
-  }, [])
-  return reduced
+  const preference = useSyncExternalStore(
+    subscribeMotionPreference,
+    getMotionPreference,
+    () => DEFAULT_MOTION_PREFERENCE,
+  )
+  if (preference === 'force-reduced') return true
+  if (preference === 'force-smooth') return false
+  return systemReduced
 }
 
 /**
@@ -341,7 +356,7 @@ function AnimatedMarkdownText({
   preset,
   shouldHoldBack,
 }: AnimatedMarkdownTextProps) {
-  const reduced = usePrefersReducedMotion()
+  const reduced = useReducedMotion()
   const [typing, setTyping] = useState(streaming)
   const localSpeedCpsRef = useRef(35)
   const followRootRef = useRef<HTMLDivElement>(null)
@@ -463,7 +478,7 @@ function AnimatedReasoning({
   t: AssistantProps['t']
   settingsScope?: unknown
 }) {
-  const reduced = usePrefersReducedMotion()
+  const reduced = useReducedMotion()
   const [expanded, setExpanded] = useState(running && thinkAutoExpand)
   const summaryRef = useRef<HTMLSpanElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -572,7 +587,7 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
 }) {
   const data = node.data
   const streaming = data.status === 'running'
-  const reduced = usePrefersReducedMotion()
+  const reduced = useReducedMotion()
   const { ref: guardRef, shouldHoldBack } = useFpsGuard(streaming)
   const rootSpeedRef = useRef(35)
   const rootRevealScaleRef = useRef(1)
