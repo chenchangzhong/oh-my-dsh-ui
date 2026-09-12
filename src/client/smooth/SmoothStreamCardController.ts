@@ -3,10 +3,13 @@
  * instead of the source's loopback RPC channel.
  *
  * Source: /tmp/dsh-smooth-stream/src/client/smooth-stream-card-controller.ts
- * Adaptation: uses `ctx.settingsScope` under the ui-custom namespace.
+ * Adaptation: uses the ui-custom settings scope. Note the scope MUST be bound to
+ * the namespace — the unbound `ctx.settingsScope` neither exposes this section's
+ * values nor a `subscribe`, which is what made the enable toggle a no-op.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore, type SnapshotStore } from '../snapshot-store.ts'
+import { UI_CUSTOM_SETTINGS_NS } from '../../shared.ts'
 import {
   DEFAULT_STREAM_DEBUG_TUNING,
   DEFAULT_STREAM_SETTINGS,
@@ -14,6 +17,13 @@ import {
   type StreamSettings,
   toMotionPreference,
 } from './settings.ts'
+
+/** The subset of the settings scope this controller needs. */
+interface BoundSettingsScope {
+  getSnapshot(): { value?: unknown }
+  set?: (key: string, value: unknown) => void
+  subscribe?: (listener: () => void) => () => void
+}
 
 /** What the smooth settings card renders. */
 export interface SmoothStreamCardState {
@@ -65,6 +75,22 @@ export class SmoothStreamCardController {
 
   constructor(private readonly ctx: ClientContext) {}
 
+  /**
+   * The settings scope for this plugin, bound to its namespace.
+   *
+   * The unbound `ctx.settingsScope` does not expose this section (its
+   * `getSnapshot().value` is not this plugin's section) and carries no
+   * `subscribe`, so every read silently fell back to the defaults and external
+   * writes were invisible — which made the enable toggle a no-op.
+   */
+  private scope(): BoundSettingsScope {
+    const root = this.ctx.settingsScope as unknown as { bind?: (options: { namespace: string }) => unknown }
+    if (root !== null && root !== undefined && typeof root.bind === 'function') {
+      return root.bind({ namespace: UI_CUSTOM_SETTINGS_NS }) as BoundSettingsScope
+    }
+    return root as unknown as BoundSettingsScope
+  }
+
   start(): void {
     void this.load()
     // Settings may be written from outside this card (the enhance tab writes the
@@ -72,7 +98,7 @@ export class SmoothStreamCardController {
     // and `takeoverEnabled()` through it — would never notice such a write, so
     // the toggle would appear to do nothing at runtime.
     try {
-      const scope = this.ctx.settingsScope as unknown as { subscribe?: (cb: () => void) => () => void }
+      const scope = this.scope()
       if (scope !== null && scope !== undefined && typeof scope.subscribe === 'function') {
         this.scopeUnsubscribe = scope.subscribe(() => { this.syncFromScope() })
       }
@@ -97,7 +123,7 @@ export class SmoothStreamCardController {
    */
   private syncFromScope(): void {
     try {
-      const snapshot = this.ctx.settingsScope.getSnapshot()
+      const snapshot = this.scope().getSnapshot()
       const value = (snapshot as { value?: unknown }).value
       if (value === undefined || value === null || typeof value !== 'object') return
       const obj = value as Record<string, unknown>
@@ -206,7 +232,7 @@ export class SmoothStreamCardController {
     this.publish()
 
     try {
-      const scope = this.ctx.settingsScope
+      const scope = this.scope()
       if (scope) {
         const snapshot = scope.getSnapshot()
         if (snapshot.value !== undefined && typeof snapshot.value === 'object') {
@@ -258,7 +284,7 @@ export class SmoothStreamCardController {
     this.publish()
 
     try {
-      const scope = this.ctx.settingsScope
+      const scope = this.scope()
       if (scope) {
         if (this.stagedBase !== undefined) {
           if (this.stagedBase.enabled !== undefined) scope.set('smoothEnabled', this.stagedBase.enabled)
