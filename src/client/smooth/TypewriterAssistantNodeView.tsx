@@ -522,12 +522,20 @@ function AnimatedReasoning({
     if (thinkAutoExpand) setExpanded(running)
   }, [running, thinkAutoExpand])
 
-  // Keep the fixed-height think body scrolled to the newest line while streaming.
+  // Keep the fixed-height think body scrolled to the newest line.
+  //
+  // This must also run on the completion frame: `shown` switches from the
+  // partially revealed text to the full text exactly when `running` flips to
+  // false, so the body grows taller at that moment. Bailing out on `!running`
+  // left the container at its mid-stream height and the tail unread (measured:
+  // scrollHeight 368 vs clientHeight 248, 120px never revealed). Skipping the
+  // `running` guard is safe — once the content settles `shown` stops changing,
+  // so a manual scroll is not fought.
   useLayoutEffect(() => {
     const body = bodyRef.current
-    if (body === null || !running) return
+    if (body === null) return
     body.scrollTop = thinkMaxLines.from === 'earliest' ? 0 : body.scrollHeight
-  }, [shown, running, thinkMaxLines.from])
+  }, [shown, thinkMaxLines.from])
 
   useEffect(() => {
     const element = summaryRef.current
