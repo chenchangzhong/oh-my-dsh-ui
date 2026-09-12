@@ -50,12 +50,11 @@ oh-my-dsh-ui 是一个纯前端的 DSH Web UI 客制化插件：提供外观定�
 
 | 位置 | 类型 | 内容 |
 | --- | --- | --- |
-| 设置 → 外观 | 新增页面 | 主题定制，包括壁纸、玻璃、强调色、表面不透明度、字体与质感 |
-| 设置 → 应用用量 | 新增页面 | 用量统计，使用四窗口聚合、趋势图，展示会话用量排行 |
-| 设置 → 动效 | 新增页面 | 对话/侧边栏/新建对话入场动效与选中框动效，含三套一键预设 |
+| 设置 → UI增强 → 外观 | 标签页 | 主题定制，包括壁纸、玻璃、强调色、表面不透明度、字体与质感 |
+| 设置 → UI增强 → 用量 | 标签页 | 用量统计，使用四窗口聚合、趋势图，展示会话用量排行 |
+| 设置 → UI增强 → 动效 | 标签页 | 对话/侧边栏/新建对话入场动效与选中框动效，含三套一键预设 |
+| 设置 → UI增强 → 增强 | 标签页 | 中文界面增强（zh）、丝滑流式（smooth）与服务监控的设置 |
 | 设置 → 通用 | 修改原有页 | 新增用户消息 Markdown 渲染开关 |
-| 设置 → 中文增强 | 新增页面 | 中文界面增强（zh）的开关与词典选项 |
-| 设置 → 丝滑流式 | 新增卡片 | 流式打字机的开关与调试参数（smooth） |
 
 ---
 
@@ -197,11 +196,15 @@ config:
 ### 丝滑流式（smooth）
 
 整合自 `dsh-smooth-stream` 的流式打字机：助手输出按帧逐字揭示，并让增长中的
-对话行平滑跟随，而不是按 chunk 突然跳出。设置卡片提供开关与调试参数
-（揭示速率、队列压力、弹簧刚度/阻尼等）。
+对话行平滑跟随，而不是按 chunk 突然跳出。
+
+设置项（启用开关、动效偏好）在「**设置 → UI增强 → 增强**」标签页里，见上方
+「设置改动一览」。上游的调试面板（揭示速率、队列压力、弹簧刚度/阻尼等）
+在本插件中仍随「诊断面板」开关提供。
 
 与上游不同，本插件的设置通过宿主 `settingsScope`（`ui-custom` 命名空间）读写，
-不使用上游的 loopback RPC 通道。
+不使用上游的 loopback RPC 通道；注意该 scope **必须绑定 namespace** 才能读到
+本插件的 section。
 
 ---
 
@@ -320,12 +323,11 @@ When `features` is absent or empty, all six features are enabled.
 
 | Where | Kind | What |
 | --- | --- | --- |
-| Settings → Appearance | new page | custom theming: wallpaper, glass, accent, surface opacity, fonts & texture |
-| Settings → App Usage | new page | usage stats: aggregated over a selectable time span, with a trend chart and session ranking |
-| Settings → Motion | new page | entrance motion for conversation / sidebar / new conversation, selection box, three one-click presets |
+| Settings → UI enhancement → Appearance | tab | custom theming: wallpaper, glass, accent, surface opacity, fonts & texture |
+| Settings → UI enhancement → App Usage | tab | usage stats: aggregated over a selectable time span, with a trend chart and session ranking |
+| Settings → UI enhancement → Motion | tab | entrance motion for conversation / sidebar / new conversation, selection box, three one-click presets |
+| Settings → UI enhancement → Enhancements | tab | Chinese UI enhancement (zh), smooth streaming and the service monitor |
 | Settings → General | added row | user-message Markdown toggle |
-| Settings → Chinese | new page | Chinese UI enhancement (zh): dictionary switches and options |
-| Settings → Smooth streaming | added card | smooth streaming switches and debug tuning (smooth) |
 
 ---
 
@@ -485,12 +487,16 @@ Integrated from `deepseek-harness-zh_pro`. The settings page exposes:
 
 Integrated from `dsh-smooth-stream`: assistant output is revealed character by
 character per frame, and growing chat rows glide instead of jumping per chunk.
-The settings card exposes the master switch and debug tuning (reveal rate,
-queue pressure, spring stiffness/damping, …).
+
+Its settings (enable switch, motion preference) live under **Settings → UI
+enhancement → Enhancements**; see "Settings at a glance" above. Upstream's
+diagnostics panel (reveal rate, queue pressure, spring stiffness/damping, …) is
+still available behind the diagnostics switch.
 
 Unlike upstream, settings here are read and written through the host
 `settingsScope` (`ui-custom` namespace) rather than upstream's loopback RPC
-channel.
+channel — and that scope **must be bound to the namespace**, otherwise this
+plugin's section is not visible on it.
 
 ---
 

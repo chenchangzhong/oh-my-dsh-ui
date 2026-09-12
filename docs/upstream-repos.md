@@ -111,6 +111,44 @@ export const FEATURES = ['markdown', 'appearance', 'usage', 'motion', 'zh', 'smo
 
 ---
 
+## 从上游移植 client 侧代码的注意事项
+
+上游的 client 半边是**拼接进同一个作用域**的（`src/scripts/build-client.mts`），
+跨文件引用靠隐式全局，且运行在「一个插件一个 bundle」的假设下。本地是真正的
+ES 模块 + 整合插件，2026-09 那轮移植连续踩到三类坑，都不是语法错误、构建与
+控制台都不报错，只在运行时表现为"功能不出现"：
+
+1. **隐式全局缺 import。** 上游代码里常见 `typeof settingsStore !== 'undefined'`
+   这类防御写法（因为在那套拼接作用域里它确实是全局）。搬到 ES 模块后该标识符
+   未声明，`typeof` 返回 `'undefined'` → 整段逻辑被静默跳过。
+   实例：`service-monitor.ts` 的 `settingsStore` 被引用 14 次、文件内无定义且无
+   任何 import，导致 `on` 恒为 `false`，服务监控面板永不挂载。
+   **检查方法**：搬完一个文件后，grep 该文件的 `typeof [A-Za-z_]+ !== 'undefined'`，
+   逐个确认对应标识符要么是浏览器全局（`document` / `window` / `MutationObserver`…），
+   要么已在本地 import。
+
+2. **槽位不渲染 = 写了等于没写。** 上游把 smooth 的设置卡注册在
+   `settings.plugin.item`，而当前 DSH 的「插件」页**不会**渲染插件的该项注册
+   （该槽位存在，26 处引用，但语义不是给插件自己塞条目的）。结果就是 smooth
+   一直"功能生效、没有设置界面"。
+   **动手前先确认**：承载新 UI 的槽位在当前 DSH 里确实会渲染——最快的办法是看
+   同一个 slot 上是否已经有本地代码成功渲染过（例如 `settings.section` 上的
+   ui-enhance 页）。
+
+3. **`settingsScope` 必须绑定 namespace。** 未绑定的 `ctx.settingsScope` 既读不到
+   本插件的 section（`getSnapshot().value` 不是它，字段恒为 `undefined` → 回落
+   默认值，于是开关"改不动"），也**没有 `subscribe`**。
+   实例：`SmoothStreamCardController` 全程用未绑定的 scope，而同一份绑定写法在
+   `smooth/index.ts` 里早已存在并注入给了渲染器。
+   **正确写法**：`ctx.settingsScope.bind({ namespace: UI_CUSTOM_SETTINGS_NS })`
+   （见 `src/client/zh/logic/apply.ts`）。注意给订阅加 `typeof scope.subscribe === 'function'`
+   之类的守卫时，失败路径要么报错要么可观测——静默 return 会把这类 bug 藏起来。
+
+> 这三条的共同点：**"构建通过 / 代码存在"不等于"功能可用"**。移植后至少要做一次
+> 运行时确认（DOM 里是否出现、开关是否真的生效），而不是只看产物里有没有那段字符串。
+
+---
+
 ## 项目结构
 
 ```
