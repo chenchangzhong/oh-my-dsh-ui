@@ -211,6 +211,39 @@ function injectBatchCheck(ctx, slot, row, id) {
   slot.appendChild(input)
 }
 
+/**
+ * Build a multi-select checkbox bound to an explicit session id.
+ *
+ * Official session rows resolve their id through the React fiber chain, but
+ * archive rows are plugin-created DOM with no fiber — so archive-view.ts passes
+ * the id it already knows. Callers append the result to their own leading slot
+ * (give that slot a class containing "slot" so the hover-to-reveal rule applies).
+ * @param id - the session id this checkbox toggles.
+ * @param label - accessible label for the checkbox.
+ * @returns the bound checkbox element.
+ */
+function createBatchCheck(id: string, label: string) {
+  const input = document.createElement('input')
+  input.type = 'checkbox'
+  input.setAttribute(BATCH_CHECK_MARK, '')
+  input.checked = batchSelection.has(id)
+  if (typeof label === 'string' && label !== '') {
+    input.setAttribute('aria-label', label)
+  }
+  // 阻止冒泡：不触发行打开（归档行整行点击 = 取消归档并打开）。
+  const stop = function (event) {
+    if (typeof event.stopPropagation === 'function') event.stopPropagation()
+  }
+  input.addEventListener('pointerdown', stop, false)
+  input.addEventListener('mousedown', stop, false)
+  input.addEventListener('click', stop, false)
+  input.addEventListener('change', function () {
+    toggleBatchSelection(id, input.checked === true)
+  }, false)
+  ensureBatchStyle()
+  return input
+}
+
 function removeBatchCheck(existing) {
   try {
     if (existing !== null && existing !== undefined && existing.parentNode !== null) {
@@ -354,4 +387,6 @@ export {
   batchSelectionIds,
   batchSelectionSize,
   clearBatchSelection,
+  createBatchCheck,
+  toggleBatchSelection,
 }

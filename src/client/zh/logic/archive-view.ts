@@ -48,6 +48,7 @@ import { archiveLocales } from '../locales/zh-locales.ts'
 import { settingsStore } from '../store/settings-store.ts'
 import type { ZhApplyContext } from './apply.ts'
 import { fetchDeletedSessionIds, isSessionDeleted } from './session-menu.ts'
+import { createBatchCheck } from './session-batch.ts'
 
 // ─── Archive view CSS (rules aligned with official Rows.module.css) ──────────
 const ARCHIVE_VIEW_CSS = [
@@ -965,6 +966,13 @@ function runArchiveView(ctx: ClientContext): () => void {
       // slot 占位（16px，标题缩进与官方会话行对齐）。
       const slotEl = document.createElement('span')
       slotEl.setAttribute('data-dsh-zh-archive-slot', '')
+      // 会话多选：与官方会话行共用同一份选择状态（session-batch）。归档行是
+      // 插件注入的 DOM、没有 React fiber，因此直接传已知的 row.id；slot 的
+      // class 含 "slot" 以套用批量模块「悬停显示、勾选常显」的样式规则。
+      if (settingsStore.getSnapshot().batchOpsEnabled === true) {
+        slotEl.setAttribute('class', 'dsh-zh-archive-slot')
+        slotEl.appendChild(createBatchCheck(row.id, archiveT('select.aria', { name: row.title })))
+      }
       rowEl.appendChild(slotEl)
       const titleEl = document.createElement('span')
       titleEl.setAttribute('data-dsh-zh-archive-title', '')
