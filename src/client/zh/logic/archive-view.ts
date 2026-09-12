@@ -48,7 +48,7 @@ import { archiveLocales } from '../locales/zh-locales.ts'
 import { settingsStore } from '../store/settings-store.ts'
 import type { ZhApplyContext } from './apply.ts'
 import { fetchDeletedSessionIds, isSessionDeleted } from './session-menu.ts'
-import { createBatchCheck } from './session-batch.ts'
+import { batchSelection, createBatchCheck, toggleBatchSelection } from './session-batch.ts'
 
 // ─── Archive view CSS (rules aligned with official Rows.module.css) ──────────
 const ARCHIVE_VIEW_CSS = [
@@ -126,6 +126,15 @@ const ARCHIVE_BTN_CSS = [
   'button[data-dsh-zh-ws-archive][data-dsh-zh-archive-active="true"]:hover{color:var(--dsw-alias-state-business-primary)}',
   '[data-dsh-zh-ws-row-standalone] button[data-dsh-zh-ws-archive]{margin-left:auto;margin-right:8px;display:none}',
   '[data-dsh-zh-ws-row-standalone]:hover button[data-dsh-zh-ws-archive]{display:inline-flex}',
+  // Select-all button: same geometry as the archive button, sits just before it.
+  'button[data-dsh-zh-ws-selectall]{flex:none;display:inline-flex;align-items:center;justify-content:center;',
+  'width:16px;height:16px;border:none;border-radius:4px;padding:0;background:transparent;',
+  'cursor:pointer;color:var(--dsw-alias-label-tertiary)}',
+  'button[data-dsh-zh-ws-selectall]:hover{color:var(--dsw-alias-label-primary)}',
+  'button[data-dsh-zh-ws-selectall][data-dsh-zh-selectall-active="true"]{color:var(--dsw-alias-state-business-primary)}',
+  'button[data-dsh-zh-ws-selectall][data-dsh-zh-selectall-active="true"]:hover{color:var(--dsw-alias-state-business-primary)}',
+  '[data-dsh-zh-ws-row-standalone] button[data-dsh-zh-ws-selectall]{margin-left:auto;margin-right:2px;display:none}',
+  '[data-dsh-zh-ws-row-standalone]:hover button[data-dsh-zh-ws-selectall]{display:inline-flex}',
 ].join('')
 
 // ─── Archive icons (static SVG path data copied from official primitives) ────
@@ -210,6 +219,11 @@ const EXPAND_STEP = 5
 const ARCHIVE_WS_NEW_SESSION = ['在“', 'New session in '] as const
 const ARCHIVE_BTN_MARK = 'data-dsh-zh-ws-archive'
 const ARCHIVE_ROW_MARK = 'data-dsh-zh-ws-archive-row'
+// 工作区行「全选」按钮：勾选该工作区当前视图里所有可勾选的归档会话。
+const SELECT_ALL_MARK = 'data-dsh-zh-ws-selectall'
+const SELECT_ALL_ACTIVE = 'data-dsh-zh-selectall-active'
+// session-batch 注入的复选框属性（归档行与官方会话行共用同一份选择状态）。
+const BATCH_CHECK_ATTR = 'data-dsh-zh-batch-check'
 
 // ─── Snapshot shapes (defensive views over the runtime stores) ───────────────
 interface ArchiveSessionSummary {
@@ -1189,9 +1203,79 @@ function runArchiveView(ctx: ClientContext): () => void {
       }
     } catch { /* ignore */ }
   }
+  // ── 多选联动（归档行与官方会话行共用 session-batch 的一份选择状态）──────────
+  /** 当前归档视图展示着的归档行 id（以 DOM 为准；视图外的行不参与全选）。 */
+  const visibleArchivedIds = (): string[] => {
+    const ids: string[] = []
+    try {
+      if (sectionEl === null) return ids
+      const rows = sectionEl.querySelectorAll('[data-dsh-zh-archive-id]')
+      for (let i = 0; i < rows.length; i += 1) {
+        const id = rows[i].getAttribute('data-dsh-zh-archive-id')
+        if (id !== null && id !== '') ids.push(id)
+      }
+    } catch { /* ignore */ }
+    return ids
+  }
+  /** 把选择状态同步回归档行上的复选框。 */
+  const syncArchivedChecks = (): void => {
+    try {
+      if (sectionEl === null) return
+      const boxes = sectionEl.querySelectorAll<HTMLInputElement>(`input[${BATCH_CHECK_ATTR}]`)
+      for (let i = 0; i < boxes.length; i += 1) {
+        const box = boxes[i]
+        const rowEl = typeof box.closest === 'function' ? box.closest('[data-dsh-zh-archive-id]') : null
+        const id = rowEl !== null ? rowEl.getAttribute('data-dsh-zh-archive-id') : null
+        if (id !== null && id !== '') box.checked = batchSelection.has(id)
+      }
+    } catch { /* ignore */ }
+  }
+  /** 刷新所有「全选」按钮的高亮：当前视图可勾选会话全选中时点亮。 */
+  const syncSelectAllMarks = (): void => {
+    try {
+      const ids = visibleArchivedIds()
+      const allOn = ids.length > 0 && ids.every(id => batchSelection.has(id))
+      const buttons = document.body.querySelectorAll<HTMLElement>(`button[${SELECT_ALL_MARK}]`)
+      for (let i = 0; i < buttons.length; i += 1) {
+        buttons[i].setAttribute(SELECT_ALL_ACTIVE, allOn ? 'true' : 'false')
+      }
+    } catch { /* ignore */ }
+  }
+  /** 全选/取消：当前视图可勾选会话若已全部选中则全部取消，否则全部选中。 */
+  const toggleSelectAllInView = (): void => {
+    const ids = visibleArchivedIds()
+    if (ids.length === 0) return
+    const allOn = ids.every(id => batchSelection.has(id))
+    for (const id of ids) toggleBatchSelection(id, !allOn)
+    syncArchivedChecks()
+    syncSelectAllMarks()
+  }
+  /** 四宫格图标（全部选中）。 */
+  const makeSelectAllIcon = (): SVGSVGElement | null => {
+    try {
+      const ns = 'http://www.w3.org/2000/svg'
+      const svg = document.createElementNS(ns, 'svg')
+      svg.setAttribute('width', '16')
+      svg.setAttribute('height', '16')
+      svg.setAttribute('viewBox', '0 0 16 16')
+      svg.setAttribute('fill', 'currentColor')
+      const cells: Array<[number, number]> = [[2.5, 2.5], [9, 2.5], [2.5, 9], [9, 9]]
+      for (const cell of cells) {
+        const rect = document.createElementNS(ns, 'rect')
+        rect.setAttribute('x', String(cell[0]))
+        rect.setAttribute('y', String(cell[1]))
+        rect.setAttribute('width', '4.5')
+        rect.setAttribute('height', '4.5')
+        rect.setAttribute('rx', '1.2')
+        svg.appendChild(rect)
+      }
+      return svg
+    } catch { return null }
+  }
+
   const removeInjectedButtons = (row: HTMLElement): void => {
     try {
-      const existing = row.querySelectorAll(`button[${ARCHIVE_BTN_MARK}]`)
+      const existing = row.querySelectorAll(`button[${ARCHIVE_BTN_MARK}], button[${SELECT_ALL_MARK}]`)
       for (let i = 0; i < existing.length; i += 1) {
         const button = existing[i]
         if (button.parentNode !== null) button.parentNode.removeChild(button)
@@ -1245,6 +1329,25 @@ function runArchiveView(ctx: ClientContext): () => void {
       row.appendChild(button)
       row.setAttribute('data-dsh-zh-ws-row-standalone', '')
     }
+
+    // 工作区行「全选」按钮：排在「查看已归档」之前、几何一致。作用于该工作区
+    // 当前视图里可勾选的归档会话；已全选时再点一次即取消。
+    const selectAll = document.createElement('button')
+    selectAll.type = 'button'
+    selectAll.setAttribute('aria-label', archiveT('ws.selectall'))
+    selectAll.title = archiveT('ws.selectallTitle')
+    selectAll.setAttribute(SELECT_ALL_MARK, '')
+    selectAll.setAttribute(SELECT_ALL_ACTIVE, 'false')
+    const selectAllIcon = makeSelectAllIcon()
+    if (selectAllIcon !== null) selectAll.appendChild(selectAllIcon)
+    selectAll.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      toggleSelectAllInView()
+    }, false)
+    if (button.parentNode !== null) button.parentNode.insertBefore(selectAll, button)
+    else row.appendChild(selectAll)
+
     row.setAttribute(ARCHIVE_ROW_MARK, '')
   }
   const runButtonPass = (): void => {
@@ -1252,6 +1355,7 @@ function runArchiveView(ctx: ClientContext): () => void {
     const rows = findWorkspaceRows(document.body)
     for (const row of rows) injectButton(row)
     syncButtonActiveMarks()
+    syncSelectAllMarks()
     // 官方列表变化时同步归档行注入（容器挂载点/内容）。内容有缓存、
     // 同步走 rAF 节流，避免 observer 递归。
     if (activeTarget !== null) scheduleSectionSync()
@@ -1389,6 +1493,15 @@ function runArchiveView(ctx: ClientContext): () => void {
   }
   document.addEventListener('keydown', onDocumentKeyDown, true)
 
+  // 勾选态变化时刷新「全选」按钮高亮：手动勾选复选框（归档行或官方会话行）
+  // 不会触发下面的 DOM 观察器，只能靠事件委托跟上。
+  const onBatchCheckChange = (event: Event): void => {
+    const target = event.target as HTMLElement | null
+    if (target === null || typeof target.getAttribute !== 'function') return
+    if (target.getAttribute(BATCH_CHECK_ATTR) !== null) syncSelectAllMarks()
+  }
+  document.addEventListener('change', onBatchCheckChange, true)
+
   // ── 清理（全部副作用可逆） ──
   return function () {
     if (localeDispose !== null) {
@@ -1406,6 +1519,7 @@ function runArchiveView(ctx: ClientContext): () => void {
     if (localeUnsubscribe !== null) localeUnsubscribe()
     document.removeEventListener('pointerdown', onDocumentPointerDown, true)
     document.removeEventListener('keydown', onDocumentKeyDown, true)
+    document.removeEventListener('change', onBatchCheckChange, true)
     clearArchiveTimers()
     removeSection()
     if (toastTimer !== null) { clearTimeout(toastTimer); toastTimer = null }
