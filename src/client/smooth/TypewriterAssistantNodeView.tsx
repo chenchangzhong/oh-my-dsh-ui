@@ -492,7 +492,6 @@ function AnimatedReasoning({
   const [expanded, setExpanded] = useState(running && thinkAutoExpand)
   const summaryRef = useRef<HTMLSpanElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
-  const fadeRootRef = useRef<HTMLDivElement>(null)
   const localFadeSpeedRef = useRef(35)
   const fadeSpeedRef = followSpeedCpsRef ?? localFadeSpeedRef
   const displayed = useSmoothStreamContent(text, {
@@ -503,8 +502,12 @@ function AnimatedReasoning({
     revealScaleRef: followRevealScaleRef,
   })
   // Same adaptive fade as the answer, scoped to the expanded thinking body.
+  // NOTE: reuse `bodyRef` — this div carries exactly one ref. A second `ref`
+  // attribute on the same element silently overwrites the first (JSX compiles to
+  // an object literal), which nulls `bodyRef.current` and kills the scroll-follow
+  // in the layout effect below.
   const logFade = useSyncExternalStore(subscribeLogFade, getLogFade, () => DEFAULT_LOG_FADE)
-  useLogarithmicFade(fadeRootRef, logFade && !reduced && expanded, running, fadeSpeedRef)
+  useLogarithmicFade(bodyRef, logFade && !reduced && expanded, running, fadeSpeedRef)
   const shown = running && !reduced ? displayed : text
   const summary = running ? latestLine(shown) : firstLine(text)
   // Read `zh`'s per-line think height so the smooth-rendered block keeps the same
@@ -556,7 +559,6 @@ function AnimatedReasoning({
           <div
             ref={bodyRef}
             className={css.thinkBody}
-            ref={fadeRootRef}
             style={{
               maxHeight: `${Math.round(lineHeight * thinkMaxLines.max)}px`,
               overflowY: 'auto',
