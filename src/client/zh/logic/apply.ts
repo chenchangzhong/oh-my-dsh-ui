@@ -92,7 +92,10 @@ export function applyZh(ctx: ClientContext, opts?: ApplyZhOptions): () => void {
 
   // 5. Session batch: row-leading checkboxes + multi-select state. The menu
   //    additions and the bulk execution itself live in session-menu.ts.
-  const disposeSessionBatch = installSessionBatch(ctx, readSessionIdFromRow)
+  //    Self-managed: like upstream, the installer owns its teardown inside its
+  //    own `ctx.effect` and returns nothing — collecting a disposer here made
+  //    the unified teardown call `undefined()`.
+  installSessionBatch(ctx, readSessionIdFromRow)
 
   // 6. Archive view: pure-DOM archived session list injected into the session browser.
   const disposeArchiveView = installArchiveView(zhCtx)
@@ -107,7 +110,6 @@ export function applyZh(ctx: ClientContext, opts?: ApplyZhOptions): () => void {
     disposeAutoArchive()
     disposeChineseEnhance()
     disposeSessionMenu()
-    disposeSessionBatch()
     disposeArchiveView()
     disposeServiceMonitor()
   }

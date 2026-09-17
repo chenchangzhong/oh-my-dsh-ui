@@ -320,7 +320,14 @@ export function apply(ctx: ClientContext, config?: { preset?: string; takeover?:
     )
   }
 
-  ctx.effect(() => {
+  // `conversation.chat.node` is declared by the chat UI entry's children table,
+  // which activates *after* this plugin in the pinned Harness. Registering into
+  // it directly throws `slot "conversation.chat.node" is not declared` and fails
+  // the whole client fiber (web boot: oh-my-dsh-ui: failed). `slots.inject` is
+  // the pinned contract for waiting on that declaration — the original
+  // dsh-smooth-stream wraps this exact block in `ctx.slots.inject(...)`; this
+  // port had flattened it to a bare `ctx.effect`.
+  ctx.slots.inject('conversation.chat.node', () => {
     let releaseTakeover: (() => void) | undefined
 
     const syncTakeover = (): void => {
@@ -357,7 +364,7 @@ export function apply(ctx: ClientContext, config?: { preset?: string; takeover?:
       unsubscribe()
       releaseTakeover?.()
     }
-  }, 'smooth: typewriter renderer takeover')
+  })
 
   // Think-block smooth reveal bridge: TEMPORARILY DISABLED for diagnosis.
   // A MutationObserver that rewrites a React-controlled node's `textContent`
