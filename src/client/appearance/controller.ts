@@ -401,15 +401,27 @@ export class AppearanceSettingsController {
     if (!this.dirty() || this.saving) return
     this.saving = true
     this.publish()
+    // Freeze the diff set at entry: awaiting each write lets the scope fold
+    // the accepted value mid-loop, and a derived field (darkSurfaceOpacity
+    // follows surfaceOpacity while unset) would then read as a NEW diff and
+    // be written explicitly. Drop the staged draft (touched = false) only
+    // after every write settled WITHOUT an explicit refusal — re-seeding it
+    // from a snapshot no write reached, or one the Host refused, is what
+    // visibly reset the form on save.
+    const baseline = { ...this.values }
+    let accepted = true
     try {
       for (const field of THEME_FIELDS) {
         const next = this.draft[field]
-        if (next === this.values[field]) continue
-        await this.scope.set(field, next)
+        if (next === baseline[field]) continue
+        const result = await this.scope.set(field, next)
+        // Only an explicit `false` is a refusal (0.1.7 ConfigForm); a scope
+        // that cannot report the outcome (legacy/void) counts as accepted.
+        if (result === false) accepted = false
       }
     } finally {
       this.saving = false
-      this.touched = false
+      if (accepted) this.touched = false
       this.sync()
     }
   }

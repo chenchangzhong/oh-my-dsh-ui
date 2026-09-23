@@ -36,8 +36,10 @@ export interface SettingsScopeSnapshot<T> {
 export interface SettingsScopeFace<T> {
   getSnapshot(): SettingsScopeSnapshot<T>
   subscribe(listener: () => void): () => void
-  set(field: string, value: unknown): void
-  unset(field: string): void
+  /** Queue one field write; resolves `false` when the Host refused it. */
+  set(field: string, value: unknown): Promise<boolean>
+  /** Queue one field clear; resolves `false` when the Host refused it. */
+  unset(field: string): Promise<boolean>
 }
 
 /** `ctx.configForms.get(ns)` (0.1.7) and `settingsScope.bind({ namespace })` (≤0.1.6). */
@@ -144,18 +146,28 @@ export function bindSettingsScope<T = unknown>(
         }
       }
     },
-    set(field: string, value: unknown): void {
+    // Forward the backing scope's settlement instead of dropping it: callers
+    // (appearance save) must wait for the Host answer. The 0.1.7 ConfigForm
+    // resolves `false` when the write was refused; the ≤0.1.6 scope only
+    // resolves, so anything but an explicit `false` counts as accepted.
+    set(field: string, value: unknown): Promise<boolean> {
+      const form = backing
+      if (form === undefined || typeof form.set !== 'function') return Promise.resolve(false)
       try {
-        void backing?.set?.(field, value)
+        return Promise.resolve(form.set(field, value)).then((result) => result !== false, () => false)
       } catch {
-        // Writes require a live scope; a missing one is a no-op.
+        // A synchronous failure (no live scope) counts as a refused write.
+        return Promise.resolve(false)
       }
     },
-    unset(field: string): void {
+    unset(field: string): Promise<boolean> {
+      const form = backing
+      if (form === undefined || typeof form.unset !== 'function') return Promise.resolve(false)
       try {
-        void backing?.unset?.(field)
+        return Promise.resolve(form.unset(field)).then((result) => result !== false, () => false)
       } catch {
         // See set().
+        return Promise.resolve(false)
       }
     },
   }
