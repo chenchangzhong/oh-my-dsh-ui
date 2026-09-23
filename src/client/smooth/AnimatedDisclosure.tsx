@@ -8,7 +8,7 @@
 // row attribute and the Think chrome keep working unchanged.
 
 import { type KeyboardEvent, type ReactNode } from 'react'
-import { IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDown } from './harnessIcons.ts'
 import css from './TypewriterAssistantNodeView.module.css'
 
 /** Class-name join for optional overlay classes over the chrome defaults. */
@@ -28,13 +28,12 @@ export interface AnimatedDisclosureProps {
   titleClassName?: string | undefined
   chevronClassName?: string | undefined
   /**
-   * When true, the expanded body is NOT tagged `data-disclosure-content`. The
-   * `zh` feature treats that attribute as a marker of a smooth-owned think block
-   * and skips its per-line fixed-height scroll. Omitting it lets `zh` own the
-   * block's scroll/collapse while smooth
-   * still drives the text reveal inside — the "think block not taken over" mode.
+   * When false the body snaps between states with no grid-track transition.
+   * The auto-close at stream end uses this: the conversation follower's
+   * settle spring absorbs the height step through the compositor instead,
+   * which glides identically without twelve frames of layout animation.
    */
-  omitDisclosureContentAttr?: boolean
+  bodyTransition?: boolean
 }
 
 /**
@@ -54,7 +53,7 @@ export function AnimatedDisclosure({
   leadingClassName,
   titleClassName,
   chevronClassName,
-  omitDisclosureContentAttr,
+  bodyTransition = true,
 }: AnimatedDisclosureProps) {
   const toggleFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Enter' && event.key !== ' ') return
@@ -75,18 +74,23 @@ export function AnimatedDisclosure({
       >
         <span className={cx(css.disclosureLeading, leadingClassName)}>
           {open
-            ? <IconChevronDownOutlineRegular className={chevronClassName} />
+            ? <IconChevronDown className={chevronClassName} />
             : (
               <>
                 <span className={css.disclosureIconIdle}>{icon}</span>
-                <IconChevronDownOutlineRegular className={cx(chevronClassName, css.disclosureChevronHover)} />
+                <IconChevronDown className={cx(chevronClassName, css.disclosureChevronHover)} />
               </>
             )}
         </span>
         <span className={cx(css.disclosureTitle, titleClassName)}>{title}</span>
         {!open && collapsedContent}
       </div>
-      <div className={css.disclosureContent}{...(omitDisclosureContentAttr ? {} : { 'data-disclosure-content': '' })} data-collapsed={open ? undefined : ''}>
+      <div
+        className={css.disclosureContent}
+        data-disclosure-content
+        data-collapsed={open ? undefined : ''}
+        data-no-transition={bodyTransition ? undefined : ''}
+      >
         {children}
       </div>
     </div>

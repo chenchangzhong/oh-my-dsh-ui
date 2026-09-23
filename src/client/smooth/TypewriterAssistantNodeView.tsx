@@ -1,103 +1,62 @@
-import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from 'react'
-import { JsonBlock, MarkdownText, IconThinkOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from 'react'
+import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ImageGallery, type ImageLoader, type MessageImageLabels } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { ChatNodeViewProps, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { AnimatedDisclosure } from './AnimatedDisclosure.tsx'
+import { IconThink } from './harnessIcons.ts'
+import { notifyFollowCommit } from './teleprompterGlide.ts'
 import { useSmoothStreamContent, type StreamSmoothingPreset } from './useSmoothStreamContent.ts'
 import { useFpsGuard } from './useFpsGuard.ts'
+import { useLogarithmicFade } from './useLogarithmicFade.ts'
+import { useDecoupledMarkdown } from './useDecoupledMarkdown.ts'
 import { FollowHost } from './FollowHost.tsx'
 import { DEFAULT_STREAM_CONFIG, type StreamMode } from './config.ts'
-import {
-  DEFAULT_STREAM_SETTINGS, DEFAULT_MOTION_PREFERENCE, DEFAULT_LOG_FADE,
-  getMotionPreference, subscribeMotionPreference, getLogFade, subscribeLogFade,
-} from './settings.ts'
-import { useLogarithmicFade } from './useLogarithmicFade.ts'
+import { DEFAULT_STREAM_SETTINGS, type StreamMotionPreference } from './settings.ts'
 import css from './TypewriterAssistantNodeView.module.css'
 
 type AssistantProps = ChatNodeViewProps<'assistant-step'>
 type MarkdownProps = Pick<ComponentProps<typeof MarkdownText>, 'labels' | 'fileMentions' | 'text'>
 
-/**
- * Whether smoothing must fall back to raw text rendering.
- *
- * The OS preference is the default input, but the user setting overrides it in
- * either direction (see MotionPreference): tooling that forces reduce-motion
- * used to silence smoothing with no way back, and `force-reduced` lets a user
- * opt out even when the OS preference is off.
- */
-function useReducedMotion(): boolean {
-  const systemReduced = useSyncExternalStore(
-    (onChange: () => void) => {
-      if (typeof window === 'undefined' || window.matchMedia === undefined) return () => {}
-      const query = window.matchMedia('(prefers-reduced-motion: reduce)')
-      query.addEventListener('change', onChange)
-      return () => query.removeEventListener('change', onChange)
-    },
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(
     () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true,
-    () => false,
   )
-  const preference = useSyncExternalStore(
-    subscribeMotionPreference,
-    getMotionPreference,
-    () => DEFAULT_MOTION_PREFERENCE,
-  )
-  if (preference === 'force-reduced') return true
-  if (preference === 'force-smooth') return false
-  return systemReduced
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.matchMedia === undefined) return
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const onChange = () => setReduced(query.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+  return reduced
 }
 
 /**
- * Subscribe to `zh`'s per-line think height (`thinkMaxLines` / `thinkMaxLinesFrom`)
- * stored in the shared `ui-custom` settings scope. Returns `{ max, from }` so the
- * smooth-rendered think block can mirror the host's fixed-height internal-scroll
- * behaviour. Defaults to 20 lines from the latest when the scope is unavailable.
+ * Resolve whether the reveal engine should stay off for this view. The OS
+ * preference wins only in `auto` mode: `force-smooth` keeps the engine on
+ * machines where a system-wide reduce-motion switch (or a forced browser
+ * flag) would otherwise silently bypass smoothing, and `force-reduced`
+ * disables it even when the OS asks for motion. Credit: three-state design
+ * proposed by @Zn-Dk in #21/#22.
  */
-function useThinkMaxLines(scope: unknown): { max: number; from: 'latest' | 'earliest' } {
-  const snapshot = useSyncExternalStore(
-    (onChange: () => void) => {
-      const s = scope as { subscribe?: (cb: () => void) => () => void } | undefined
-      return s?.subscribe ? s.subscribe(onChange) : () => {}
-    },
-    () => {
-      const s = scope as { getSnapshot?: () => unknown } | undefined
-      const raw = s?.getSnapshot?.() as
-        | { status?: string; value?: Record<string, unknown> }
-        | Record<string, unknown>
-        | undefined
-      // The host settings scope wraps fields under `{ status, value }`.
-      const value = raw !== undefined && 'value' in raw
-        ? (raw as { value?: Record<string, unknown> }).value
-        : raw
-      const snap = (value ?? {}) as Record<string, unknown>
-      const rawMax = snap.thinkMaxLines
-      const max = typeof rawMax === 'number' && rawMax > 0 ? rawMax : 20
-      const from = snap.thinkMaxLinesFrom === 'earliest' ? 'earliest' : 'latest'
-      return `${max}|${from}`
-    },
-    () => '20|latest',
-  )
-  const [max, from] = snapshot.split('|')
-  return { max: Number(max) || 20, from: from === 'earliest' ? 'earliest' : 'latest' }
-}
-
-/** Line height in px of an element, falling back to 24. */
-function getLineHeight(el: HTMLElement): number {
-  try {
-    const cs = getComputedStyle(el)
-    const n = parseFloat(cs.lineHeight)
-    if (Number.isFinite(n) && n > 0) return n
-    const fs = parseFloat(cs.fontSize)
-    if (Number.isFinite(fs) && fs > 0) return fs * 1.2
-  } catch { /* ignore */ }
-  return 24
+function useMotionReduced(preference: StreamMotionPreference): boolean {
+  const system = usePrefersReducedMotion()
+  if (preference === 'force-smooth') return false
+  if (preference === 'force-reduced') return true
+  return system
 }
 
 interface AnimatedMarkdownTextProps extends MarkdownProps {
   streaming: boolean
-  /** True on the last text block: that block owns conversation follow. */
-  ownFollow: boolean
+  logarithmicFade: boolean
+  /** Whether the resolved reduced-motion gate keeps the reveal engine off. */
+  motionReduced: boolean
   followSpeedCpsRef?: { current: number } | undefined
+  followRevealedCharsRef?: { current: number } | undefined
   followRevealScaleRef?: { current: number } | undefined
   onPredictiveChange?: ((predictive: boolean) => void) | undefined
+  /** Reports whether the final text arm still has visible reveal work. */
+  onRevealActivityChange?: ((active: boolean) => void) | undefined
   preset: StreamSmoothingPreset
   shouldHoldBack: () => boolean
 }
@@ -124,50 +83,6 @@ function approximateInlineWidth(text: string, emPx: number): number {
   return width
 }
 
-function measurePendingTextGeometry(root: HTMLElement, visibleText: string): PendingTextGeometry {
-  if (
-    typeof document.createTreeWalker !== 'function'
-    || typeof NodeFilter === 'undefined'
-  ) {
-    return { root, visibleText, fontSize: 14, wrapThresholdWidth: null }
-  }
-  const rootRect = root.getBoundingClientRect()
-  const rootWidth = Math.max(0, rootRect.width, rootRect.right - rootRect.left, root.clientWidth)
-  if (rootWidth <= 0) return { root, visibleText, fontSize: 14, wrapThresholdWidth: null }
-
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  let tail: Text | null = null
-  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-    if ((node.textContent ?? '').length > 0) tail = node as Text
-  }
-  const parent = tail?.parentElement ?? root
-  const fontSize = Number.parseFloat(getComputedStyle(parent).fontSize) || 14
-  if (tail === null || typeof document.createRange !== 'function') {
-    return { root, visibleText, fontSize, wrapThresholdWidth: rootWidth }
-  }
-
-  try {
-    const length = tail.textContent?.length ?? 0
-    if (length <= 0) return { root, visibleText, fontSize, wrapThresholdWidth: rootWidth }
-    const range = document.createRange()
-    range.setStart(tail, Math.max(0, length - 1))
-    range.setEnd(tail, length)
-    const tailRect = range.getBoundingClientRect()
-    const contentRight = rootRect.right
-    if (!Number.isFinite(tailRect.right) || tailRect.right <= rootRect.left || contentRight <= rootRect.left) {
-      return { root, visibleText, fontSize, wrapThresholdWidth: rootWidth }
-    }
-    const remainingWidth = Math.max(0, contentRight - tailRect.right)
-    return {
-      root,
-      visibleText,
-      fontSize,
-      wrapThresholdWidth: remainingWidth + fontSize * 0.35,
-    }
-  } catch {
-    return { root, visibleText, fontSize, wrapThresholdWidth: rootWidth }
-  }
-}
 
 /** Whether buffered source can reach a new visual line before it drains. */
 function pendingTextCanGrow(
@@ -179,17 +94,16 @@ function pendingTextCanGrow(
   if (pending === '') return false
   if (/[\r\n]/u.test(pending)) return true
   const pendingChars = [...pending]
-  if (root === null) return pendingChars.length >= PREDICTIVE_WRAP_FALLBACK_CHARS
+  if (pendingChars.length >= PREDICTIVE_WRAP_FALLBACK_CHARS) return true
+  if (root === null) return false
 
   let geometry = geometryRef.current
-  if (geometry?.root !== root || geometry.visibleText !== visibleText) {
-    geometry = measurePendingTextGeometry(root, visibleText)
+  if (geometry?.root !== root) {
+    const rootWidth = root.clientWidth || 600
+    geometry = { root, visibleText, fontSize: 14, wrapThresholdWidth: Math.max(120, rootWidth * 0.4) }
     geometryRef.current = geometry
   }
-  if (geometry.wrapThresholdWidth === null) {
-    return pendingChars.length >= PREDICTIVE_WRAP_FALLBACK_CHARS
-  }
-  return approximateInlineWidth(pending, geometry.fontSize) >= geometry.wrapThresholdWidth
+  return approximateInlineWidth(pending, geometry.fontSize) >= (geometry.wrapThresholdWidth ?? (geometry.fontSize * PREDICTIVE_WRAP_FALLBACK_CHARS))
 }
 
 function announcementChunkEnd(source: string, start: number): number {
@@ -341,9 +255,9 @@ const StreamAnnouncement = memo(function StreamAnnouncement({
  * and rendered by the Harness `MarkdownText`
  * streaming arm (incremental parse, frozen non-tail blocks), so there is no
  * raw-text tail and no text-to-markdown swap: the tree stays markdown
- * throughout. The last text block owns conversation-port follow so wraps
- * glide instead of snapping. Once the stream closes and the reveal queue
- * drains, the settled full parse (KaTeX math, fence highlighting, file
+ * throughout. The outer assistant owner follows all text growth, including
+ * the final drain, so wraps glide without a completion handoff. Once the
+ * queue drains, the settled full parse (KaTeX math, fence highlighting, file
  * mentions) swaps in exactly once.
  */
 function AnimatedMarkdownText({
@@ -351,14 +265,17 @@ function AnimatedMarkdownText({
   labels,
   fileMentions,
   streaming,
-  ownFollow,
+  logarithmicFade,
+  motionReduced,
   followSpeedCpsRef,
+  followRevealedCharsRef,
   followRevealScaleRef,
   onPredictiveChange,
+  onRevealActivityChange,
   preset,
   shouldHoldBack,
 }: AnimatedMarkdownTextProps) {
-  const reduced = useReducedMotion()
+  const reduced = motionReduced
   const [typing, setTyping] = useState(streaming)
   const localSpeedCpsRef = useRef(35)
   const followRootRef = useRef<HTMLDivElement>(null)
@@ -372,16 +289,14 @@ function AnimatedMarkdownText({
     preset,
     shouldHoldBack,
     speedCpsRef,
+    revealedCharsRef: followRevealedCharsRef,
     revealScaleRef: followRevealScaleRef,
+    onRevealCommit: () => { notifyFollowCommit(followRootRef.current) },
   })
-  const shown = reduced ? (text ?? '') : (displayed ?? '')
+  const shown = reduced ? text : displayed
   const live = typing && !reduced
-  // Adaptive logarithmic opacity fade: newly revealed characters start
-  // translucent and settle to ink over FADE_DURATION_MS. Paint-only (CSS Custom
-  // Highlight ranges), so DOM, selection and copy are untouched; it degrades to
-  // a no-op where Highlight / color-mix are unavailable.
-  const logFade = useSyncExternalStore(subscribeLogFade, getLogFade, () => DEFAULT_LOG_FADE)
-  useLogarithmicFade(followRootRef, logFade && !reduced, live, speedCpsRef)
+  const markdownShown = useDecoupledMarkdown(shown, live)
+  useLogarithmicFade(followRootRef, logarithmicFade && !reduced, live, speedCpsRef)
 
   useEffect(() => {
     const root = followRootRef.current
@@ -407,27 +322,107 @@ function AnimatedMarkdownText({
     onPredictiveChange(next)
   }, [live, onPredictiveChange, shown, streaming, text])
 
+  useLayoutEffect(() => {
+    onRevealActivityChange?.(live)
+  }, [live, onRevealActivityChange])
+
   // The stream closed: keep revealing the remaining queue, then swap to the
   // settled parse exactly once. The markdown tree stays mounted until then.
   useEffect(() => {
     if (typing && !streaming && shown.length === text.length) setTyping(false)
   }, [shown, streaming, text, typing])
 
+  // A row can mount before the projection flips its assistant step to
+  // `running`, which would freeze `typing` at false forever and leave the
+  // reveal engine off for the whole reply. Re-arm on the rising edge so late
+  // stream starts are still smoothed. (Adopted from #22 by @Zn-Dk.)
+  useEffect(() => {
+    if (streaming) setTyping(true)
+  }, [streaming])
+
+  if (!streaming && !live && text.trim() === '') return null
+
   return (
-    <FollowHost
-      active={live && ownFollow}
-      speedCpsRef={speedCpsRef}
-      revealScaleRef={followRevealScaleRef}
-      predictive={streaming}
-      hostRef={followRootRef}
-    >
+    <div ref={followRootRef} className={css.follow} data-follow-text="">
       <MarkdownText
-        text={(live ? shown : text) ?? ''}
+        // `shown` stays authoritative through the completion drain: the
+        // settled parse swaps in only when the queue has actually emptied.
+        // Rendering `text` early bypasses the drain and teleports the tail.
+        text={live ? markdownShown : text}
         streaming={live}
-        labels={labels ?? { code: { copyLabel: 'Copy', copiedLabel: 'Copied' }, footnotes: 'Footnotes' }}
+        labels={labels}
         fileMentions={live ? undefined : fileMentions}
       />
-    </FollowHost>
+    </div>
+  )
+}
+
+function imageLabels(t: AssistantProps['t']): MessageImageLabels {
+  return {
+    image: t('image.label'),
+    open: t('image.openOriginal'),
+    openNamed: label => t('image.openOriginalLabel', { label }),
+    loading: t('image.loading'),
+    loadFailed: t('image.loadFailed'),
+    lightbox: {
+      dialog: t('image.preview'),
+      close: t('image.closePreview'),
+    },
+  }
+}
+
+/**
+ * Apply searchable hidden state without unmounting a stable subtree — the
+ * Host's completion fold hides the answer-inline reasoning this way, so the
+ * takeover renderer must reproduce it to stay inside the contract: the row
+ * disappears into the Host's process summary and comes back on find-in-page.
+ * (Mirrors the Harness chat kit's `useSearchableHidden`.)
+ */
+function useSearchableHidden(
+  hidden: boolean,
+  reveal: () => void,
+): RefObject<HTMLDivElement> {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (element === null) return
+    if (hidden && element.contains(element.ownerDocument.activeElement)) {
+      reveal()
+      return
+    }
+    if (hidden) element.setAttribute('hidden', 'until-found')
+    else element.removeAttribute('hidden')
+  }, [hidden, reveal])
+  useEffect(() => {
+    const element = ref.current
+    if (element === null) return
+    element.addEventListener('beforematch', reveal)
+    return () => { element.removeEventListener('beforematch', reveal) }
+  }, [reveal])
+  return ref
+}
+
+/**
+ * One answer-inline reasoning block wrapped in the Host's fold contract. The
+ * Host computes the fold decision (turn closed, compact transcript, this node
+ * is the answer) and delivers it through the `turnProcess` owner prop; when
+ * folded the block hides into the Host's "thought" summary row instead of
+ * staying mounted above the answer.
+ */
+function FoldableReasoning({
+  hidden,
+  reveal,
+  children,
+}: {
+  hidden: boolean
+  reveal: () => void
+  children: ReactNode
+}) {
+  const ref = useSearchableHidden(hidden, reveal)
+  return (
+    <div ref={ref} data-turn-process-inline={hidden || undefined}>
+      {children}
+    </div>
   )
 }
 
@@ -456,71 +451,145 @@ function AnimatedReasoning({
   running,
   preset,
   thinkAutoExpand,
+  motionReduced,
+  logarithmicFade,
   shouldHoldBack,
   followSpeedCpsRef,
   followRevealScaleRef,
   t,
-  settingsScope,
 }: {
   text: string
   running: boolean
   preset: StreamSmoothingPreset
   thinkAutoExpand: boolean
+  motionReduced: boolean
+  logarithmicFade: boolean
   shouldHoldBack: () => boolean
   followSpeedCpsRef?: { current: number } | undefined
   followRevealScaleRef?: { current: number } | undefined
   t: AssistantProps['t']
-  settingsScope?: unknown
-  groupPart?: 'reasoning' | 'response'
 }) {
-  const reduced = useReducedMotion()
+  const reduced = motionReduced
   const [expanded, setExpanded] = useState(running && thinkAutoExpand)
+  const [autoClosed, setAutoClosed] = useState(false)
   const summaryRef = useRef<HTMLSpanElement>(null)
-  const bodyRef = useRef<HTMLDivElement>(null)
+  const fadeRootRef = useRef<HTMLDivElement>(null)
+  // The custom thinking auto-scroll drives the SAME node as the logarithmic
+  // fade, so it reuses that ref object rather than installing a second one
+  // (a callback ref would re-attach on every render).
+  const thinkBodyRef = fadeRootRef
   const localFadeSpeedRef = useRef(35)
   const fadeSpeedRef = followSpeedCpsRef ?? localFadeSpeedRef
+  const userScrolledRef = useRef(false)
+  const rafIdRef = useRef(0)
+  // Latest "the live stream still owns this scroller" state. Tracked on every
+  // render so the queued frame can re-read it: a stop or a collapse landing
+  // between scheduling and the frame must not move the viewport.
+  const followActiveRef = useRef(false)
+  followActiveRef.current = running && expanded
+  const commitAnchorRef = useRef<HTMLDivElement>(null)
+  // The running→false flip is the AUTO-close: it collapses instantly and the
+  // follower's settle spring absorbs the height step. A later manual toggle
+  // keeps the CSS glide.
   const displayed = useSmoothStreamContent(text, {
     enabled: running && !reduced,
     preset,
     shouldHoldBack,
     speedCpsRef: fadeSpeedRef,
     revealScaleRef: followRevealScaleRef,
+    onRevealCommit: () => { notifyFollowCommit(commitAnchorRef.current) },
   })
-  // Same adaptive fade as the answer, scoped to the expanded thinking body.
-  // NOTE: reuse `bodyRef` — this div carries exactly one ref. A second `ref`
-  // attribute on the same element silently overwrites the first (JSX compiles to
-  // an object literal), which nulls `bodyRef.current` and kills the scroll-follow
-  // in the layout effect below.
-  const logFade = useSyncExternalStore(subscribeLogFade, getLogFade, () => DEFAULT_LOG_FADE)
-  useLogarithmicFade(bodyRef, logFade && !reduced && expanded, running, fadeSpeedRef)
   const shown = running && !reduced ? displayed : text
   const summary = running ? latestLine(shown) : firstLine(text)
-  // Read `zh`'s per-line think height so the smooth-rendered block keeps the same
-  // fixed-height internal-scroll behaviour the host would have given it. The
-  // value lives in the shared `ui-custom` settings scope under `thinkMaxLines`.
-  const thinkMaxLines = useThinkMaxLines(settingsScope)
-  const lineHeight = bodyRef.current ? getLineHeight(bodyRef.current) : 24
+  useLogarithmicFade(fadeRootRef, logarithmicFade && !reduced && expanded, running, fadeSpeedRef)
 
   useLayoutEffect(() => {
     // Only the running state owns disclosure while auto-expand is on; with it
     // off, a manual toggle is never wrestled back by the stream.
-    if (thinkAutoExpand) setExpanded(running)
+    if (thinkAutoExpand) {
+      setExpanded(running)
+      setAutoClosed(!running)
+    }
+    if (running) {
+      userScrolledRef.current = false
+    }
+    // A commit that changes this block's height must hand the follower its
+    // correction in the SAME task, before the grown-but-uncompensated frame
+    // can reach a paint.
+    notifyFollowCommit(commitAnchorRef.current)
   }, [running, thinkAutoExpand])
 
-  // Keep the fixed-height think body scrolled to the newest line.
-  //
-  // This must also run on the completion frame: `shown` switches from the
-  // partially revealed text to the full text exactly when `running` flips to
-  // false, so the body grows taller at that moment. Bailing out on `!running`
-  // left the container at its mid-stream height and the tail unread (measured:
-  // scrollHeight 368 vs clientHeight 248, 120px never revealed). Skipping the
-  // `running` guard is safe — once the content settles `shown` stops changing,
-  // so a manual scroll is not fought.
-  useLayoutEffect(() => {
-    const body = bodyRef.current
-    if (body === null) return
-    body.scrollTop = thinkMaxLines.from === 'earliest' ? 0 : body.scrollHeight
-  }, [shown, thinkMaxLines.from])
+  useEffect(() => {
+    // Only the live stream owns the reading position. A settled block is
+    // something to read from the top, so expanding a finished reasoning card
+    // must not scroll it — that would make its first lines unreachable.
+    if (!running || !expanded || userScrolledRef.current) return
+    const el = thinkBodyRef.current
+    if (el === null) return
+    if (rafIdRef.current === 0) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = 0
+        // Re-checked at frame time: the stream may have stopped, the block may
+        // have collapsed, or the user may have scrolled since scheduling. A
+        // queued frame never steals the position back.
+        if (!followActiveRef.current || userScrolledRef.current || el === null) return
+        const delta = el.scrollHeight - el.scrollTop - el.clientHeight
+        if (delta > 2) {
+          el.scrollTop = Number.MAX_SAFE_INTEGER
+        }
+      })
+    }
+  }, [running, expanded, shown])
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== 0) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = 0
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const el = thinkBodyRef.current
+    if (el === null) return
+    let isPointerDown = false
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) {
+        userScrolledRef.current = true
+      } else if (e.deltaY > 0) {
+        if (el.scrollHeight - el.scrollTop - el.clientHeight <= 30) {
+          userScrolledRef.current = false
+        }
+      }
+    }
+    const onPointerDown = () => {
+      isPointerDown = true
+    }
+    const onPointerUp = () => {
+      isPointerDown = false
+    }
+    const onScroll = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 30
+      if (atBottom) {
+        userScrolledRef.current = false
+      } else if (isPointerDown) {
+        userScrolledRef.current = true
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('pointerdown', onPointerDown, { passive: true })
+    window.addEventListener('pointerup', onPointerUp, { passive: true })
+    window.addEventListener('pointercancel', onPointerUp, { passive: true })
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
+      el.removeEventListener('scroll', onScroll)
+    }
+  }, [])
 
   useEffect(() => {
     const element = summaryRef.current
@@ -530,7 +599,7 @@ function AnimatedReasoning({
 
   // Preserve FollowHost's layout wrapper without mounting a second scroll owner.
   return (
-    <div className={css.follow}>
+    <div className={css.follow} ref={commitAnchorRef}>
       <div className={css.think} data-variant="think" data-state={running ? 'running' : 'ok'}>
         {running && <span className={css.visuallyHidden}>{t('row.running')}</span>}
         <AnimatedDisclosure
@@ -538,10 +607,26 @@ function AnimatedReasoning({
           leadingClassName={css.thinkLeading}
           titleClassName={css.thinkTitle}
           chevronClassName={css.thinkChevron}
-          icon={<IconThinkOutlineRegular size={14} />}
-          title="Think"
+          icon={<IconThink size={14} />}
+          // `message.think` is not in the `conversation` key union this prop is
+          // typed with: no Harness version owns it there. On 0.1.5+ it lives in
+          // the `chat` namespace, and on older builds only this plugin's own
+          // fallback dictionary has it. The layered lookup installed in
+          // index.ts resolves it either way, so the cast widens the key domain
+          // rather than skipping a lookup. No hardcoded label and no
+          // `<html lang>` sniffing: a key that resolves nowhere shows the key,
+          // which the locale routing test catches.
+          title={(t as unknown as (key: string) => string)('message.think')}
           open={expanded}
-          onToggle={() => { setExpanded(value => !value) }}
+          onToggle={() => {
+            setAutoClosed(false)
+            setExpanded(value => !value)
+          }}
+          // The auto-close at stream end snaps (no grid-track animation): the
+          // follower's settle spring absorbs the height step through the
+          // compositor, so animating the track too would double-animate the
+          // collapse. Manual toggles while streaming keep the glide.
+          bodyTransition={!autoClosed}
           collapsedContent={(
             <>
               <span className={css.thinkSeparator} aria-hidden />
@@ -549,15 +634,7 @@ function AnimatedReasoning({
             </>
           )}
         >
-          <div
-            ref={bodyRef}
-            className={css.thinkBody}
-            style={{
-              maxHeight: `${Math.round(lineHeight * thinkMaxLines.max)}px`,
-              overflowY: 'auto',
-              overflowX: 'hidden',
-            }}
-          >{shown}</div>
+          <div ref={fadeRootRef} className={css.thinkBody}>{shown}</div>
         </AnimatedDisclosure>
       </div>
     </div>
@@ -569,10 +646,11 @@ function AnimatedReasoning({
  * streaming is revealed by the smoother through the Harness Markdown
  * renderer at a rate that tracks arrival. Reasoning blocks keep the
  * built-in Think disclosure and only receive a smoothed text feed; the
- * outer node owns conversation-port follow while streaming; the final text
- * block keeps ownership while its settled reveal queue drains. The FPS guard
- * holds offscreen reveals when the frame rate is degraded. Settled text
- * renders with the full Markdown pipeline.
+ * outer node owns conversation-port follow through both streaming and the
+ * final text drain. Keeping one owner avoids a lifecycle handoff that would
+ * reopen and later retire a second runway. The FPS guard holds offscreen
+ * reveals when the frame rate is degraded. Settled text renders with the full
+ * Markdown pipeline.
  */
 export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNodeView({
   mode: _mode = DEFAULT_STREAM_CONFIG.mode,
@@ -581,13 +659,16 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
   scrollSpeedPxPerSec: _scrollSpeedPxPerSec = DEFAULT_STREAM_CONFIG.scrollSpeedPxPerSec,
   maxScrollSpeedPxPerSec: _maxScrollSpeedPxPerSec = DEFAULT_STREAM_CONFIG.maxScrollSpeedPxPerSec,
   thinkAutoExpand = DEFAULT_STREAM_SETTINGS.thinkAutoExpand,
-  settingsScope,
+  logarithmicFade = DEFAULT_STREAM_SETTINGS.logarithmicFade,
+  controlScroll = true,
+  motionPreference = DEFAULT_STREAM_SETTINGS.motionPreference,
   node,
   useTurnData,
   openFile,
+  loadImage,
   fileMentions,
+  turnProcess,
   t,
-  groupPart,
 }: AssistantProps & {
   mode?: StreamMode
   preset?: StreamSmoothingPreset
@@ -595,14 +676,38 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
   scrollSpeedPxPerSec?: number
   maxScrollSpeedPxPerSec?: number
   thinkAutoExpand?: boolean
-  settingsScope?: unknown
+  logarithmicFade?: boolean
+  controlScroll?: boolean
+  motionPreference?: StreamMotionPreference
 }) {
   const data = node.data
   const streaming = data.status === 'running'
-  const reduced = useReducedMotion()
+  const reduced = useMotionReduced(motionPreference)
+  // The Host's completion-fold decision for THIS node's inline reasoning:
+  // only the answer step folds, only in compact-transcript mode, and only
+  // once the turn has closed (foldable implies it). Mirrors the built-in
+  // assistant renderer so the takeover keeps the official behavior.
+  const reasoningHidden = turnProcess !== undefined
+    && turnProcess.foldable
+    && turnProcess.spec.answerStep === data.step
+    && turnProcess.spec.inlineReasoning
+    && !turnProcess.open
+  const revealProcess = useCallback(() => { turnProcess?.setOpen(true) }, [turnProcess])
   const { ref: guardRef, shouldHoldBack } = useFpsGuard(streaming)
   const rootSpeedRef = useRef(35)
+  const rootRevealedCharsRef = useRef(0)
   const rootRevealScaleRef = useRef(1)
+  const previousStreamingRef = useRef(streaming)
+  const [textRevealActive, setTextRevealActive] = useState(false)
+  const completionCandidate = !streaming
+    && previousStreamingRef.current
+    && data.blocks.some(block => block.kind === 'text' && block.text.trim() !== '')
+  useLayoutEffect(() => {
+    previousStreamingRef.current = streaming
+  }, [streaming])
+  const updateTextRevealActivity = useCallback((active: boolean): void => {
+    setTextRevealActive(previous => previous === active ? previous : active)
+  }, [])
   const reasoningTailIndex = streaming && data.blocks[data.blocks.length - 1]?.kind === 'reasoning'
     ? data.blocks.length - 1
     : -1
@@ -636,27 +741,16 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
     () => owner === undefined ? undefined : fileMentions(owner),
     [fileMentions, owner],
   )
-  // Host MarkdownText reads `labels.code.copyLabel/copiedLabel` and
-  // `labels.footnotes` (primitives v0.1.2 renderCode) — `copy`/`copied`/
-  // `markdown.footnotes` resolve through the shared common namespace.
-  const markdownLabels = useMemo(
-    () => ({ code: { copyLabel: t('copy'), copiedLabel: t('copied') }, footnotes: t('markdown.footnotes') }),
-    [t],
-  )
-  // 0.1.7 host contract: an assistant step is projected as TWO seats
-  // (ProcessGroup split). `groupPart === 'reasoning'` renders ONLY reasoning
-  // blocks, `'response'` ONLY non-reasoning blocks; absent = everything
-  // (0.1.5 Desktop behavior). The host's own AssistantMarkdown filters the
-  // same way (dsh-client-ui-chat 0.1.7 AssistantMarkdown). Rendering full
-  // blocks in both seats duplicated the think and reply blocks.
-  const visibleBlocks = data.blocks.filter(block => {
-    if (groupPart === 'reasoning' && block.kind !== 'reasoning') return false
-    if (groupPart === 'response' && block.kind === 'reasoning') return false
-    return true
+  const markdownLabels = useMemo(() => ({
+    code: { copyLabel: t('copy'), copiedLabel: t('copied') },
+    footnotes: t('markdown.footnotes'),
+  }), [t])
+  const imageLoader: ImageLoader = loadImage ?? (async () => {
+    throw new Error(t('image.serviceUnavailable'))
   })
   const hasVisible = streaming
     || data.status === 'interrupted'
-    || visibleBlocks.some(block => block.kind !== 'tool-call')
+    || data.blocks.some(block => block.kind !== 'tool-call')
   if (!hasVisible) return null
   const announcementText = data.blocks
     .filter(block => block.kind === 'text')
@@ -664,29 +758,34 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
     .join('\n')
 
   const rendered: ReactNode[] = []
+  const last = data.blocks.length - 1
   let lastFollow = -1
-  for (let index = 0; index < visibleBlocks.length; index += 1) {
-    const kind = visibleBlocks[index]?.kind
+  let lastText = -1
+  for (let index = 0; index < data.blocks.length; index += 1) {
+    const kind = data.blocks[index]?.kind
     if (kind === 'text' || kind === 'reasoning') lastFollow = index
+    if (kind === 'text') lastText = index
   }
-  for (let index = 0; index < visibleBlocks.length; index += 1) {
-    const block = visibleBlocks[index]
+  for (let index = 0; index < data.blocks.length; index += 1) {
+    const block = data.blocks[index]
     if (block === undefined) continue
-    // Guard: skip blocks with missing content to prevent DSH MarkdownText crash
-    if ((block.kind === 'text' || block.kind === 'reasoning') && (block.text === undefined || typeof block.text !== 'string')) continue
     switch (block.kind) {
       case 'text':
+        if (!streaming && block.text.trim() === '') break
         rendered.push(
           <AnimatedMarkdownText
             key={index}
-            text={String(block.text)}
+            text={block.text}
             labels={markdownLabels}
             fileMentions={mentions}
             streaming={streaming}
-            ownFollow={!streaming && index === lastFollow}
+            logarithmicFade={logarithmicFade && data.status !== 'interrupted'}
+            motionReduced={reduced}
             followSpeedCpsRef={index === lastFollow ? rootSpeedRef : undefined}
+            followRevealedCharsRef={index === lastFollow ? rootRevealedCharsRef : undefined}
             followRevealScaleRef={index === lastFollow ? rootRevealScaleRef : undefined}
             onPredictiveChange={index === lastFollow ? updateTextPrediction : undefined}
+            onRevealActivityChange={index === lastText ? updateTextRevealActivity : undefined}
             preset={preset}
             shouldHoldBack={shouldHoldBack}
           />,
@@ -694,45 +793,34 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
         break
       case 'reasoning':
         rendered.push(
-          <AnimatedReasoning
-            key={index}
-            text={String(block.text)}
-            running={streaming && index === visibleBlocks.length - 1}
-            preset={preset}
-            thinkAutoExpand={thinkAutoExpand}
-            shouldHoldBack={shouldHoldBack}
-            followSpeedCpsRef={reasoningOwnsSpeed && index === visibleBlocks.length - 1 ? rootSpeedRef : undefined}
-            followRevealScaleRef={reasoningOwnsSpeed && index === visibleBlocks.length - 1 ? rootRevealScaleRef : undefined}
-            t={t}
-            settingsScope={settingsScope}
-          />,
+          <FoldableReasoning key={index} hidden={reasoningHidden} reveal={revealProcess}>
+            <AnimatedReasoning
+              text={block.text}
+              running={streaming && index === last}
+              preset={preset}
+              thinkAutoExpand={thinkAutoExpand}
+              logarithmicFade={logarithmicFade && data.status !== 'interrupted'}
+              motionReduced={reduced}
+              shouldHoldBack={shouldHoldBack}
+              followSpeedCpsRef={reasoningOwnsSpeed && index === last ? rootSpeedRef : undefined}
+              followRevealScaleRef={reasoningOwnsSpeed && index === last ? rootRevealScaleRef : undefined}
+              t={t}
+            />
+          </FoldableReasoning>,
         )
         break
       case 'image': {
         const start = index
         const group = [block]
-        while (index + 1 < visibleBlocks.length) {
+        while (index + 1 < data.blocks.length) {
           const next = data.blocks[index + 1]
           if (next === undefined || next.kind !== 'image') break
           group.push(next)
           index += 1
         }
-        {
-          // 0.1.7: ImageGallery is no longer exported by the attachment machine
-          // package; images dispatch through the platform's renderMessageImages
-          // (the Images slot session outlet, with the outlet's loadImage).
-          const renderImages = (props as unknown as { renderMessageImages?: unknown }).renderMessageImages
-          if (typeof renderImages === 'function') {
-            rendered.push(
-              <Fragment key={start}>
-                {renderImages({
-                  images: group.map(({ attachment }) => ({ attachment })),
-                  align: 'start',
-                })}
-              </Fragment>,
-            )
-          }
-        }
+        rendered.push(
+          <ImageGallery key={start} images={group} load={imageLoader} align="start" labels={imageLabels(t)} />,
+        )
         break
       }
       case 'tool-call':
@@ -754,14 +842,19 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
     <div ref={guardRef} className={css.root} data-streaming={streaming || undefined}>
       <StreamAnnouncement text={announcementText} active={streaming && !reduced} />
       <FollowHost
-        active={streaming && !reduced}
+        // The status can close before its final text arm drains. Retain this
+        // same owner across that boundary; the candidate bridges the one
+        // layout commit before the child reports its live reveal state.
+        active={!reduced && (streaming || completionCandidate || textRevealActive)}
         speedCpsRef={rootSpeedRef}
+        revealedCharsRef={rootRevealedCharsRef}
         revealScaleRef={rootRevealScaleRef}
         predictiveRef={rootPredictiveRef}
+        controlScroll={controlScroll}
       >
         <div className={css.body}>
           {rendered}
-          {data.status === 'interrupted' && (groupPart === undefined || groupPart === 'response' || visibleBlocks.some(block => block.kind !== 'reasoning' && block.kind !== 'tool-call')) && <span className={css.stopped}>{t('message.stopped')}</span>}
+          {data.status === 'interrupted' && <span className={css.stopped}>{t('message.stopped')}</span>}
         </div>
       </FollowHost>
     </div>

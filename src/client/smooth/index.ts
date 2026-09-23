@@ -27,7 +27,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { TypewriterAssistantNodeView } from './TypewriterAssistantNodeView.tsx'
 import { wrapFollowNodeView, type FollowWrapProps } from './TypewriterToolNodeView.tsx'
-import { SmoothStreamCard } from './SmoothStreamCard.tsx'
 import { SmoothStreamCardController } from './SmoothStreamCardController.ts'
 import { DebugPanel } from './DebugPanel.tsx'
 import { debugRuntime } from './debugRuntime.ts'
@@ -172,6 +171,7 @@ class SettingsCell {
       && next.thinkAutoExpand === this.value.thinkAutoExpand
       && next.debugEnabled === this.value.debugEnabled
       && next.motionPreference === this.value.motionPreference
+      && next.preset === this.value.preset
       && next.logarithmicFade === this.value.logarithmicFade
       && next.debugTuning === this.value.debugTuning
     ) return
@@ -271,15 +271,12 @@ export function apply(ctx: ClientContext, config?: { preset?: string; takeover?:
     syncDebug()
     card.start()
 
-    // Register the settings card slot
-    ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
-      name: 'settings.plugin.item',
-      id: 'smooth-stream',
-      key: SETTINGS_NS,
-      order: 30,
-      locale: SETTINGS_NS,
-      inject: () => card.inject(),
-    } as never, SmoothStreamCard))
+    // 原先此处把设置卡注册到 `settings.plugin.item`。当前 DSH 的「插件」页**不渲染**
+    // 插件的该项注册，本地的 smooth 设置实际实现在
+    // `src/client/zh/logic/settings-section.tsx`（「UI 增强 → 增强」标签，
+    // 见 docs/upstream-repos.md 移植注意事项第 2 条）。该注册从未生效，
+    // 2026-09-23 连同卡片文件一并移除——新增 smooth 设置项请加到上面那个文件，
+    // 不要在这里重建入口。
 
     // Register the debug panel in the session header
     ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
@@ -315,7 +312,7 @@ export function apply(ctx: ClientContext, config?: { preset?: string; takeover?:
       createElement(TypewriterAssistantNodeView, {
         ...props,
         mode: streamConfig.mode,
-        preset: streamConfig.preset,
+        preset: preferences.preset ?? streamConfig.preset,
         revealCharsPerSec: streamConfig.revealCharsPerSec,
         scrollSpeedPxPerSec: streamConfig.scrollSpeedPxPerSec,
         maxScrollSpeedPxPerSec: streamConfig.maxScrollSpeedPxPerSec,

@@ -1,10 +1,28 @@
+/*
+ * Font size and line height follow the Host's content-font axis, with
+ * fallbacks chosen so that EACH supported Harness version renders exactly what
+ * its own assistant root renders.
+ *
+ * The axis is published on `document.body` by the Harness layout plugin
+ * (`--dsh-content-font-size`) and derived by its theme stylesheet
+ * (`--dsh-content-font-delta: calc(size - 14px)`,
+ * `--dsh-content-font-size-secondary`, `--dsh-content-font-delta-secondary`).
+ * No package in the pinned 0.1.0-rc.6 dependency tree assigns any of them -
+ * rc.6 has neither the layout nor the theme plugin - and rc.6's own assistant
+ * root is a hard `16px/28px`.
+ *
+ * So the fallback has to be rc.6's value, not 14px: `var(size, 16px)` with
+ * `calc(24px + var(delta, 4px))` yields 16px/28px on rc.6 (matching its root)
+ * and the Host's live value on 0.1.5+ (where the same expression is what the
+ * Harness itself writes).
+ */
 .root {
   display: flex;
   flex-direction: column;
   min-width: 0;
   color: var(--dsw-alias-label-primary);
-  font-size: 16px;
-  line-height: 28px;
+  font-size: var(--dsh-content-font-size, 16px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 4px));
 }
 
 .body {
@@ -12,6 +30,10 @@
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+}
+
+.body > [data-turn-process-inline][hidden] {
+  margin-bottom: -16px;
 }
 
 .think {
@@ -66,13 +88,19 @@
   background: var(--dsw-alias-label-caption);
 }
 
+/*
+ * Think text reads the secondary tier, mirroring the Harness's own reasoning
+ * row (`ui-chat/src/client/chat/ReasoningRow.module.css`): one step under the
+ * body size, with `secondary` fallbacks that reproduce rc.6's hard `14px/24px`
+ * when no Host axis is published.
+ */
 .thinkSummary {
   min-width: 0;
   overflow: hidden;
   flex: 1 1 auto;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  line-height: 24px;
+  font-size: var(--dsh-content-font-size-secondary, 14px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 4px));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -82,12 +110,38 @@
 }
 
 .thinkBody {
-  padding: 4px 0 4px 22px;
+  /* Indent under the title, which starts at leading (16 + delta) + gap 6. */
+  padding: 4px 0 4px calc(22px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  line-height: 24px;
+  font-size: var(--dsh-content-font-size-secondary, 14px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 4px));
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: var(--dsh-thinking-max-height, 300px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-alias-border-l4, rgba(128, 128, 128, 0.4)) transparent;
+  contain: layout;
+  transform: translateZ(0);
+  will-change: scroll-position;
+}
+
+.thinkBody::-webkit-scrollbar {
+  width: 6px;
+}
+
+.thinkBody::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.thinkBody::-webkit-scrollbar-thumb {
+  background-color: var(--dsw-alias-border-l4, rgba(128, 128, 128, 0.4));
+  border-radius: 3px;
+}
+
+.thinkBody::-webkit-scrollbar-thumb:hover {
+  background-color: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.6));
 }
 
 /*
@@ -106,7 +160,9 @@
   overflow: hidden;
   display: flex;
   align-items: center;
-  height: 24px;
+  /* The Harness DisclosureRow reserves this row with the same expression, so
+   * the disclosure grows with the reading font instead of clipping it. */
+  height: calc(24px + var(--dsh-content-font-delta, 0px));
   min-width: 0;
   cursor: pointer;
 }
@@ -114,13 +170,18 @@
 .disclosureLeading {
   position: relative;
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: calc(16px + var(--dsh-content-font-delta, 0px));
+  height: calc(16px + var(--dsh-content-font-delta, 0px));
   display: inline-flex;
   align-items: center;
   justify-content: center;
   margin-right: 6px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+.disclosureLeading svg:not([data-state]) {
+  width: calc(14px + var(--dsh-content-font-delta, 0px));
+  height: calc(14px + var(--dsh-content-font-delta, 0px));
 }
 
 .disclosureIconIdle {
@@ -147,8 +208,8 @@
 
 .disclosureTitle {
   flex: none;
-  font-size: 14px;
-  line-height: 24px;
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -165,6 +226,7 @@
   display: grid;
   grid-template-rows: 1fr;
   visibility: visible;
+  overflow: hidden;
   transition:
     grid-template-rows var(--ds-transition-duration, 0.2s) var(--ds-ease-in-out, cubic-bezier(0.4, 0, 0.2, 1)),
     visibility 0s;
@@ -178,8 +240,23 @@
     visibility 0s var(--ds-transition-duration, 0.2s);
 }
 
+.disclosureContent[data-collapsed] > * {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Auto-close at stream end snaps instead of animating: the follower's settle
+ * spring already absorbs the height step through the compositor, so a grid
+ * animation would double-animate the same collapse for a dozen frames. */
+.disclosureContent[data-no-transition] {
+  transition: none;
+}
+
 .disclosureContent > * {
   min-height: 0;
+}
+
+.disclosureContent[data-collapsed] > * {
   overflow: hidden;
 }
 
@@ -228,13 +305,33 @@
 }
 
 /*
+ * Inline code is allowed to wrap inside list items. The Harness markdown
+ * theme uses `inline-flex` for its single-line code treatment, but an
+ * inline-flex box can expose multiple painted line boxes without contributing
+ * their full height to a trimmed list-item line box in Chromium. Keep the
+ * code's font and padding while using normal inline layout so every wrapped
+ * line participates in the parent list item's geometry.
+ */
+.root :not(pre) > code {
+  display: inline;
+  line-height: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: baseline;
+}
+
+/*
  * Trim the half-leading above and below each text block so line boxes hug
  * the font's ascent/descent edges. `text` edges are used instead of
  * `cap alphabetic` because assistant text is CJK-heavy and cap-height
  * trimming would clip ideographic glyphs.
  */
 @supports (text-box-trim: trim-both) {
-  .root :is(p, h1, h2, h3, h4, h5, h6, li, blockquote) {
+  /* List-item line boxes must retain their full leading. A wrapped inline
+   * code element is an inline-flex formatting context; Chromium's
+   * text-box-trim can shrink the li's layout box below the code's painted
+   * second line, letting the following item start inside that line. */
+  .root :is(p, h1, h2, h3, h4, h5, h6, blockquote) {
     text-box-trim: trim-both;
     text-box-edge: text;
   }

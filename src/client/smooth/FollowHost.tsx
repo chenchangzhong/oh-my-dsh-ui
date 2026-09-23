@@ -15,10 +15,14 @@ export function FollowHost({
   onGrowth,
   entranceExtentRef,
   speedCpsRef,
+  revealedCharsRef,
   revealScaleRef,
   predictive = true,
   predictiveRef,
+  controlScroll = true,
   hostRef,
+  className,
+  entranceActive,
   children,
 }: {
   active: boolean
@@ -27,11 +31,17 @@ export function FollowHost({
   onGrowth?: ((deltaPx: number) => void) | undefined
   entranceExtentRef?: { current: number | null } | undefined
   speedCpsRef: { current: number }
+  revealedCharsRef?: { current: number } | undefined
   revealScaleRef?: { current: number } | undefined
   predictive?: boolean
   predictiveRef?: { current: boolean } | undefined
+  /** False leaves conversation bottom-follow to the Host. */
+  controlScroll?: boolean
   hostRef?: { current: HTMLDivElement | null } | undefined
   children: ReactNode
+  className?: string | undefined
+  /** Optional marker for a generic row's one-shot entrance animation. */
+  entranceActive?: boolean | undefined
 }) {
   const localRootRef = useRef<HTMLDivElement>(null)
   const rootRef = hostRef ?? localRootRef
@@ -45,22 +55,46 @@ export function FollowHost({
     onEntranceSettled,
     predictiveRef,
     entranceExtentRef,
+    revealedCharsRef,
+    controlScroll,
   )
   useEffect(() => {
     if (onGrowth === undefined || typeof ResizeObserver === 'undefined') return
     const root = rootRef.current
     if (root === null) return
     let previousHeight: number | null = null
+    let pendingGrowth = 0
+    let growthFrame: number | null = null
+    const flushGrowth = (): void => {
+      growthFrame = null
+      if (pendingGrowth <= 0) return
+      const delta = pendingGrowth
+      pendingGrowth = 0
+      onGrowth(delta)
+    }
     const observer = new ResizeObserver(entries => {
-      const nextHeight = entries[0]?.contentRect.height ?? root.getBoundingClientRect().height
-      if (!Number.isFinite(nextHeight)) return
+      const measuredHeight = entries[0]?.contentRect.height
+      if (measuredHeight === undefined || !Number.isFinite(measuredHeight)) return
+      const nextHeight = measuredHeight
       if (previousHeight !== null && nextHeight > previousHeight + 0.5) {
-        onGrowth(nextHeight - previousHeight)
+        pendingGrowth += nextHeight - previousHeight
+        if (growthFrame === null) growthFrame = requestAnimationFrame(flushGrowth)
       }
       previousHeight = nextHeight
     })
     observer.observe(root)
-    return () => { observer.disconnect() }
+    return () => {
+      observer.disconnect()
+      if (growthFrame !== null) cancelAnimationFrame(growthFrame)
+    }
   }, [onGrowth])
-  return <div ref={rootRef} className={css.follow}>{children}</div>
+  return (
+    <div
+      ref={rootRef}
+      className={className === undefined ? css.follow : `${css.follow} ${className}`}
+      data-entrance={entranceActive === undefined ? undefined : entranceActive ? 'active' : 'idle'}
+    >
+      {children}
+    </div>
+  )
 }

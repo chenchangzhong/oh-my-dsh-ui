@@ -7,6 +7,8 @@
  * and take effect live, complementing the composition-time StreamConfig.
  */
 
+import type { StreamSmoothingPreset } from './useSmoothStreamContent.ts'
+
 /** Settings namespace used by the smooth feature within ui-custom. */
 export const STREAM_SETTINGS_NS = 'smooth-stream'
 
@@ -19,6 +21,9 @@ export const STREAM_SETTINGS_NS = 'smooth-stream'
  * with no way back.
  */
 export type MotionPreference = 'auto' | 'force-smooth' | 'force-reduced'
+
+/** 上游命名（StreamMotionPreference）与本地 MotionPreference 同义——取入的上游组件按此名导入。 */
+export type StreamMotionPreference = MotionPreference
 
 /** Default motion preference. */
 export const DEFAULT_MOTION_PREFERENCE: MotionPreference = 'auto'
@@ -137,6 +142,13 @@ export interface StreamSettings {
   /** How the OS reduce-motion preference is honoured (see {@link MotionPreference}). */
   motionPreference: MotionPreference
   /**
+   * 节奏预设（realtime / balanced / silky）：决定 EMA 种子与滞后倍率。
+   *
+   * 上游 f3cad7e 起可在设置页修改；在此之前本地只能经 profile config 的
+   * `preset` 设定（`streamConfig.preset` 仍作为未设置时的回落值）。
+   */
+  preset: StreamSmoothingPreset
+  /**
    * Adaptive logarithmic opacity fade: newly revealed characters start
    * translucent and settle to ink. Paint-only, default on.
    */
@@ -151,6 +163,7 @@ export const DEFAULT_STREAM_SETTINGS: StreamSettings = {
   thinkAutoExpand: true,
   debugEnabled: false,
   motionPreference: DEFAULT_MOTION_PREFERENCE,
+  preset: 'balanced',
   logarithmicFade: DEFAULT_LOG_FADE,
   debugTuning: DEFAULT_STREAM_DEBUG_TUNING,
 }

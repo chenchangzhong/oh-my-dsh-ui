@@ -1,21 +1,8 @@
-import { Component, createElement, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import { createElement, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react'
 import { FollowHost } from './FollowHost.tsx'
 import { useProgressiveDomText } from './useProgressiveDomText.ts'
 import { hasRecentConversationFollow } from './teleprompterGlide.ts'
-
-class FollowRowErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
-  state = { error: null as Error | null }
-  static getDerivedStateFromError(error: Error) {
-    return { error }
-  }
-  componentDidCatch(error: Error, info: unknown) {
-    console.error('[smooth] follow-wrapped row render failed:', error, info)
-  }
-  render() {
-    if (this.state.error !== null) return null
-    return this.props.children
-  }
-}
+import entranceCss from './AgentRowEntrance.module.css'
 
 /** Props forwarded through a follow wrap; extra kit seats pass through. */
 export type FollowWrapProps = {
@@ -132,12 +119,12 @@ function liveAgentTailMode(root: HTMLElement): 'turn' | 'handoff' | null {
  * @param Inner - The already-registered row component.
  * @returns A follow-hosted row.
  */
-export function wrapFollowNodeView(Inner: ComponentType<FollowWrapProps>) {
-  if (Inner === undefined || Inner === null) {
-    console.error('[smooth] wrapFollowNodeView: Inner is', Inner, '- skipping wrap to avoid #130')
-    return Inner as ComponentType<FollowWrapProps>
-  }
+export function wrapFollowNodeView(
+  Inner: ComponentType<FollowWrapProps>,
+  useControlScroll?: () => boolean,
+) {
   return function TypewriterFollowNodeView(props: FollowWrapProps) {
+    const controlScroll = useControlScroll?.() ?? true
     const speedCpsRef = useRef(35)
     const hostRef = useRef<HTMLDivElement>(null)
     const growing = isGrowingChatNode(props.node)
@@ -200,6 +187,10 @@ export function wrapFollowNodeView(Inner: ComponentType<FollowWrapProps>) {
       setGrowthPulse(false)
     }, [])
     const onGrowth = useCallback((deltaPx: number) => {
+      // A row with an explicit streaming lifecycle keeps its original owner
+      // through completion. For every other Agent row, a pure layout increase
+      // is enough evidence to glide it; renderer kind and payload shape are
+      // intentionally irrelevant.
       if (
         !mountedRef.current
         || !followableRef.current
@@ -222,20 +213,25 @@ export function wrapFollowNodeView(Inner: ComponentType<FollowWrapProps>) {
       }
     }, [])
     return (
-      <FollowRowErrorBoundary>
-        <FollowHost
-          active={growing}
-          entrance={entering || growthPulse}
-          onEntranceSettled={finishEntrance}
-          onGrowth={followable ? onGrowth : undefined}
-          entranceExtentRef={growthExtentRef}
-          speedCpsRef={speedCpsRef}
-          predictive={false}
-          hostRef={hostRef}
-        >
-          {createElement(Inner, props)}
-        </FollowHost>
-      </FollowRowErrorBoundary>
+      <FollowHost
+        active={growing}
+        entrance={entering || growthPulse}
+        onEntranceSettled={finishEntrance}
+        onGrowth={followable ? onGrowth : undefined}
+        entranceExtentRef={growthExtentRef}
+        speedCpsRef={speedCpsRef}
+        controlScroll={controlScroll}
+        // Generic Agent rows reveal and spring their measured growth, but do
+        // not continuously reserve space for a future Markdown line wrap.
+        // Keeping that assistant-only prediction here creates an idle gap
+        // above TurnStatus and a visible return when a short Tool row settles.
+        predictive={false}
+        hostRef={hostRef}
+        className={entranceCss.surface}
+        entranceActive={entering || growthPulse}
+      >
+        {createElement(Inner, props)}
+      </FollowHost>
     )
   }
 }

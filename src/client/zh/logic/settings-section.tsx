@@ -237,10 +237,15 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
     smoothThinkAutoExpand?: boolean
     smoothMotionPreference?: string
     smoothLogFadeEnabled?: boolean
+    smoothPreset?: string
   }) | undefined
   const smoothEnabled = smoothScope?.smoothEnabled !== false
   const smoothMotionPreference = smoothScope?.smoothMotionPreference ?? 'auto'
   const smoothLogFade = smoothScope?.smoothLogFadeEnabled !== false
+  // 节奏预设（上游 f3cad7e）：非法值一律回落 balanced。
+  const smoothPreset = smoothScope?.smoothPreset === 'realtime' || smoothScope?.smoothPreset === 'silky'
+    ? smoothScope.smoothPreset
+    : 'balanced'
 
   // ── Service monitor card handlers ──────────────────────────────────────────
   const svcTargets: ServiceMonitorTarget[] = ui.serviceMonitorTargets ?? []
@@ -569,6 +574,20 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
               publishMotionPreference(v)
             },
             t('smoothMotionPreference'),
+          ), true),
+        row('smoothPreset', t('smoothPreset'), t('smoothPresetDesc'),
+          selectInput(
+            smoothPreset,
+            [
+              ['realtime', t('smoothPresetRealtime')],
+              ['balanced', t('smoothPresetBalanced')],
+              ['silky', t('smoothPresetSilky')],
+            ],
+            // 渲染器每次渲染都从 scope 读 preset（见 smooth/index.ts 的
+            // `preferences.preset ?? streamConfig.preset`），写入 scope 即生效，
+            // 无需像动效偏好那样显式 push 给渲染器。
+            (v) => { settings.set('smoothPreset', v) },
+            t('smoothPreset'),
           ), true),
       ),
 

@@ -26,9 +26,10 @@
  * reader release re-acquires only after returning to the real floor.
  */
 
-import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
+import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { DEFAULT_STREAM_DEBUG_TUNING, type StreamDebugTuning } from './settings.ts'
-import { debugRuntime } from './debugRuntime.ts'
+import { debugRuntime, readNewestStreamMetric, type FollowTerminalPhase } from './debugRuntime.ts'
+import { FrameCoordinator } from './FrameCoordinator.ts'
 
 /**
  * Programmatic follow marker retained for hosts that recognize external
@@ -44,9 +45,13 @@ export const FOLLOW_SPRING_SUBSTEPS = 4
 export const FOLLOW_SPRING_MAX_STEP_MS = 32
 
 /** Minimum visible room for one ordinary line-wrap impulse. */
-export const FOLLOW_RESERVE_MIN_PX = 16
+export const FOLLOW_RESERVE_MIN_PX = 31
+
+/** Reveal speeds at or below this are idle; no predictive room is held. */
+export const FOLLOW_RESERVE_IDLE_CPS = 20
 
 /** Reveal-speed range produced by the pressure-buffer typewriter. */
+/** Retained for consumers that tune the old pressure threshold. */
 export const FOLLOW_RESERVE_MIN_CPS = 90
 export const FOLLOW_RESERVE_MAX_CPS = 600
 
@@ -84,11 +89,22 @@ export const FOLLOW_HOST_RELEASE_PX = FOLLOW_SLACK_PX + 1
 export const FOLLOW_PAINT_GUARD_PX = 1
 
 /**
- * Maximum predictive paint room before status/composer chrome. One rendered
- * line is normally 24-28px; 48px plus the host's existing status gap covers
- * the original spring's measured ~63px worst-case trail at 600cps.
+ * Maximum predictive paint room before status/composer chrome. The
+ * feed-forward phase leads the real floor by up to one wrapped line, so the
+ * runway must hold steady lag + one line + guard (35 + 26 + 8 ≈ 72) or the
+ * leading shift gets clipped against chrome at the wrap cadence.
  */
-export const FOLLOW_STATUS_RUNWAY_PX = 48
+export const FOLLOW_STATUS_RUNWAY_PX = 72
+
+/**
+ * Duration of completion runway retirement. The final pad is visible motion:
+ * its shrinking floor brings the transcript down to its natural resting
+ * position. 1.5s keeps the default 72px runway at 48px/s (0.8px per 60Hz
+ * frame), matching the configured default reading-follow velocity instead of
+ * the old 160ms / 450px/s staircase that looked like repeated completion
+ * jumps.
+ */
+export const FOLLOW_RUNWAY_RETIRE_MS = 1500
 
 /** How long a gesture keeps `isUserInteracting` so the next scroll can unpin. */
 export const FOLLOW_GESTURE_MS = 800
@@ -96,15 +112,66 @@ export const FOLLOW_GESTURE_MS = 800
 /** Sub-pixel settle threshold; clearing below this cannot produce a visible rebound. */
 export const FOLLOW_SETTLE_EPSILON_PX = 0.25
 
+/**
+ * How long the completion settle waits for the HOST's completion cascade —
+ * status-row swap, think auto-collapse, metrics-tail mount — to stop moving
+ * the scroll extent before the follower releases the port. Releasing earlier
+ * hands a still-changing layout to the host's hard floor-snap, which paints
+ * each host action as a single-frame slam of the whole transcript.
+ */
+export const FOLLOW_SETTLE_QUIET_MS = 240
+
+/**
+ * Ceiling for the flow's completion pad. The pad backs the floor so the
+ * pinned viewport can follow the reading anchor through host completion
+ * commits (row swaps/insertions); capping it bounds the below-fold blank
+ * space a long conversation accumulates.
+ */
+export const FOLLOW_SETTLE_PAD_CAP_PX = 2 * FOLLOW_STATUS_RUNWAY_PX
+
+/** Retained visual-motion budget for compatibility with diagnostics/tests. */
+export const FOLLOW_CATCHUP_MAX_STEP_PX = 8
+
+/**
+ * Max painted-shift change per frame, in px. A line-wrap adds one line height
+ * (24-28px) to the floor in a single layout pass; letting the shift follow it
+ * instantly paints that whole step as a hard jump of the newest line. Capping
+ * the shift's per-frame change spreads the step across a few frames so the
+ * line glides in (slow start) instead of snapping.
+ */
+/**
+ * Per-frame bound on the DECAY side of the painted shift (runway retirement
+ * and settle), widened by any same-frame floor drop so extent collapses are
+ * always fully repainted — see the clamp site in `applyVisual`. The growth
+ * side stays unlimited: it is wrap compensation locked to the same-frame
+ * floor step.
+ */
+export const FOLLOW_PAINT_SHIFT_MAX_STEP_PX = 8
+
+/** Runway size emitted by bundles before the 72px predictive runway. */
+const LEGACY_RUNWAY_PX = 48
+
 /** Lowest reveal rate retained while the spring is short on paint room. */
 export const FOLLOW_REVEAL_MIN_SCALE = 0.55
 
 /** Safe-lag occupancy band over which reveal pressure is progressively reduced. */
-export const FOLLOW_BACKPRESSURE_START_RATIO = 0.25
+export const FOLLOW_BACKPRESSURE_START_RATIO = 0.1
 export const FOLLOW_BACKPRESSURE_FULL_RATIO = 0.75
 
 /** Slow release prevents the reveal rate from oscillating around each wrap. */
 export const FOLLOW_BACKPRESSURE_RELEASE_MS = 240
+
+/** Effective-scroll acceleration budget, in px/ms². */
+export const FOLLOW_TRAJECTORY_ACCELERATION = 0.00022
+
+/** Leave one line of phase range inside the visible runway. */
+export const FOLLOW_TRAJECTORY_PHASE_PX = 32
+
+/** Keep adaptive runway retirement from exposing an oversized chrome gap. */
+export const FOLLOW_TRAJECTORY_MIN_LAG_PX = 20
+
+/** Phase-centering response; slow enough to preserve continuous velocity. */
+export const FOLLOW_TRAJECTORY_CENTERING_MS = 120
 
 const GESTURE_EVENTS = [
   'wheel',
@@ -123,14 +190,150 @@ export function computeFollowReserve(
 ): number {
   const available = Math.max(0, runwayPx)
   if (available <= 0) return 0
-  if (speedCps <= FOLLOW_RESERVE_MIN_CPS) return 0
-  const delta = FOLLOW_RESERVE_MAX_CPS - FOLLOW_RESERVE_MIN_CPS
-  if (delta === 0) return 0 // 除零保护
+  if (speedCps <= FOLLOW_RESERVE_IDLE_CPS) return 0
   const normalized = Math.min(1, Math.max(0, (
-    speedCps - FOLLOW_RESERVE_MIN_CPS
-  ) / delta))
+    speedCps - FOLLOW_RESERVE_IDLE_CPS
+  ) / (FOLLOW_RESERVE_MAX_CPS - FOLLOW_RESERVE_IDLE_CPS)))
   const minimum = Math.min(available, FOLLOW_RESERVE_MIN_PX)
   return minimum + normalized * (available - minimum)
+}
+
+export interface FollowTrajectoryInput {
+  readonly positionPx: number
+  readonly velocityPxPerMs: number
+  readonly targetPx: number
+  readonly targetVelocityPxPerMs: number
+  readonly minLagPx: number
+  readonly maxLagPx: number
+  /** Real scroll floor used to turn logical position into a painted shift. */
+  readonly paintFloorPx?: number
+}
+
+export interface FollowRevealPhaseOptions {
+  readonly seedCharsPerLine?: number
+  readonly seedLineHeightPx?: number
+}
+
+export interface FollowRevealPhase {
+  readonly targetPx: number
+  readonly phase: number
+  readonly charsPerLine: number
+  readonly lineHeightPx: number
+}
+
+/**
+ * Character-domain feed-forward for the stepped layout floor. Callers only
+ * provide committed reveal progress and the measured floor; wrap capacity and
+ * line height stay local to this module and adapt when a real wrap lands.
+ */
+export class FollowRevealPhaseTracker {
+  private charsPerLine: number
+  private lineHeightPx: number
+  private floorPx: number | null = null
+  private wrapRevealCount = 0
+  private lastRevealCount = 0
+
+  constructor({
+    seedCharsPerLine = 50,
+    seedLineHeightPx = 26,
+  }: FollowRevealPhaseOptions = {}) {
+    this.charsPerLine = Math.max(1, seedCharsPerLine)
+    this.lineHeightPx = Math.max(1, seedLineHeightPx)
+  }
+
+  advance(floorPx: number, revealedChars: number): FollowRevealPhase {
+    const nextFloor = Math.max(0, floorPx)
+    const nextRevealCount = Math.max(0, revealedChars)
+    if (this.floorPx === null || nextRevealCount < this.lastRevealCount) {
+      this.floorPx = nextFloor
+      this.wrapRevealCount = nextRevealCount
+      this.lastRevealCount = nextRevealCount
+      return this.snapshot(nextFloor, 0)
+    }
+
+    const floorDelta = nextFloor - this.floorPx
+    const lineStepThreshold = Math.max(4, this.lineHeightPx * 0.5)
+    if (floorDelta >= lineStepThreshold) {
+      const wrappedLines = Math.max(1, Math.round(floorDelta / this.lineHeightPx))
+      const sampledLineHeight = floorDelta / wrappedLines
+      const revealedSinceWrap = nextRevealCount - this.wrapRevealCount
+      if (revealedSinceWrap >= this.charsPerLine * 0.5) {
+        const sampledCharsPerLine = revealedSinceWrap / wrappedLines
+        const alpha = 0.25
+        this.charsPerLine += (sampledCharsPerLine - this.charsPerLine) * alpha
+        this.lineHeightPx += (sampledLineHeight - this.lineHeightPx) * alpha
+        this.wrapRevealCount = nextRevealCount
+      } else {
+        // A flow sibling can grow without the text arm committing a glyph.
+        // Treat that as an unrelated layout event so its height is not folded
+        // into the next text-wrap capacity sample.
+        this.wrapRevealCount = nextRevealCount
+      }
+    } else if (floorDelta <= -lineStepThreshold) {
+      this.wrapRevealCount = nextRevealCount
+    }
+
+    this.floorPx = nextFloor
+    this.lastRevealCount = nextRevealCount
+    const phase = Math.min(1, Math.max(
+      0,
+      (nextRevealCount - this.wrapRevealCount) / this.charsPerLine,
+    ))
+    return this.snapshot(nextFloor, phase)
+  }
+
+  private snapshot(floorPx: number, phase: number): FollowRevealPhase {
+    return {
+      targetPx: floorPx + this.lineHeightPx * phase,
+      phase,
+      charsPerLine: this.charsPerLine,
+      lineHeightPx: this.lineHeightPx,
+    }
+  }
+}
+
+/** Advance a continuous effective scroll position behind a stepped floor. */
+export function computeFollowTrajectoryStep(
+  dtMs: number,
+  input: FollowTrajectoryInput,
+): { positionPx: number, shiftPx: number, velocityPxPerMs: number } {
+  if (dtMs <= 0) {
+    return {
+      positionPx: input.positionPx,
+      shiftPx: Math.max(0, (input.paintFloorPx ?? input.targetPx) - input.positionPx),
+      velocityPxPerMs: input.velocityPxPerMs,
+    }
+  }
+  const elapsedMs = Math.min(FOLLOW_MAX_FRAME_MS, dtMs)
+  const currentLagPx = input.targetPx - input.positionPx
+  const maxLagPx = Math.max(0, input.maxLagPx)
+  const minLagPx = Math.min(Math.max(0, input.minLagPx), maxLagPx)
+  const centerLagPx = (minLagPx + maxLagPx) / 2
+  const desiredVelocity = Math.max(
+    0,
+    input.targetVelocityPxPerMs
+      + (currentLagPx - centerLagPx) / FOLLOW_TRAJECTORY_CENTERING_MS,
+  )
+  const maxVelocityChange = FOLLOW_TRAJECTORY_ACCELERATION * elapsedMs
+  const velocityPxPerMs = desiredVelocity >= input.velocityPxPerMs
+    ? Math.min(desiredVelocity, input.velocityPxPerMs + maxVelocityChange)
+    : Math.max(desiredVelocity, input.velocityPxPerMs - maxVelocityChange)
+  const minPosition = input.targetPx - maxLagPx
+  const maxPosition = input.targetPx - minLagPx
+  // The frame budget follows controlled velocity rather than a refresh-rate
+  // dependent pixel constant. `elapsedMs` is already capped at 32ms, so a
+  // stalled browser cannot replay an unbounded jump when it catches up.
+  const frameAdvancePx = velocityPxPerMs * elapsedMs
+  const boundedPositionPx = Math.min(
+    maxPosition,
+    Math.max(minPosition, input.positionPx + frameAdvancePx),
+  )
+  const positionPx = Math.max(input.positionPx, boundedPositionPx)
+  return {
+    positionPx,
+    shiftPx: Math.max(0, (input.paintFloorPx ?? input.targetPx) - positionPx),
+    velocityPxPerMs,
+  }
 }
 
 /**
@@ -175,12 +378,7 @@ export interface FollowGlideStep {
   readonly velocityPxPerSec: number
 }
 
-/**
- * Semi-implicit spring integration with four substeps per <=32ms slice.
- * @param dtMs - Frame delta in ms.
- * @param input - Current visible lag and carried physics velocity.
- * @returns The position advance, its fraction, and next velocity.
- */
+/** Semi-implicit spring integration with four substeps per <=32ms slice. */
 export function computeFollowStep(
   dtMs: number,
   input: FollowGlideInput,
@@ -194,21 +392,17 @@ export function computeFollowStep(
   const elapsedMs = Math.min(FOLLOW_MAX_FRAME_MS, dtMs)
   const slices = Math.max(1, Math.ceil(elapsedMs / FOLLOW_SPRING_MAX_STEP_MS))
   const subDt = elapsedMs / 1000 / slices / FOLLOW_SPRING_SUBSTEPS
-
   for (let slice = 0; slice < slices; slice += 1) {
     for (let substep = 0; substep < FOLLOW_SPRING_SUBSTEPS; substep += 1) {
       const acceleration = (
-      tuning.springStiffness * lag - tuning.springDamping * velocity
-    ) / tuning.springMass
+        tuning.springStiffness * lag - tuning.springDamping * velocity
+      ) / tuning.springMass
       velocity = Math.max(0, velocity + acceleration * subDt)
       const advance = velocity * subDt
-      if (advance >= lag) {
-        return { advancePx: input.lag, lerpStep: 1, velocityPxPerSec: 0 }
-      }
+      if (advance >= lag) return { advancePx: input.lag, lerpStep: 1, velocityPxPerSec: 0 }
       lag -= advance
     }
   }
-
   const advancePx = input.lag - lag
   return { advancePx, lerpStep: advancePx / input.lag, velocityPxPerSec: velocity }
 }
@@ -222,25 +416,14 @@ function resizeProxyOf(port: HTMLElement): HTMLElement | null {
  * Outermost message surfaces; nested tool rows ride their parent.
  *
  * Another plugin may insert its own element as a flow sibling of the Chat rows
- * (meow-memory's fold bar is one; so is this plugin's own fold summary row).
+ * (meow-memory's fold bar is one).
  * Such a row carries no `data-chat-anchor-key`, so selecting only anchored
  * rows would shift the conversation while leaving the foreign row at its
  * natural offset, letting the shifted rows paint over it. Every direct flow
  * child therefore rides the same transform, keeping the visual order of the
  * column intact.
  */
-/** Elements that should not receive the smooth scroll transform. */
-const SHIFT_EXCLUDED_CLASSES = ['DiffViewer-module_block']
-
-function hasShiftExcludedDescendant(element: HTMLElement): boolean {
-  return SHIFT_EXCLUDED_CLASSES.some(cls =>
-    element.querySelector(`[class*="${cls}"]`) !== null
-  )
-}
-
 export function shiftSurfacesOf(port: HTMLElement): HTMLElement[] {
-  // If the port contains a DiffViewer (rendered by another plugin), exclude all surfaces
-  if (hasShiftExcludedDescendant(port)) return []
   const transcript = port.querySelector<HTMLElement>('[data-chat-transcript]')
   if (transcript !== null) return [transcript]
   const anchored = [...port.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
@@ -264,15 +447,23 @@ function currentShiftOf(element: HTMLElement): number {
   )
 }
 
-function setShift(element: HTMLElement, px: number): void {
+/* An open fixed tooltip (role="tooltip") inside a surface is the only reason a
+ * naive translate would misalign content during the follow shift: the applied
+ * transform turns the surface into the tooltip's containing block and drags
+ * the bubble off its anchor. Rather than re-derive viewport coordinates every
+ * frame (a fragile engine that needed four follow-up fixes), hold the affected
+ * surface untransformed while a tooltip is open. A tooltip exists in the DOM
+ * only during hover, so the transient un-shifted row is invisible to a reader
+ * and matches the release 0.4.0 feel; the shift resumes on the next frame once
+ * it closes. */
+
+function setDirectShift(element: HTMLElement, px: number): void {
   if (Math.abs(px) > 0.01) {
     if (
       Math.abs(currentShiftOf(element) - px) <= 0.01
       && element.style.willChange === 'transform'
       && element.style.clipPath === ''
-    ) {
-      return
-    }
+    ) return
     element.style.transform = `translate3d(0, ${px}px, 0)`
     element.style.willChange = 'transform'
   } else {
@@ -280,28 +471,112 @@ function setShift(element: HTMLElement, px: number): void {
     element.style.transform = ''
     element.style.willChange = ''
   }
-  // Remove paint state left by v0.3.2 and earlier experimental builds.
   element.style.clipPath = ''
 }
 
+function setShift(element: HTMLElement, px: number): void {
+  // Guard: while an open fixed tooltip lives on the surface, hold it
+  // untransformed (see the comment above). When the shift is zero the tooltip
+  // cannot detach, so skip the subtree scan entirely and keep the fast path.
+  if (Math.abs(px) > 0.01 && element.querySelector('[role="tooltip"]') !== null) {
+    setDirectShift(element, 0)
+    return
+  }
+  setDirectShift(element, px)
+}
+
 function turnStatusOf(port: HTMLElement): HTMLElement | null {
-  // Only the real round-status bar can consume the runway's 48px. The generic
-  // `[role="status"]` selector is too broad — the "深度思考中" hint is also a
-  // status role and would falsely enable the runway, leaving a net 48px gap.
-  return port.querySelector<HTMLElement>('[data-chat-turn-status]')
+  return port.querySelector<HTMLElement>(
+    '[data-chat-turn-status], [data-chat-flow] > [role="status"]',
+  )
 }
 
 /**
- * The element the predictive runway currently anchors on. In the host the
- * turn-status bar is not rendered by dsh-client-ui-custom, so the runway
- * anchors on the composer seat instead (see {@link ensureRunway}). Both need
- * the same transform cleanup the message surfaces get, or a residual transform
- * lingers on the anchor after the follow releases.
+ * Bottom-anchored hosts (ChatView packs the flow with `justify-content:
+ * flex-end`) translate every pre-overflow growth into an instant upward step
+ * of the whole column — a line lands and everything on screen hops up by one
+ * line-height. No scroll-domain engine can smooth that, because
+ * `scrollHeight` does not move while the host slack absorbs the growth.
+ *
+ * Owning `min-height` on the flow removes the slack instead: the column
+ * always fills the scrollport, content grows downward where it is visible,
+ * and real overflow — which the spring does model — begins with the very
+ * first wrapped line. The style is owned in a page-realm registry so a
+ * re-injected bundle adopts it rather than fighting it.
+ *
+ * The fill targets the VISIBLE client box, not the raw `clientHeight`.
+ * Imposing `min-height: clientHeight` inflates `scrollHeight` by whatever
+ * the scroller holds beyond the flow (its own padding-bottom, adjacent
+ * chrome); with short content the engine then sees a phantom floor equal to
+ * that padding and scrolls the conversation up — top edge off-screen while
+ * blank padding sits at the bottom. The overshoot is measured once per port
+ * and subtracted, so short content reaches `scrollHeight == clientHeight`
+ * and the floor is exactly zero.
  */
-function runwayAnchorOf(port: HTMLElement): HTMLElement | null {
-  const status = turnStatusOf(port)
-  if (status !== null) return status
-  return port.querySelector<HTMLElement>('[data-composer-seat]')
+interface FollowFlowFill {
+  readonly element: HTMLElement
+  readonly original: string
+  /** Scroller height held by padding/chrome above the flow, px. */
+  readonly overshootPx: number
+}
+const FOLLOW_FLOW_FILL_SYMBOL = Symbol.for('dsh-smooth-stream.follow-flow-fill')
+const followFlowFillHost = globalThis as typeof globalThis & {
+  [key: symbol]: WeakMap<HTMLElement, FollowFlowFill> | undefined
+}
+const followFlowFills = followFlowFillHost[FOLLOW_FLOW_FILL_SYMBOL]
+  ?? new WeakMap<HTMLElement, FollowFlowFill>()
+followFlowFillHost[FOLLOW_FLOW_FILL_SYMBOL] = followFlowFills
+const FOLLOW_FLOW_FILL_USERS_SYMBOL = Symbol.for('dsh-smooth-stream.follow-flow-fill-users')
+const followFlowFillUsersHost = globalThis as typeof globalThis & {
+  [key: symbol]: WeakMap<HTMLElement, number> | undefined
+}
+const followFlowFillUsers = followFlowFillUsersHost[FOLLOW_FLOW_FILL_USERS_SYMBOL]
+  ?? new WeakMap<HTMLElement, number>()
+followFlowFillUsersHost[FOLLOW_FLOW_FILL_USERS_SYMBOL] = followFlowFillUsers
+
+function flowElementOf(port: HTMLElement): HTMLElement | null {
+  return port.querySelector<HTMLElement>('[data-chat-transcript]')
+    ?? port.querySelector<HTMLElement>('[data-chat-flow]')
+}
+
+/** Keep completion padding on the stable flow wrapper across row replacement. */
+function flowPadElementOf(port: HTMLElement): HTMLElement | null {
+  return port.querySelector<HTMLElement>('[data-chat-flow]') ?? flowElementOf(port)
+}
+
+function ensureFlowFillsPort(port: HTMLElement): void {
+  const element = flowElementOf(port)
+  const owned = followFlowFills.get(port)
+  if (element === null) {
+    if (owned !== undefined) restoreFlowFill(port)
+    return
+  }
+  const client = Math.max(0, port.clientHeight)
+  let overshoot = owned?.overshootPx
+  if (overshoot === undefined) {
+    // Measure once per port: impose the full fill, read the scrollHeight
+    // excess (scroller padding / chrome), then restore the natural state.
+    const pendingOriginal = element.style.minHeight
+    element.style.minHeight = `${client}px`
+    overshoot = Math.max(0, port.scrollHeight - client)
+    element.style.minHeight = pendingOriginal
+    if (owned !== undefined) restoreFlowFill(port)
+  }
+  const target = `${Math.max(0, client - overshoot)}px`
+  if (owned !== undefined) {
+    if (owned.element === element && owned.overshootPx === overshoot && element.style.minHeight === target) return
+    restoreFlowFill(port)
+  }
+  const original = element.style.minHeight
+  element.style.minHeight = target
+  followFlowFills.set(port, { element, original, overshootPx: overshoot })
+}
+
+function restoreFlowFill(port: HTMLElement): void {
+  const owned = followFlowFills.get(port)
+  if (owned === undefined) return
+  owned.element.style.minHeight = owned.original
+  followFlowFills.delete(port)
 }
 
 /** Height committed by one newly mounted Chat row, including its flex gap. */
@@ -326,6 +601,7 @@ interface FollowRunway {
   readonly original: string
   readonly property: 'marginBottom' | 'marginTop'
   readonly requestedPx: number
+  readonly normalizedLegacy?: boolean
 }
 
 /**
@@ -361,6 +637,329 @@ interface FollowPaintLimit {
 export const FOLLOW_PAINT_LIMIT_TTL_MS = 250
 
 const followPaintLimits = new WeakMap<HTMLElement, FollowPaintLimit>()
+const followHadChrome = new WeakSet<HTMLElement>()
+/** A status row that existed during this turn makes its removal a host cascade. */
+const followHadStatus = new WeakSet<HTMLElement>()
+/** Last painted shift per port, to spread a wrap's one-line step over frames. */
+const followLastShiftPx = new WeakMap<HTMLElement, number>()
+/** Last settled floor per port, to size the shift decay bound against extent collapse. */
+const followLastFloorPx = new WeakMap<HTMLElement, number>()
+/**
+ * Screen-space completion anchor per port, SHARED by every follower arm and
+ * the settle loop. Per-arm closures made the guard incoherent across the
+ * completion cascade: block arms hand off leadership mid-turn, each new
+ * settle loop re-seeded its own baseline at the already-jumped position, and
+ * the cascade's one-frame clamp jump painted uncompensated. One baseline per
+ * port also makes concurrent guards idempotent — whoever compensates first
+ * restores the anchor, so the second measure reads ~0 and grants nothing.
+ *
+ * The anchor is the READING surface (the current turn's assistant row), not
+ * the bottom-most shift surface: the cascade mounts/unmounts rows at the
+ * column's bottom (process/tail mount, status swap), which switches
+ * `at(-1)`'s identity mid-guard. Measuring across that switch reads a newly
+ * mounted tail row as a >1000px "content moved down" push and floods the
+ * pad, while the reading surface's real clamp jump goes uncompensated.
+ */
+interface FollowGuardAnchor {
+  readonly element: HTMLElement
+  /** Held viewport top — the position the reader should keep seeing. */
+  readonly top: number
+  /** Flow-child index, to tell an in-place replacement from a new turn. */
+  readonly index: number
+  /** Scroll geometry at store time, to identify an extent-neutral scroll. */
+  readonly scrollTop: number
+  readonly scrollHeight: number
+  /**
+   * Compositor shift and owned pad at store time. The engine moves the
+   * rendered anchor between guard passes through TWO channels — the shift
+   * glide (reveal decay: renderedΔ = −shiftΔ) and the pad retirement (the
+   * floor sinks with the pad and the pin follows: renderedΔ = −padΔ). Only
+   * the delta beyond BOTH is host motion worth compensating.
+   */
+  readonly shift: number
+  readonly pad: number
+}
+const followGuardAnchors = new WeakMap<HTMLElement, FollowGuardAnchor>()
+/**
+ * Ports whose completion settle loop owns the follow. The settle drains the
+ * reveal, retires the pad and guards the cascade; the swap that ends the
+ * turn REMOUNTS the follower arms in the same frame cluster, and a freshly
+ * mounted arm primes with a higher generation and would otherwise steal the
+ * port mid-drain — its observers miss the cascade mutations (armed after
+ * the fact) and its state initialization re-materializes engine space.
+ * Ownership is released only when the settle finishes, the reader gestures,
+ * or a genuinely NEW turn arrives (a user row joined since the handoff).
+ */
+const followCompletionSettle = new WeakSet<HTMLElement>()
+/** User-row count at handoff, for the new-turn check above. */
+const followCompletionSettleRows = new WeakMap<HTMLElement, number>()
+
+/** User rows below the flow, or -1 when the host does not label rows with
+ *  `data-chat-flow-kind` (the engine's own audit benches): the new-turn
+ *  check is unsupported there and ownership guarding must stay OFF. */
+function countUserRows(port: HTMLElement): number {
+  const flow = flowElementOf(port)
+  if (flow === null) return -1
+  let count = 0
+  let sawKind = false
+  for (const child of flow.children) {
+    if (!(child instanceof HTMLElement)) continue
+    const kind = child.getAttribute('data-chat-flow-kind')
+    if (kind !== null) sawKind = true
+    if (kind === 'user') count++
+  }
+  return sawKind ? count : -1
+}
+
+/** True while this port's completion settle owns the follow and no new turn
+ *  has arrived since the handoff. */
+function completionSettleGuardsPort(port: HTMLElement): boolean {
+  if (!followCompletionSettle.has(port)) return false
+  const baseline = followCompletionSettleRows.get(port) ?? -1
+  const current = countUserRows(port)
+  return baseline >= 0 && current >= 0 && current <= baseline
+}
+/**
+ * Ports whose completion settle loop owns the follow. A settle loop drains,
+ * retires the pad and guards the cascade; an arm that primes while this is
+ * set with `active === false` (the settled-side static arm mounting in the
+ * very swap frame) must NOT seize leadership — the swap re-renders the node
+ * view, a fresh arm would otherwise steal the port mid-drain with
+ * `reservePx = ownedBottomSpace` (the pad!), re-materialize an equal runway
+ * through applyVisual, double-count the extent and fight the settle's own
+ * guard for the rest of the window. A streaming arm (active === true, the
+ * next turn) still takes over normally and the settle yields.
+ */
+
+function readingAnchorOf(port: HTMLElement): HTMLElement | null {
+  const flow = flowElementOf(port)
+  if (flow === null) return null
+  let anchor: HTMLElement | null = null
+  for (const child of flow.children) {
+    if (!(child instanceof HTMLElement)) continue
+    if (child.getAttribute('data-chat-flow-kind') === 'assistant' || child.querySelector('[data-variant="think"]') !== null) {
+      anchor = child
+    }
+  }
+  return anchor ?? shiftSurfacesOf(port).at(-1) ?? null
+}
+
+/**
+ * Measure the reading surface's screen delta since the last guard pass.
+ * Returns null when there is nothing comparable yet (first observation), or
+ * when the anchor changed identity in a way that is NOT the in-place
+ * live→settled replacement (a new turn's row joined — nothing jumped,
+ * re-seed). Compensation sites must store the POST-compensation held
+ * position via `holdGuardAnchor`, or the guard would read its own
+ * correction as a fresh jump and oscillate.
+ */
+function measureReadingAnchor(port: HTMLElement): { anchor: HTMLElement; index: number; top: number; delta: number } | null {
+  const anchor = readingAnchorOf(port)
+  if (anchor === null) {
+    followGuardAnchors.delete(port)
+    return null
+  }
+  const rect = anchor.getBoundingClientRect()
+  // Unmeasurable geometry (jsdom's zero rects, a detached row): screen-space
+  // comparison is meaningless — never seed or compensate from it.
+  if (!(rect.width > 0 || rect.height > 0)) return null
+  const top = rect.top
+  const shift = currentShiftOf(anchor)
+  const pad = flowPadOf(port)
+  const scrollTop = port.scrollTop
+  const scrollHeight = port.scrollHeight
+  const flow = flowElementOf(port)
+  const index = flow === null ? -1 : [...flow.children].indexOf(anchor)
+  const stored = followGuardAnchors.get(port)
+  if (stored === undefined) {
+    followGuardAnchors.set(port, { element: anchor, top, index, shift, pad, scrollTop, scrollHeight })
+    return null
+  }
+  // A host bottom-follow write is NOT a layout push. With extent unchanged, a
+  // scrollTop change only moves the whole viewport; granting pad for it would
+  // manufacture blank space and then require a second "retirement" motion.
+  // Rebase both ledgers and let the writer keep its scroll position.
+  if (
+    Math.abs(scrollHeight - stored.scrollHeight) <= 0.5
+    && Math.abs(scrollTop - stored.scrollTop) > 0.5
+  ) {
+    followScrollLedgers.set(port, scrollTop)
+    followGuardAnchors.set(port, { element: anchor, top, index, shift, pad, scrollTop, scrollHeight })
+    return null
+  }
+  // Host-caused motion only: the engine's own shift glide and floor changes
+  // cancel out (renderedΔ = topΔ + scrollΔ − shiftΔ + padΔ).
+  const scrollDelta = scrollTop - stored.scrollTop
+  const delta = (top - stored.top) + scrollDelta - (shift - stored.shift) + (pad - stored.pad)
+  if (stored.element === anchor) {
+    // Refresh the baseline to the current rendered position on every
+    // measurement: between guard passes the viewport legitimately moves
+    // (streaming pins, reveal glide), and a stale baseline would read the
+    // accumulated motion as one giant host jump at the next commit.
+    followGuardAnchors.set(port, { element: anchor, top, index, shift, pad, scrollTop, scrollHeight })
+    return { anchor, index, top, delta }
+  }
+  // Identity changed. An in-place replacement (same slot, old node detached)
+  // is the live→settled swap: bridge it by holding the reading surface at
+  // its pre-swap viewport position. Anything else (the next turn's row
+  // joining below, a session swap) is new layout — re-seed, never hold.
+  if (!stored.element.isConnected && stored.index === index) {
+    return { anchor, index, top, delta }
+  }
+  followGuardAnchors.set(port, { element: anchor, top, index, shift, pad, scrollTop, scrollHeight })
+  return null
+}
+
+/** Record the position the reader should keep seeing after a correction. */
+function holdGuardAnchor(
+  port: HTMLElement,
+  measured: { anchor: HTMLElement; index: number },
+  heldTop: number,
+): void {
+  followGuardAnchors.set(port, {
+    element: measured.anchor,
+    index: measured.index,
+    top: heldTop,
+    shift: currentShiftOf(measured.anchor),
+    pad: flowPadOf(port),
+    scrollTop: port.scrollTop,
+    scrollHeight: port.scrollHeight,
+  })
+}
+/** Last runway offset seen per port, to rebase the extent when the margin size changes. */
+const followRunwayOffsetHistory = new WeakMap<HTMLElement, number>()
+/** Last observed scroll floor per port, for the slack→overflow runway re-measure. */
+const followFloorHistory = new WeakMap<HTMLElement, number>()
+/** One-shot flag: the transition frame must paint the full runway as baseline. */
+const followSlackTransition = new WeakSet<HTMLElement>()
+
+/**
+ * Bottom padding a completed settle left BELOW the status row. The settle
+ * retires the owned runway by moving it from the status's top margin (the
+ * visible reserve gap) to the flow's bottom padding (space under the chrome):
+ * scroll extent stays constant, so the floor — and therefore the pinned
+ * scrollTop and every content pixel — never moves, while the status glides up
+ * to meet the final line. The pad is reclaimed back into the next stream's
+ * runway by `ensureRunway`, so completions never accumulate dead space.
+ */
+interface FollowSettlePad {
+  readonly element: HTMLElement
+  readonly original: string
+  readonly px: number
+}
+const followSettlePads = new WeakMap<HTMLElement, FollowSettlePad>()
+
+/**
+ * Retired follower space lives as `padding-bottom` on the FLOW element — the
+ * one node the engine already owns styles on (flow-fill min-height) and the
+ * host never rewrites. Host completion commits routinely REPLACE row elements
+ * (live→settled swap re-keys the assistant row, the status row unmounts), and
+ * any engine space written on those rows dies with them, sinking the floor
+ * and slamming the pinned transcript for a frame. The flow survives.
+ */
+function flowPadOf(port: HTMLElement): number {
+  return followSettlePads.get(port)?.px ?? 0
+}
+/**
+ * After a loss is re-opened as pad, a registry entry whose element is no
+ * longer connected claims extent that no longer exists; drop it so the next
+ * `ensureRunway` re-measures fresh instead of double-counting.
+ */
+function pruneDeadRunway(port: HTMLElement): boolean {
+  const runway = followRunways.get(port)
+  if (runway !== undefined && !runway.element.isConnected) {
+    restoreRunway(port)
+    return true
+  }
+  return false
+}
+
+function setFlowPad(port: HTMLElement, px: number): void {
+  const flow = flowPadElementOf(port)
+  if (flow === null) return
+  const existing = followSettlePads.get(port)
+  const original = existing?.original ?? flow.style.paddingBottom
+  if (px <= FOLLOW_SETTLE_EPSILON_PX) {
+    if (existing !== undefined) {
+      flow.style.paddingBottom = existing.original
+      followSettlePads.delete(port)
+    }
+    return
+  }
+  flow.style.paddingBottom = original === ''
+    ? `${px}px`
+    : `calc(${original} + ${px}px)`
+  followSettlePads.set(port, { element: flow, original, px })
+}
+
+/** Extent the follower owns below the content: the live runway margin plus
+ *  the retired completion pad. At adopt the pad is reclaimed into the fresh
+ *  reservation (same frame, pre-paint), so the floor never steps. */
+function ownedBottomSpaceOf(port: HTMLElement): number {
+  return runwayOffsetOf(port) + flowPadOf(port)
+}
+
+/**
+ * Completion-window diagnostics. Armed when a follower hands off to its
+ * settle loop; every engine decision and every externally-written scroll
+ * position inside the window prints one compact console line, so a live
+ * host session can be diffed against the lab without a debugger.
+ */
+let followTraceUntilMs = 0
+function traceActive(): boolean {
+  // Completion/finalize paths arm short trace windows automatically. Keep the
+  // code path in published bundles, but do not emit console noise unless the
+  // user has explicitly turned on render diagnostics.
+  return debugRuntime.isEnabled() && performance.now() < followTraceUntilMs
+}
+function followTrace(event: string, detail: Record<string, number | string | boolean>): void {
+  if (!traceActive()) return
+  console.log(`[dsh-follow] ${event}`, JSON.stringify(detail))
+}
+/**
+ * Scroll length observed at the previous measured frame, per port. The
+ * completion handoff uses the delta to seed the growth credit from geometry the
+ * page actually committed, instead of assuming the full runway was earned.
+ */
+const followObservedContentHeight = new WeakMap<HTMLElement, number>()
+
+/** Growth this commit added, as last measured by `applyVisual`. */
+function environmentCommitGrowthPx(port: HTMLElement): number {
+  const previous = followObservedContentHeight.get(port)
+  if (previous === undefined) return 0
+  return Math.max(0, port.scrollHeight - previous)
+}
+
+function hostShOf(port: HTMLElement): number {
+  return port.scrollHeight
+}
+
+/**
+ * Reveal characters the smoother still owes, read from the stream ledger the
+ * smoother publishes each frame. Only meaningful together with
+ * `producerComplete`: a non-zero backlog while the producer runs is ordinary
+ * streaming, the same backlog after it stops is the `terminal-drain` phase.
+ */
+let followRemainingRevealChars = 0
+function refreshTerminalRevealLedger(): { producerComplete: boolean; drain: boolean } {
+  const stream = readNewestStreamMetric()
+  followRemainingRevealChars = stream?.backlog ?? 0
+  return {
+    producerComplete: stream?.producerComplete ?? false,
+    drain: (stream?.producerComplete ?? false) && (stream?.backlog ?? 0) > 0,
+  }
+}
+
+/**
+ * Screen-space reading-anchor delta for diagnostics only. Gated on the debug
+ * runtime so the production hot path pays nothing, and it reuses the shared
+ * `measureReadingAnchor` ledger, which already excludes the engine's own glide
+ * and only reports motion the follower did not author.
+ */
+function measureAnchorDeltaForTelemetry(port: HTMLElement): number | null {
+  if (!debugRuntime.isEnabled()) return null
+  return measureReadingAnchor(port)?.delta ?? null
+}
 
 function invalidatePaintLimit(port: HTMLElement): void {
   followPaintLimits.delete(port)
@@ -373,10 +972,101 @@ interface FollowMotionState {
   readonly lagPx: number
   readonly reservePx: number
   readonly velocityPxPerSec: number
+  /** Terminal-follow phase this frame (see `FollowTerminalPhase`). */
+  readonly terminalPhase?: FollowTerminalPhase
+  /** Physical owned bottom margin written by the last `applyVisual`. */
+  readonly runwayPx?: number
+  /** `runwayOffset - visibleReserve` of the last `applyVisual`. */
+  readonly baselineShiftPx?: number
+  /** Screen-space reading-anchor delta measured for this frame, when available. */
+  readonly anchorDeltaPx?: number | null
+  /** Reveal characters still queued while the producer has already stopped. */
+  readonly remainingRevealChars?: number
 }
+
+/**
+ * Terminal-follow phase ledger. `terminal-drain` (producer stopped, reveal
+ * queue still owes text) and `host-cascade` (host is swapping status rows,
+ * collapsing Think, mounting the tail) demand opposite corrections: drain may
+ * only continue upward toward the natural floor, while a cascade may need
+ * temporary credit to hold the reading anchor. Keeping them in one readable
+ * field is what lets the settle path stop treating ordinary completion as a
+ * hostile host transaction.
+ */
+const followTerminalPhases = new WeakMap<HTMLElement, FollowTerminalPhase>()
+
+/**
+ * Measured terminal budget per port: the owned bottom space this port is
+ * allowed to keep while the producer has stopped and reveal work is still
+ * draining. It is seeded from a real measurement (the owned offset plus the
+ * length the last commit actually added) and may only shrink afterwards — a
+ * budget that grows re-opens speculative blank space below the reply, which is
+ * exactly the "lift" the terminal phase exists to remove.
+ */
+const followTerminalBudgets = new WeakMap<HTMLElement, number>()
+
+/**
+ * COMPLETION GROWTH CREDIT. Pixels of floor growth the reader actually
+ * received in the completion window, which a shift rise may be funded from.
+ *
+ * This is a ledger rather than a per-frame clamp because growth and the
+ * matching shift rise do not have to land on the same frame: a completion whose
+ * final append covers several wraps commits its growth over two or three
+ * frames, and a clamp that only ever compared against the PREVIOUS frame's
+ * growth banked nothing across that gap. The uncovered remainder then had no
+ * legal way to rise, so it survived as a real offset and was released later by
+ * the pad retirement — the visible release-then-return this credit exists to
+ * prevent. Credit is still bounded by growth the reader actually got, so a
+ * rise can never manufacture motion that did not come from content.
+ */
+const followCompletionGrowthCredit = new WeakMap<HTMLElement, number>()
+
+/** Largest shift rise one frame may fund from banked completion credit. */
+export const FOLLOW_COMPLETION_CREDIT_MAX_STEP_PX = 24
 
 /** Logical position and velocity survive a React owner handoff and finish. */
 const followMotionStates = new WeakMap<HTMLElement, FollowMotionState>()
+
+/**
+ * Reader-release record that must survive an ownership handoff. A follower
+ * closing at stream end (finish/drain arm swap, row lifecycle flip) destroys
+ * the closure holding `following = false`, and the arm taking over would
+ * otherwise read the held viewport as "at bottom" and hard-snap to the
+ * floor. Presence in this map means the reader's unpin away from the floor
+ * is still in effect; it is cleared when a follower re-pins at the floor.
+ */
+interface FollowReaderHold {
+  readonly atMs: number
+}
+const followReaderHolds = new WeakMap<HTMLElement, FollowReaderHold>()
+
+/**
+ * Commit-time correction channel. A reveal commit that lands after this
+ * frame's ResizeObserver delivery would otherwise paint one intermediate
+ * frame — content grown, scrollTop/transform not yet compensated — before
+ * the next tick fixes it. Reveal arms call {@link notifyFollowCommit} right
+ * after their commit; the leading follower re-runs its geometry in the same
+ * task, so the intermediate state never reaches a paint.
+ */
+const followCommitListeners = new WeakMap<HTMLElement, Set<() => void>>()
+
+export function notifyFollowCommit(fromInsidePort: HTMLElement | null): void {
+  if (fromInsidePort === null) return
+  const port = fromInsidePort.closest<HTMLElement>('[data-conversation-scroll]')
+  const listeners = port === null ? undefined : followCommitListeners.get(port)
+  if (listeners === undefined) return
+  for (const listener of [...listeners]) listener()
+}
+
+function subscribeFollowCommit(port: HTMLElement, fn: () => void): () => void {
+  let listeners = followCommitListeners.get(port)
+  if (listeners === undefined) {
+    listeners = new Set()
+    followCommitListeners.set(port, listeners)
+  }
+  listeners.add(fn)
+  return () => { listeners!.delete(fn) }
+}
 
 function restoreRunway(port: HTMLElement): void {
   const runway = followRunways.get(port)
@@ -390,12 +1080,11 @@ function isLegacyRunway(value: string): boolean {
   if (value === '') return false
   const terms = [...value.matchAll(/([\d.]+)px/g)]
   if (terms.length === 0 || value.replaceAll(/calc|px|[\d.+()\s]/g, '') !== '') return false
-  return terms.every(([, raw]) => {
-    const px = Number(raw)
-    return Number.isFinite(px)
-      && px >= FOLLOW_STATUS_RUNWAY_PX
-      && Math.abs(px % FOLLOW_STATUS_RUNWAY_PX) <= Number.EPSILON
-  })
+  const values = terms.map(([, raw]) => Number(raw))
+  if (values.some(px => !Number.isFinite(px))) return false
+  return [LEGACY_RUNWAY_PX, FOLLOW_STATUS_RUNWAY_PX].some(unit => values.every(px => (
+    px >= unit && Math.abs(px % unit) <= Number.EPSILON
+  )))
 }
 
 /** Remove unowned runway residue written by v0.3.3 and earlier bundles. */
@@ -404,8 +1093,8 @@ function migrateLegacyRunway(
   surfaces: readonly HTMLElement[],
   status: HTMLElement | null,
   composer: HTMLElement | null,
-): void {
-  if (followRunways.has(port)) return
+): boolean {
+  if (followRunways.has(port)) return false
   let migrated = false
   if (status !== null && isLegacyRunway(status.style.marginTop)) {
     // Harness TurnStatus has no inline margin; exact 48px multiples here are
@@ -426,6 +1115,7 @@ function migrateLegacyRunway(
     migrated = true
   }
   if (migrated) invalidatePaintLimit(port)
+  return migrated
 }
 
 function ensureRunway(
@@ -435,40 +1125,38 @@ function ensureRunway(
 ): void {
   const status = turnStatusOf(port)
   const composer = port.querySelector<HTMLElement>('[data-composer-seat]')
-  migrateLegacyRunway(port, surfaces, status, composer)
-  // In the dsh-client-ui-custom host the turn-status bar
-  // (`[data-chat-turn-status]`) is not rendered, so there is no element below
-  // the last message to consume the runway's 48px. The original plugin anchored
-  // the runway on that status bar and the equal message transform cancelled it
-  // out; without it, writing the margin on the composer seat (or the last
-  // surface) leaves a *net* 48px gap below the message and a residual
-  // `translate3d(0,48px,0)` on the transcript that never clears — the blank
-  // line under every reply. Disable the runway entirely in this topology; the
-  // spring follow (scrollTop) still smooths the stream without the gap.
-  if (status === null) {
-    restoreRunway(port)
-    return
+  // Adopt one exact current runway before migration. Larger exact multiples
+  // are accumulated residue from older bundles and must be stripped.
+  if (status !== null && followRunways.get(port) === undefined) {
+    const inlinePx = Number.parseFloat(status.style.marginTop ?? '') || 0
+    if (Math.abs(inlinePx - FOLLOW_STATUS_RUNWAY_PX) <= 0.5) {
+      followRunways.set(port, {
+        element: status,
+        offset: inlinePx,
+        property: 'marginTop',
+        original: '',
+        requestedPx: inlinePx,
+      })
+      invalidatePaintLimit(port)
+    }
   }
+  const migratedLegacy = migrateLegacyRunway(port, surfaces, status, composer)
   // A runway is useful only after the natural conversation already has a
   // scroll floor for its equal message transform to ride. Before that point
   // applyVisual keeps every surface in normal flow, so adding status margin
   // would expose the whole runway as empty space below a short/early Think.
   const naturalHeight = Math.max(0, port.scrollHeight - runwayOffsetOf(port))
-  if (runwayPx <= 0 || port.clientHeight <= 0 || naturalHeight <= port.clientHeight) {
+  const existing = followRunways.get(port)
+  const requestedRunwayPx = migratedLegacy || existing?.normalizedLegacy === true
+    ? FOLLOW_STATUS_RUNWAY_PX
+    : runwayPx
+  if (requestedRunwayPx <= 0 || port.clientHeight <= 0 || naturalHeight <= port.clientHeight) {
     restoreRunway(port)
     return
   }
-  // The runway needs a stable anchor element below the last message so its
-  // margin is visually neutralized by the equal transform. In the host
-  // conversation the turn-status element (`[data-chat-turn-status]`) is not
-  // rendered by dsh-client-ui-custom, so `turnStatusOf` returns null here. The
-  // original plugin anchored the runway on that status bar; without it we must
-  // land on the composer seat (which does exist in the host DOM) rather than
-  // the last message surface, otherwise the 48px margin stays as a persistent
-  // blank gap below the final message.
-  const target = status === null || composer !== null
-    ? { element: status ?? composer ?? undefined, property: 'marginTop' as const }
-    : { element: surfaces.at(-1), property: 'marginBottom' as const }
+  const target = status === null
+    ? { element: composer === null ? undefined : surfaces.at(-1), property: 'marginBottom' as const }
+    : { element: status, property: 'marginTop' as const }
   if (target.element === undefined) {
     restoreRunway(port)
     return
@@ -477,20 +1165,61 @@ function ensureRunway(
   const current = followRunways.get(port)
   if (current?.element === element
     && current.property === target.property
-    && current.requestedPx === runwayPx) return
+    && current.requestedPx === requestedRunwayPx) return
+
   restoreRunway(port)
   const beforeHeight = port.scrollHeight
   const original = element.style[target.property]
   element.style[target.property] = original === ''
-    ? `${runwayPx}px`
-    : `calc(${original} + ${runwayPx}px)`
+    ? `${requestedRunwayPx}px`
+    : `calc(${original} + ${requestedRunwayPx}px)`
   const offset = Math.max(0, port.scrollHeight - beforeHeight)
-  followRunways.set(port, { element, offset, property: target.property, original, requestedPx: runwayPx })
+  followRunways.set(port, {
+    element,
+    offset,
+    property: target.property,
+    original,
+    requestedPx: requestedRunwayPx,
+    normalizedLegacy: migratedLegacy || existing?.normalizedLegacy === true,
+  })
   invalidatePaintLimit(port)
 }
 
 function runwayOffsetOf(port: HTMLElement): number {
   return followRunways.get(port)?.offset ?? 0
+}
+
+/**
+ * Move owned runway margin into the persistent flow pad without changing the
+ * scroll extent. Returns the actual layout pixels removed from the margin.
+ */
+function transferRunwayToFlowPad(port: HTMLElement, requestedPx: number): number {
+  const runway = followRunways.get(port)
+  if (runway === undefined || requestedPx <= 0 || !runway.element.isConnected) return 0
+  const nextRequestedPx = Math.max(0, runway.requestedPx - requestedPx)
+  const beforeOffset = runway.offset
+  const beforeHeight = port.scrollHeight
+  runway.element.style[runway.property] = nextRequestedPx <= FOLLOW_SETTLE_EPSILON_PX
+    ? runway.original
+    : runway.original === ''
+      ? `${nextRequestedPx}px`
+      : `calc(${runway.original} + ${nextRequestedPx}px)`
+  const nextOffset = Math.max(0, beforeOffset + port.scrollHeight - beforeHeight)
+  const transferredPx = Math.max(0, beforeOffset - nextOffset)
+  if (nextRequestedPx <= FOLLOW_SETTLE_EPSILON_PX || nextOffset <= FOLLOW_SETTLE_EPSILON_PX) {
+    followRunways.delete(port)
+  } else {
+    followRunways.set(port, {
+      ...runway,
+      offset: nextOffset,
+      requestedPx: nextRequestedPx,
+    })
+  }
+  if (transferredPx > 0) {
+    setFlowPad(port, flowPadOf(port) + transferredPx)
+    invalidatePaintLimit(port)
+  }
+  return transferredPx
 }
 
 /** Available paint room below the last message before fixed conversation chrome. */
@@ -502,6 +1231,8 @@ function safeShiftLimit(
   if (last === undefined) return 0
   const status = turnStatusOf(port)
   const composer = port.querySelector<HTMLElement>('[data-composer-seat]')
+  if (status !== null) followHadStatus.add(port)
+  if (status !== null || composer !== null) followHadChrome.add(port)
   const cached = followPaintLimits.get(port)
   // Content growth alone cannot move the limit (measured at the floor, the
   // flow bottom rides the scrollport bottom), so the cache survives glyph
@@ -527,7 +1258,7 @@ function safeShiftLimit(
     // mounted but has not measured yet, permit only the runway zero-point
     // until ResizeObserver provides a real ceiling.
     return status === null && composer === null
-      ? Number.POSITIVE_INFINITY
+      ? followHadChrome.has(port) ? 0 : Number.POSITIVE_INFINITY
       : runwayOffsetOf(port)
   }
   const ceilingTop = ceiling.rect.top - currentShiftOf(ceiling.element)
@@ -545,6 +1276,18 @@ function safeShiftLimit(
 }
 
 function setFollowScrollTop(port: HTMLElement, nextTop: number): void {
+  const ledger = followScrollLedgers.get(port)
+  // Claim before the write so a Host ResizeObserver that runs in the same task
+  // sees the owner instead of racing in with its own bottom-follow.
+  if (port.getAttribute(FOLLOW_OWNED_ATTR) === null) {
+    port.setAttribute(FOLLOW_OWNED_ATTR, 'active')
+  }
+  // Someone else wrote scrollTop since our last write (host floor-snap,
+  // browser clamp, reader): surface it — a fight between the host's own
+  // follow controller and this engine is the completion-jitter suspect.
+  if (ledger !== undefined && traceActive() && Math.abs(port.scrollTop - ledger) > 1) {
+    followTrace('external-scroll', { from: Math.round(port.scrollTop), to: Math.round(nextTop), ledger: Math.round(ledger) })
+  }
   if (Math.abs(port.scrollTop - nextTop) > 0.01) port.scrollTop = nextTop
   followScrollLedgers.set(port, port.scrollTop)
   const ownedTop = String(port.scrollTop)
@@ -561,6 +1304,24 @@ function setFollowScrollTop(port: HTMLElement, nextTop: number): void {
  */
 const followScrollLedgers = new WeakMap<HTMLElement, number>()
 const followActivityAt = new WeakMap<HTMLElement, number>()
+interface FollowScrollOwnership {
+  /** User-row count at handoff; a larger count means a genuinely new turn. */
+  readonly userRows: number
+}
+/**
+ * Scroll ownership must survive follower-arm remounts. Per-closure state let a
+ * new text/tool arm reset the strike counter, so the same host write kept
+ * triggering another engine write and repainting the visible up/down fight.
+ */
+const followHostScrollPorts = new WeakMap<HTMLElement, FollowScrollOwnership>()
+
+/** Clear host ownership only when a new user turn actually starts. */
+function resetHostScrollOwnershipForNewTurn(port: HTMLElement): void {
+  const ownership = followHostScrollPorts.get(port)
+  if (ownership === undefined) return
+  const userRows = countUserRows(port)
+  if (userRows >= 0 && userRows > ownership.userRows) followHostScrollPorts.delete(port)
+}
 
 /** Whether this port was owned recently enough to identify a closing tail row. */
 export function hasRecentConversationFollow(port: HTMLElement, windowMs = 250): boolean {
@@ -586,19 +1347,113 @@ function applyVisual(
   reservePx: number,
   velocityPxPerSec = 0,
   runwayPx = FOLLOW_STATUS_RUNWAY_PX,
+  shiftCeilingPx = Number.POSITIVE_INFINITY,
+  promoteAtRest = false,
+  trajectoryShiftPx?: number,
+  dtMs = 16.7,
+  writeScrollTop = true,
 ): number {
   const surfaces = shiftSurfacesOf(port)
-  ensureRunway(port, surfaces, runwayPx)
-  const hasTurnStatus = turnStatusOf(port) !== null
-  const contentHeight = Math.max(0, port.scrollHeight)
-  const runwayOffset = hasTurnStatus ? runwayOffsetOf(port) : 0
+  ensureFlowFillsPort(port)
+  void runwayPx
+  // Once production has stopped and there is no status surface left to
+  // animate, the only correct target is the port's current natural floor.
+  // Keep that calculation in the same frame as the DOM measurement: remove
+  // owned layout space, clear the compositor offsets, measure the resulting
+  // scrollHeight, then write exactly that floor. A terminal pad/transform
+  // pair makes the visible position depend on a later retirement pass and is
+  // the source of the end-of-stream rebound.
+  if (
+    followTerminalPhases.get(port) === 'terminal-drain'
+    && turnStatusOf(port) === null
+    && !followHadStatus.has(port)
+  ) {
+    restoreRunway(port)
+    setFlowPad(port, 0)
+    const contentHeight = Math.max(0, port.scrollHeight)
+    const floor = Math.max(0, contentHeight - port.clientHeight)
+    if (port.style.overflowAnchor !== 'none') port.style.overflowAnchor = 'none'
+    if (port.style.scrollBehavior !== 'auto') port.style.scrollBehavior = 'auto'
+    if (writeScrollTop) setFollowScrollTop(port, floor)
+    followRunwayOffsetHistory.set(port, 0)
+    followObservedContentHeight.set(port, contentHeight)
+    followLastFloorPx.set(port, floor)
+    followLastShiftPx.set(port, 0)
+    followMotionStates.set(port, {
+      capacityPx: Number.POSITIVE_INFINITY,
+      constrained: false,
+      extent: contentHeight,
+      lagPx: 0,
+      reservePx: 0,
+      velocityPxPerSec: 0,
+      terminalPhase: 'terminal-drain',
+      runwayPx: 0,
+      baselineShiftPx: 0,
+      anchorDeltaPx: measureAnchorDeltaForTelemetry(port),
+      remainingRevealChars: followRemainingRevealChars,
+    })
+    for (const surface of surfaces) setShift(surface, 0)
+    FrameCoordinator.forDocument().markLayoutDirty()
+    return contentHeight
+  }
+  // A runway added while the column still fit the viewport was absorbed by
+  // the host's bottom slack: its measured offset was zero, but once real
+  // overflow begins the same margin costs scroll length. Detect that
+  // transition BEFORE any geometry is read and re-add the margin so its
+  // stored offset is measured against the true post-overflow layout.
+  {
+    const preFloor = Math.max(0, port.scrollHeight - port.clientHeight)
+    const lastFloorSeen = followFloorHistory.get(port)
+    if (lastFloorSeen !== undefined && lastFloorSeen === 0 && preFloor > 0 && followRunways.has(port)) {
+      const owned = followRunways.get(port)
+      restoreRunway(port)
+      ensureRunway(port, surfaces, owned?.requestedPx ?? runwayPx)
+      // This frame the margin materializes into scroll length AND lands in
+      // the floor in the same write; painting the held reserve as baseline
+      // would leave its px uncompensated on screen. Spend the full runway
+      // as baseline for exactly this frame.
+      followSlackTransition.add(port)
+    }
+    if (preFloor !== lastFloorSeen) {
+      followFloorHistory.set(port, preFloor)
+    }
+  }
+  // TERMINAL BUDGET CAP. While the producer has stopped and reveal work is
+  // still draining, the owned margin is held to a MEASURED budget instead of
+  // the fixed 72px streaming runway. The cap is deliberately a floor against
+  // the live reservation (`Math.max(budget, reservePx)`): the budget can only
+  // ever be tighter than what is already reserved on this port, so it can never
+  // create the `reservePx > runwayOffset` mismatch whose difference repaints
+  // the whole message. It shrinks the margin only as far as the reservation
+  // already went, which is exactly the space this completion has paid for.
+  const effectiveRunwayPx = followTerminalPhases.has(port)
+    ? Math.max(Math.min(FOLLOW_STATUS_RUNWAY_PX, followTerminalBudgets.get(port) ?? FOLLOW_STATUS_RUNWAY_PX), reservePx)
+    : FOLLOW_STATUS_RUNWAY_PX
+  ensureRunway(port, surfaces, effectiveRunwayPx)
+  const contentHeight2 = Math.max(0, port.scrollHeight)
+  const runwayOffset2 = runwayOffsetOf(port)
+  // Rebase the spring extent onto the current offset domain. targetHeight
+  // = contentHeight − offset AND animatedH live in the same space; when the
+  // margin grows, targetHeight drops by the offset's growth, so animatedH
+  // must drop in lockstep or the whole req (painted shift) is released as
+  // an upward snap. Shifting both by the same delta leaves the painted
+  // shift untouched.
+  const prevOffset2 = followRunwayOffsetHistory.get(port)
+  if (prevOffset2 !== undefined && runwayOffset2 !== prevOffset2) {
+    animatedH = Math.max(0, animatedH - (runwayOffset2 - prevOffset2))
+  }
+  followRunwayOffsetHistory.set(port, runwayOffset2)
+  const contentHeight = contentHeight2
+  const runwayOffset = runwayOffset2
+  followObservedContentHeight.set(port, contentHeight2)
   const targetHeight = Math.max(0, contentHeight - runwayOffset)
   const floor = Math.max(0, contentHeight - port.clientHeight)
   const extent = Math.min(targetHeight, Math.max(0, animatedH))
   if (port.style.overflowAnchor !== 'none') port.style.overflowAnchor = 'none'
   if (port.style.scrollBehavior !== 'auto') port.style.scrollBehavior = 'auto'
   if (floor <= 0) {
-    setFollowScrollTop(port, 0)
+    followRunwayOffsetHistory.set(port, 0)
+    if (writeScrollTop) setFollowScrollTop(port, 0)
     followMotionStates.set(port, {
       capacityPx: Number.POSITIVE_INFINITY,
       constrained: false,
@@ -608,36 +1463,135 @@ function applyVisual(
       velocityPxPerSec: 0,
     })
     for (const surface of surfaces) setShift(surface, 0)
-    const anchor = runwayAnchorOf(port)
-    if (anchor !== null) setShift(anchor, 0)
+    followLastShiftPx.set(port, 0)
+    const status = turnStatusOf(port)
+    if (status !== null) setShift(status, 0)
     return targetHeight
   }
-  // Measure paint room at the real floor. This write and the final physical
-  // position land in the same animation frame, so only the latter is painted.
-  setFollowScrollTop(port, floor)
-  const limit = floor > 0 ? safeShiftLimit(port, surfaces) : 0
+  // The visible scroll position rides the spring's smooth extent so each newly
+  // revealed line is approached at continuous velocity instead of snapping the
+  // whole wrap into one frame (the residual "不丝滑" jump). `animatedH` advances
+  // by the spring's bounded per-frame step; the newest ≤ `visibleReserve` lines
+  // stay hidden below the fold in the runway while `scrollTop` glides up to
+  // reveal them. Concretely: `scrollTop = floor − min(requestedLag, reserve)`,
+  // so during fast typing scrollTop trails floor by at most one runway (≤ 2
+  // lines) advancing smoothly at the spring cadence; when typing stops and lag
+  // exhausts, scrollTop converges to the floor. The shift below still holds the
+  // reserve so no per-wrap tail jump appears.
+  const limit = safeShiftLimit(port, surfaces)
+  followSlackTransition.delete(port)
   const visibleReserve = Math.min(runwayOffset, Math.max(0, reservePx))
-  // In hosts without a turn-status bar there is no element to absorb the runway,
-  // so a transform offset would surface as a blank gap below the streaming reply
-  // (the 48px the user reported). Keep the surface pinned and let the spring
-  // scrollTop follow absorb the lag instead.
-  const baselineShift = hasTurnStatus ? runwayOffset - visibleReserve : 0
+  const baselineShift = runwayOffset - visibleReserve
   const requestedLag = Math.max(0, targetHeight - extent)
-  const shift = hasTurnStatus ? Math.min(baselineShift + requestedLag, Math.max(0, limit)) : 0
+  // Steady-state tail pin: while the predictive reserve is held, paint the
+  // shifted surfaces at a FIXED offset equal to the reserve, so the newest
+  // revealed line rides at a constant viewport position and every wrap's reveal
+  // lands below the fold inside that space — instead of translating the whole
+  // message by the decaying per-reveal lag (which moved the newest line up/down
+  // at reveal cadence = the residual "轻微回弹来回" jitter). The reserve is held
+  // constant during streaming; only when it retires (entrance/settle) does the
+  // shift glide with it. The spring still closes below the fold, and backpressure
+  // reads the untranslated requestedLag so reveal pacing is unchanged.
+  const availableShift = Math.min(
+    Math.max(0, limit),
+    Math.max(0, shiftCeilingPx),
+  )
+  const motionShift = Math.min(
+    trajectoryShiftPx ?? baselineShift + requestedLag,
+    availableShift,
+  )
+  const idlePromotion = promoteAtRest && motionShift <= 0.01 && availableShift > 0 ? 0.1 : 0
+  let shift = Math.max(motionShift, idlePromotion)
+  const previousShift = followLastShiftPx.get(port)
+  // The per-frame decay bound paces the engine's OWN glide (the margin
+  // transfer retires at well under 8px/frame, so the limiter never binds for
+  // it). It must NOT cap the compensation for a floor the engine did not
+  // choose: the host completion cascade (think auto-collapse, status swap)
+  // collapses the extent tens of px in one frame, scrollTop follows the
+  // floor 1:1, and a decay capped at 8px/frame leaves the unpainted
+  // remainder on screen — the completion 回弹 (visible 14-26px/frame sink).
+  // Widen the bound by the floor's drop so the shift can always repaint what
+  // the extent took away; the retire glide is unaffected because its
+  // motionShift never moves.
+  const previousFloor = followLastFloorPx.get(port)
+  const floorDropPx = Math.max(0, (previousFloor ?? floor) - floor)
+  const maxDecayPx = Math.max(
+    dtMs <= 0
+      ? FOLLOW_PAINT_SHIFT_MAX_STEP_PX
+      : Math.max(1, (FOLLOW_PAINT_SHIFT_MAX_STEP_PX / 16.67) * dtMs),
+    floorDropPx,
+  )
+  followLastFloorPx.set(port, floor)
+  if (previousShift !== undefined && shift < previousShift - maxDecayPx) {
+    // Decay-only rate limit. Growth is a WRAP COMPENSATION: the floor already
+    // jumped one line in the same layout pass and `scrollTop` followed it, so
+    // the matching shift increase cancels that step exactly. Rate-limiting it
+    // paints the uncovered remainder as a visible one-frame jump (the
+    // "换行 18px 跳变"). Only the decay side — runway retirement and settle —
+    // is a real animation and keeps its per-frame bound.
+    shift = previousShift - maxDecayPx
+  }
+  // COMPLETION RISE FUNDING. In the completion window a shift rise is only
+  // invisible when it cancels floor growth the reader actually gets. The
+  // handoff re-opens the runway while the think disclosure is still
+  // collapsing: a same-task paint funded on the measured extent growth
+  // over-covers by whatever the transition retracts before the paint lands —
+  // the drain-onset 回弹. Same-task painters are therefore ceiling-frozen
+  // (see the observer and the handoff below) and this clamp funds the
+  // settle's rAF-frame rise on the growth CONFIRMED since the previous
+  // paint; a completion without a collapse covers the runway in full on the
+  // first frame (the drain contract). The streaming path never enters this
+  // branch — wrap compensation stays unlimited there.
+  //
+  // The funding is banked as CREDIT (`followCompletionGrowthCredit`) instead of
+  // being re-derived from the previous frame: a multi-wrap completion commits
+  // its growth across several frames, and a per-frame-only comparison forgot
+  // the earlier frames' growth, leaving the shift unable to rise at all once
+  // the layout stopped growing. That stuck remainder is what the pad
+  // retirement later released as the visible return.
+  if (followCompletionSettle.has(port) && previousShift !== undefined && previousFloor !== undefined) {
+    const confirmedGrowthPx = Math.max(0, floor - previousFloor)
+    let credit = (followCompletionGrowthCredit.get(port) ?? 0) + confirmedGrowthPx
+    if (shift > previousShift) {
+      // Growth-funded rise: spend part of the bank, bounded per frame so a
+      // single burst cannot teleport the newest line.
+      const rise = shift - previousShift
+      const funded = Math.min(rise, FOLLOW_COMPLETION_CREDIT_MAX_STEP_PX)
+      const spend = Math.min(funded, credit)
+      const unfunded = rise - spend
+      if (unfunded > 0) shift -= unfunded
+      credit -= spend
+    }
+    followCompletionGrowthCredit.set(port, credit)
+  }
+  followLastShiftPx.set(port, shift)
+  const requestedShift = trajectoryShiftPx ?? (baselineShift + requestedLag)
   const effectiveLag = Math.max(0, shift - baselineShift)
   const capacityPx = Math.max(0, limit - baselineShift)
   const effectiveExtent = targetHeight - effectiveLag
+  const isConstrained = requestedShift > availableShift + FOLLOW_SETTLE_EPSILON_PX
+    || (limit <= 0 && requestedShift > baselineShift)
+  if (writeScrollTop) setFollowScrollTop(port, floor)
   followMotionStates.set(port, {
     capacityPx,
-    constrained: requestedLag > effectiveLag + FOLLOW_SETTLE_EPSILON_PX,
+    constrained: isConstrained,
     extent: effectiveExtent,
     lagPx: effectiveLag,
     reservePx: visibleReserve,
     velocityPxPerSec,
+    terminalPhase: followTerminalPhases.get(port) ?? 'live',
+    runwayPx: runwayOffset,
+    baselineShiftPx: baselineShift,
+    anchorDeltaPx: followTerminalPhases.has(port) ? measureAnchorDeltaForTelemetry(port) : null,
+    remainingRevealChars: followRemainingRevealChars,
   })
   for (const surface of surfaces) setShift(surface, shift)
-  const anchor = runwayAnchorOf(port)
-  if (anchor !== null) setShift(anchor, 0)
+  const status = turnStatusOf(port)
+  if (status !== null) setShift(status, 0)
+  // This pass wrote layout-affecting state (padding, min-height, an owned
+  // scrollTop, surface transforms). Mark geometry dirty so the shared clock
+  // re-reads it at the top of the NEXT frame instead of mid-write.
+  FrameCoordinator.forDocument().markLayoutDirty()
   return effectiveExtent
 }
 
@@ -646,14 +1600,16 @@ function clearMotion(port: HTMLElement): void {
   port.style.overflowAnchor = ''
   port.style.scrollBehavior = ''
   for (const surface of shiftSurfacesOf(port)) setShift(surface, 0)
-  const anchor = runwayAnchorOf(port)
-  if (anchor !== null) setShift(anchor, 0)
+  const status = turnStatusOf(port)
+  if (status !== null) setShift(status, 0)
 }
 
 function clearVisual(port: HTMLElement): void {
   clearMotion(port)
   restoreRunway(port)
   followMotionStates.delete(port)
+  followLastShiftPx.delete(port)
+  followLastFloorPx.delete(port)
   invalidatePaintLimit(port)
 }
 
@@ -665,30 +1621,53 @@ function holdCompositorAtRest(element: HTMLElement): void {
 }
 
 /** Remove equal offsets, land on the floor, then retire the compositor quietly. */
-function finishAtNaturalFloor(port: HTMLElement): void {
+function finishAtNaturalFloor(
+  port: HTMLElement,
+  retainCompositor = true,
+  writeScrollTop = true,
+  /** A handoff release owns the current transforms until its pad is gone. */
+  deferCompositor = false,
+): void {
+  followCompletionSettle.delete(port)
+  // No engine-owned geometry survives this call: label the port `natural` so
+  // the final telemetry sample reports the end state rather than the cascade it
+  // just left.
+  followTerminalPhases.set(port, 'natural')
+  followCompletionGrowthCredit.delete(port)
+  followTraceUntilMs = Math.max(followTraceUntilMs, performance.now() + 10000)
+  followTrace('finish-enter', { sh: hostShOf(port), st: Math.round(port.scrollTop), pad: Math.round(flowPadOf(port)), retain: retainCompositor })
   const surfaces = shiftSurfacesOf(port)
-  const anchor = runwayAnchorOf(port)
-  const promoted = [...surfaces, ...(anchor === null ? [] : [anchor])]
+  const status = turnStatusOf(port)
+  if (!retainCompositor) {
+    restoreRunway(port)
+    if (writeScrollTop) settleAtFloor(port)
+    clearMotion(port)
+    followMotionStates.delete(port)
+    return
+  }
+  const promoted = [...surfaces, ...(status === null ? [] : [status])]
     .filter(element => element.style.transform !== '' || element.style.willChange === 'transform')
   const promotedSet = new Set(promoted)
-  restoreRunway(port)
-  settleAtFloor(port)
+  if (writeScrollTop) settleAtFloor(port)
   port.removeAttribute(FOLLOW_OWNED_ATTR)
   port.style.overflowAnchor = ''
   port.style.scrollBehavior = ''
+  if (deferCompositor) {
+    followMotionStates.delete(port)
+    return
+  }
   for (const surface of surfaces) {
     if (promotedSet.has(surface)) holdCompositorAtRest(surface)
     else setShift(surface, 0)
   }
-  if (anchor !== null) {
-    if (promotedSet.has(anchor)) holdCompositorAtRest(anchor)
-    else setShift(anchor, 0)
+  if (status !== null) {
+    if (promotedSet.has(status)) holdCompositorAtRest(status)
+    else setShift(status, 0)
   }
   followMotionStates.delete(port)
   if (promoted.length === 0) return
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      if (port.hasAttribute(FOLLOW_OWNED_ATTR)) return
       for (const element of promoted) {
         if (Math.abs(currentShiftOf(element)) <= 0.01) setShift(element, 0)
       }
@@ -699,6 +1678,7 @@ function finishAtNaturalFloor(port: HTMLElement): void {
 function settleAtFloor(port: HTMLElement): void {
   const floor = Math.max(0, port.scrollHeight - port.clientHeight)
   setFollowScrollTop(port, floor)
+  followReaderHolds.delete(port)
 }
 
 interface FollowLeader {
@@ -709,6 +1689,8 @@ interface FollowLeader {
 /** Only the newest active follower may write one port's shared visual state. */
 const followLeaders = new WeakMap<HTMLElement, FollowLeader>()
 let followGeneration = 0
+/** Ports with a live streaming arm; completion guards must not fight them. */
+const followActivePorts = new WeakSet<HTMLElement>()
 
 /**
  * Own the conversation scrollport's bottom-follow while `active` is true.
@@ -722,6 +1704,8 @@ let followGeneration = 0
  * @param onEntranceSettled - Releases a one-shot entrance owner after catch-up.
  * @param predictiveRef - Optional live visibility gate for predictive runway.
  * @param entranceExtentRef - Optional measured growth delta for a generic row.
+ * @param revealedCharsRef - Committed code-point count for feed-forward phase.
+ * @param controlScroll - When false, leave the scrollport entirely to the Host.
  */
 export function useConversationFollow(
   rootRef: RefObject<HTMLElement | null>,
@@ -733,27 +1717,38 @@ export function useConversationFollow(
   onEntranceSettled?: () => void,
   predictiveRef?: { current: boolean },
   entranceExtentRef?: { current: number | null },
+  revealedCharsRef?: { current: number },
+  controlScroll = true,
 ): void {
   const activeRef = useRef(active)
   const entranceRef = useRef(entrance)
   const onEntranceSettledRef = useRef(onEntranceSettled)
   entranceRef.current = entrance
   onEntranceSettledRef.current = onEntranceSettled
-  useEffect(() => {
-    activeRef.current = active
-  }, [active])
+  activeRef.current = active
+  const controlScrollRef = useRef(controlScroll)
+  controlScrollRef.current = controlScroll
 
   useLayoutEffect(() => {
+    if (!controlScroll) return
     if (!active) return
+    const startedAsEntrance = entrance
     const owner = {}
     const generation = ++followGeneration
-    let rafId = 0
     let last = performance.now()
     let following = true
     let primed = false
     let animatedH = 0
     let reservePx = 0
     let velocityPxPerSec = 0
+    /**
+     * Scroll length the most recent observed commit actually added. This is the
+     * honest measure of how much room the still-draining text needs, and it is
+     * what seeds the terminal budget in place of the fixed 72px streaming
+     * runway.
+     */
+    let lastCommitGrowthPx = 0
+    let lastObservedContentHeight = 0
     let interacting = false
     let readerGestureIntent = false
     let readerReleased = false
@@ -761,6 +1756,20 @@ export function useConversationFollow(
     let interactTimer: ReturnType<typeof setTimeout> | null = null
     let port: HTMLElement | null = null
     let resize: ResizeObserver | null = null
+    let mutations: MutationObserver | null = null
+    let observedTail: HTMLElement | null = null
+    let statusWasPresent: boolean | null = null
+    let lastStatusHeightPx = 0
+    let trajectoryPositionPx: number | null = null
+    let trajectoryVelocityPxPerMs = 0
+    let trajectoryTargetVelocityPxPerMs = 0
+    let trajectoryFloorPx: number | null = null
+    let trajectoryGrowthAtMs: number | null = null
+    let trajectoryAccumulatedGrowthPx = 0
+    let trajectoryAccumulatedGrowthMs = 0
+    let trajectoryGrowthSamples = 0
+    let trajectoryWasActive = false
+    const revealPhase = new FollowRevealPhaseTracker()
     let holding: HTMLElement | null = null
     let entrancePending = entranceRef.current
 
@@ -794,11 +1803,15 @@ export function useConversationFollow(
 
     const reportFollow = (next: HTMLElement, isActive: boolean): void => {
       const state = followMotionStates.get(next)
+      const phase: FollowTerminalPhase = followTerminalPhases.get(next) ?? (isActive ? 'live' : 'natural')
+      const runwayPx = state?.runwayPx ?? runwayOffsetOf(next)
       debugRuntime.reportFollow(next, {
-        lagPx: state?.lagPx ?? Math.max(0, next.scrollHeight - next.clientHeight - next.scrollTop),
+        // TEMP audit provenance: lagPx=-1 marks the fallback path (no motion
+        // state owned by this reporter this frame).
+        lagPx: state ? state.lagPx : -1,
         velocityPxPerSec: state?.velocityPxPerSec ?? 0,
         reservePx: state?.reservePx ?? 0,
-        capacityPx: state?.capacityPx ?? 0,
+        capacityPx: state ? state.capacityPx : -1,
         revealScale: revealScaleRef?.current ?? 1,
         following,
         constrained: state?.constrained ?? false,
@@ -806,6 +1819,12 @@ export function useConversationFollow(
         scrollHeight: next.scrollHeight,
         clientHeight: next.clientHeight,
         active: isActive,
+        terminalPhase: phase,
+        runwayPx,
+        terminalBudgetPx: followTerminalBudgets.get(next) ?? runwayPx,
+        baselineShiftPx: state?.baselineShiftPx ?? Math.max(0, runwayPx - (state?.reservePx ?? 0)),
+        readingAnchorDeltaPx: state?.anchorDeltaPx ?? null,
+        remainingRevealChars: followRemainingRevealChars,
       })
     }
 
@@ -816,9 +1835,50 @@ export function useConversationFollow(
       if (holding === next && isLeader(next)) return
       holding = next
       const leader = followLeaders.get(next)
-      if (leader === undefined || generation > leader.generation) {
+      if ((leader === undefined || generation > leader.generation) && !completionSettleGuardsPort(next)) {
+        followCompletionSettle.delete(next)
         followLeaders.set(next, { generation, owner })
       }
+    }
+
+    const yieldScrollOwnership = (next: HTMLElement, floor: number): void => {
+      if (hostOwnsScroll) return
+      hostOwnsScroll = true
+      followHostScrollPorts.set(next, { userRows: countUserRows(next) })
+      followTrace('yield-scroll', {
+        from: Math.round(next.scrollTop),
+        to: Math.round(floor),
+      })
+      // A host-owned port must be a clean host-owned render. Keeping the
+      // engine's transform/reserve alive lets its decay fight the host's hard
+      // bottom-follow; that is the visible up/down jitter after handoff.
+      clearVisual(next)
+      const naturalFloor = Math.max(0, next.scrollHeight - next.clientHeight)
+      setFollowScrollTop(next, naturalFloor)
+      next.removeAttribute(FOLLOW_OWNED_ATTR)
+      followLeaders.delete(next)
+      releaseRevealScale()
+      debugRuntime.reportFollow(next, null)
+    }
+
+    const detectHostScroll = (next: HTMLElement, floor: number): void => {
+      if (followHostScrollPorts.has(next)) {
+        hostOwnsScroll = true
+        return
+      }
+      const ledger = followScrollLedgers.get(next)
+      if (ledger === undefined || Math.abs(next.scrollTop - ledger) <= 1) return
+      // A write that lands on the current floor has the same semantics as our
+      // own bottom-follow (including a manual jump-to-bottom or a shrink
+      // clamp). Rebase and keep smoothing; treating it as a second writer
+      // would permanently retire the effect for the rest of the turn.
+      if (Math.abs(next.scrollTop - floor) <= 1) {
+        followScrollLedgers.set(next, next.scrollTop)
+        externalScrollStrikes = 0
+        return
+      }
+      externalScrollStrikes += 1
+      if (externalScrollStrikes >= 2) yieldScrollOwnership(next, floor)
     }
 
     const drop = (next: HTMLElement): void => {
@@ -833,7 +1893,8 @@ export function useConversationFollow(
 
     const handBackVisual = (next: HTMLElement): void => {
       const shift = currentShiftOf(shiftSurfacesOf(next).at(-1) ?? next)
-      const visualTop = Math.max(0, next.scrollTop - Math.max(0, shift))
+      const transferableShift = shift > FOLLOW_SETTLE_EPSILON_PX ? shift : 0
+      const visualTop = Math.max(0, next.scrollTop - transferableShift)
       // The predictive runway only has meaning while this follower owns the
       // floor. Remove it before choosing the reader's landing point; keeping
       // it through the release paints a transient natural gap + 48px blank
@@ -874,36 +1935,298 @@ export function useConversationFollow(
       }, FOLLOW_GESTURE_MS)
     }
 
+    /**
+     * Last observed scroll extent, shared by the pre-paint correction and the
+     * settle loop so a host layout shrink is re-opened exactly once no matter
+     * which observer sees it first. `-1` until the first owned observation.
+     */
+    let settleRetiring = false
+    // The engine may lead streaming writes, but the host also owns a
+    // bottom-follow controller. Ledger disagreement is harmless once; a
+    // repeated disagreement is proof of a second writer. Hand the scrollport
+    // to that writer immediately: the engine keeps compositor compensation but
+    // never writes scrollTop again. This is the only way to avoid a ping-pong
+    // fight when the host bundle does not consume `data-follow-owned`.
+    let hostOwnsScroll = false
+    let externalScrollStrikes = 0
+    let lastReadingAnchorPullAtMs = Number.NEGATIVE_INFINITY
+    let readingAnchorPullBudgetPx = 0
+    // Set once this closure's completion handoff has armed its settle loop.
+    // Only a handed-off arm's observers may guard a LEADERLESS port: mid-turn
+    // arms that never handed off must keep standing down (entrance/steaming
+    // successors own the port), while a handed-off arm whose settle loop was
+    // killed by leadership churn is the only pre-paint guard left when the
+    // completion cascade lands in the leaderless window.
+    let handedOff = false
+    /**
+     * Bring the reading surface back down toward its held position after an
+     * upward host push (clamp jump, live→settled swap): spend persistent pad
+     * first — lowering the floor lets the pin carry the text back down —
+     * then raise the compositor shift for whatever pad cannot cover, and
+     * rebase the spring extent so the raise survives the next applyVisual
+     * (which otherwise recomputes the shift from lag and undoes it).
+     */
+    const pullReadingAnchorBack = (
+      host: HTMLElement,
+      measured: { anchor: HTMLElement; index: number; top: number; delta: number },
+      trace = false,
+    ): void => {
+      // Experimental no-rebound gate: an upward correction here has repeatedly
+      // over/under-compensated against the settle loop's floor writes. Hold the
+      // new position instead of issuing a reverse correction; the monotone
+      // final retirement remains the only release path.
+      holdGuardAnchor(host, measured, measured.top)
+      return
+      const need = -measured.delta
+      // A large host shrink must not spend its whole pad in one paint. Keep
+      // the screen anchored with an immediate shift, then hand the floor back
+      // at the same bounded rate as the final retirement.
+      const now = performance.now()
+      const elapsedPx = lastReadingAnchorPullAtMs === Number.NEGATIVE_INFINITY
+        ? FOLLOW_PAINT_SHIFT_MAX_STEP_PX
+        : Math.min(24, Math.max(0, now - lastReadingAnchorPullAtMs) * (FOLLOW_PAINT_SHIFT_MAX_STEP_PX / 16.7))
+      readingAnchorPullBudgetPx = Math.min(need, readingAnchorPullBudgetPx + elapsedPx)
+      lastReadingAnchorPullAtMs = now
+      const released = Math.min(flowPadOf(host), readingAnchorPullBudgetPx)
+      readingAnchorPullBudgetPx -= released
+      if (released > FOLLOW_SETTLE_EPSILON_PX) {
+        if (trace) {
+          followTrace('anchor-pull', { screenDelta: Math.round(measured.delta), released: Math.round(released), st: Math.round(host.scrollTop) })
+        }
+        setFlowPad(host, flowPadOf(host) - released)
+        animatedH = Math.max(0, animatedH - released)
+      }
+      const remainder = need - released
+      let raise = 0
+      if (remainder > 0.5) {
+        const surfaces = shiftSurfacesOf(host)
+        const limit = safeShiftLimit(host, surfaces)
+        const current = currentShiftOf(surfaces.at(-1) ?? host)
+        const target = Math.min(current + remainder, Math.max(0, limit - FOLLOW_PAINT_GUARD_PX))
+        raise = target - current
+        if (raise > 0) {
+          for (const surface of surfaces) setShift(surface, current + raise)
+          followLastShiftPx.set(host, current + raise)
+          animatedH = Math.max(0, animatedH - raise)
+        }
+      }
+      holdGuardAnchor(host, measured, measured.top + released + raise)
+    }
+    /**
+     * THE screen-space anchor hold, shared by every entry point: the
+     * structural-observer path (pre-paint cascade correction), the settle
+     * loop's per-frame poll, and the ACTIVE loop's per-frame poll. The
+     * shift-excluded delta filters the engine's own motion (reveal glide,
+     * wrap lockstep) to ~0, so a live poll may compensate safely — which is
+     * what saves the completion swap: the settled-side arm primes in its
+     * layout effect and steals leadership IN the cascade frame, its own
+     * observers miss the mutations (armed after the fact), and only this
+     * poll sees the jump while it can still be corrected before paint.
+     * Returns the measured delta (null when nothing was comparable).
+     */
+    const enforceReadingAnchor = (host: HTMLElement, trace = false): number | null => {
+      const measured = measureReadingAnchor(host)
+      if (measured === null) return null
+      if (measured.delta > 0.5) {
+        if (trace) {
+          followTrace('anchor-hold', { screenDelta: Math.round(measured.delta), st: Math.round(host.scrollTop) })
+        }
+        if (pruneDeadRunway(host)) reservePx = 0
+        holdGuardAnchor(host, measured, measured.top)
+      } else if (measured.delta < -0.5) {
+        if (pruneDeadRunway(host)) reservePx = 0
+        pullReadingAnchorBack(host, measured, trace)
+      } else {
+        holdGuardAnchor(host, measured, measured.top)
+      }
+      return measured.delta
+    }
+    /** Pre-paint correction (observers, commit subscription). */
     const restoreBeforePaint = (): void => {
-      if (!following || port === null || !isLeader(port)) return
-      invalidatePaintLimit(port)
+      if (!following || port === null) return
+      if (hostOwnsScroll || followHostScrollPorts.has(port)) {
+        hostOwnsScroll = true
+        followScrollLedgers.set(port, port.scrollTop)
+        return
+      }
+      if (!activeRef.current) {
+        detectHostScroll(port, Math.max(0, port.scrollHeight - port.clientHeight))
+      }
+      // Yield only to a LIVE owner. Block arms hand off leadership mid-turn
+      // and each handoff kills the previous settle loop; the completion
+      // cascade routinely lands in the leaderless window between that death
+      // and the successor's first frame. Standing down whenever leadership is
+      // merely absent left the cascade's clamp jump uncompensated. While
+      // SOMEONE holds the port, the dead observers must not fight the live
+      // guard; while NOBODY does, a handed-off arm's armed observer is the
+      // only guard left, and the shared followGuardAnchors baseline keeps it
+      // idempotent.
+      const leaderless = !isLeader(port)
+      if (!activeRef.current && followActivePorts.has(port)) return
+      if (leaderless && (followLeaders.has(port) || !handedOff)) return
+      // Leaderless window: this arm's closure state froze when its loop died.
+      // Sync to the shared per-port motion ledger the last live loop wrote,
+      // or the applyVisual below would replay stale extent/reserve into the
+      // runway and pad ledgers while compensating the cascade.
+      if (leaderless) {
+        const sharedMotion = followMotionStates.get(port)
+        if (sharedMotion !== undefined) {
+          animatedH = Math.min(port.scrollHeight, Math.max(0, sharedMotion.extent))
+          reservePx = sharedMotion.reservePx
+          velocityPxPerSec = sharedMotion.velocityPxPerSec
+        }
+      }
+      // A host keyed replacement can disconnect the element carrying our
+      // margin before MutationObserver runs. Drop the stale registry entry;
+      // banking it as pad preserves an extent that immediately becomes the
+      // slow retirement rebound. The same-task ensureRunway / applyVisual path
+      // reopens only the runway that is still needed.
+      pruneDeadRunway(port)
+      // HOST COMPLETION COMMITS under the pin must be corrected in THIS
+      // pre-paint task: the settle loop's rAF guard runs after the host's own
+      // follow effects, so a cascade commit (status swap, tail mount) would
+      // otherwise paint one frame pinned to the sunk floor. The screen-space
+      // anchor hold reads the shared per-port baseline (see
+      // followGuardAnchors); it runs for structural commits only and stands
+      // down while this settle's retirement glide runs (that motion is ours).
+      if (!settleRetiring) {
+        const measured = measureReadingAnchor(port)
+        if (measured !== null && measured.delta > 0.5) {
+          if (pruneDeadRunway(port)) reservePx = 0
+          holdGuardAnchor(port, measured, measured.top)
+        } else if (measured !== null && measured.delta < -0.5) {
+          if (pruneDeadRunway(port)) reservePx = 0
+          if (!activeRef.current) {
+            // Completion window: pad first, then the shift raise absorbs
+            // whatever pad cannot cover (the swap jump rides this path).
+            pullReadingAnchorBack(port, measured)
+          } else {
+            // Live streaming: the original semantics — release only what the
+            // pad holds and leave the remainder to the frame loop's own
+            // lockstep. A shift raise here would cancel the reveal glide.
+            const released = Math.min(flowPadOf(port), -measured.delta)
+            if (released > FOLLOW_SETTLE_EPSILON_PX) {
+              setFlowPad(port, flowPadOf(port) - released)
+              animatedH = Math.max(0, animatedH - released)
+            }
+            holdGuardAnchor(port, measured, measured.top + released)
+          }
+        } else if (measured !== null) {
+          holdGuardAnchor(port, measured, measured.top)
+        }
+      }
+      // A reveal commit changes the measured tail, not the fixed chrome. Keep
+      // the paint-limit TTL intact here; ResizeObserver and viewport/chrome
+      // changes invalidate it when the cached geometry is no longer valid.
+      // The same-task correction still runs, but ordinary glyph commits do not
+      // force a fresh chrome rect read.
       const tuning = debugRuntime.activeTuning()
-      animatedH = applyVisual(port, animatedH, reservePx, velocityPxPerSec, tuning.runwayPx)
+      const predictGrowth = predictiveRef?.current ?? predictive
+      const floor = Math.max(0, port.scrollHeight - port.clientHeight)
+      // A wrap or other layout growth changes the real floor and may change the
+      // natural tail clearance. Re-measure that boundary; same-floor glyph
+      // commits can continue using the cached chrome geometry.
+      if (followFloorHistory.get(port) !== floor) invalidatePaintLimit(port)
+      const isReasoningSurface = rootRef.current?.querySelector('[data-variant="think"]') !== null
+      const trajectoryShift = predictive
+        && !isReasoningSurface
+        && runwayOffsetOf(port) > 0
+        && trajectoryPositionPx !== null
+        ? floor - trajectoryPositionPx
+        : undefined
+      animatedH = applyVisual(
+        port,
+        animatedH,
+        reservePx,
+        velocityPxPerSec,
+        tuning.runwayPx,
+        // COMPLETION RISE FREEZE: this observer runs in the mutation's
+        // microtask, but the paint lands one vsync later — extent a CSS
+        // transition retracts in between makes any rise funded here
+        // over-cover by exactly that retraction (the drain-onset 回弹).
+        // Freeze rises same-task; the settle's rAF frame re-reads the floor
+        // within its own paint tick and funds the confirmed growth there.
+        activeRef.current
+          ? Number.POSITIVE_INFINITY
+          : (followLastShiftPx.get(port) ?? Number.POSITIVE_INFINITY),
+        !predictGrowth,
+        trajectoryShift,
+        0,
+        activeRef.current && !hostOwnsScroll,
+      )
+      if (trajectoryShift !== undefined) {
+        const currentShift = followLastShiftPx.get(port) ?? (floor - (trajectoryPositionPx ?? floor))
+        trajectoryPositionPx = floor - currentShift
+      }
       updateRevealScale(port, 0, true)
       reportFollow(port, activeRef.current)
+      // Host ChatView ResizeObservers may run after this observer and hard-snap
+      // to its floor. Re-apply the owned floating top in the same microtask,
+      // before the browser's next paint, while scroll-event capture prevents a
+      // programmatic write from changing the reader's at-bottom state.
     }
+
+    // Same correction, run synchronously with a reveal commit (see
+    // notifyFollowCommit above). Subscribed per-port in bindPort.
+    let unsubscribeCommit: (() => void) | null = null
 
     const bindPort = (next: HTMLElement): void => {
       if (port === next) return
       if (port !== null) {
         for (const name of GESTURE_EVENTS) port.removeEventListener(name, markGesture)
         resize?.disconnect()
+        mutations?.disconnect()
       }
+      unsubscribeCommit?.()
       port = next
       invalidatePaintLimit(port)
+      unsubscribeCommit = subscribeFollowCommit(port, () => { restoreBeforePaint() })
       for (const name of GESTURE_EVENTS) {
         port.addEventListener(name, markGesture, { passive: true })
       }
       if (typeof ResizeObserver !== 'undefined') {
-        resize = new ResizeObserver(restoreBeforePaint)
+        resize = new ResizeObserver(() => restoreBeforePaint())
         resize.observe(port)
         const proxy = resizeProxyOf(port)
         if (proxy !== null) resize.observe(proxy)
       }
+      // Completion is chiefly a child-list transaction (status removal,
+      // live-to-settled replacement, tail insertion). Because following
+      // gives the flow a viewport min-height, those mutations can leave the
+      // flow's border box unchanged and never notify ResizeObserver. Observe
+      // the transaction itself so the anchor hold still runs before paint.
+      if (typeof MutationObserver !== 'undefined') {
+        const flow = flowElementOf(port)
+        if (flow !== null) {
+          mutations = new MutationObserver(() => { restoreBeforePaint() })
+          mutations.observe(flow, { childList: true, subtree: true })
+        }
+      }
     }
 
-    const frame = (now: number) => {
-      rafId = requestAnimationFrame(frame)
+    /**
+     * Keep the observer on the flow's TAIL surface. A flow locked to the
+     * viewport by min-height does not resize when content grows inside it —
+     * only the last message row does, and missing that resize means missing
+     * the pre-paint correction for that frame's wrap.
+     */
+    const observeTailSurface = (): void => {
+      if (resize === null || port === null) return
+      const tail = shiftSurfacesOf(port).at(-1) ?? null
+      if (tail === observedTail) return
+      if (observedTail !== null) resize.unobserve(observedTail)
+      observedTail = tail
+      if (tail !== null) resize.observe(tail)
+    }
+
+    const coordinator = FrameCoordinator.forDocument()
+    const frameTaskRef: { id: string | null } = { id: null }
+    const stopFollowTask = (): void => {
+      if (frameTaskRef.id === null) return
+      coordinator.unregisterTask(frameTaskRef.id)
+      frameTaskRef.id = null
+    }
+    const frame = (now: number): boolean => {
       // Spring time is clamped so one paint after a stall cannot teleport the
       // transcript. Runway response uses real elapsed time, otherwise long
       // frames would open paint room more slowly precisely when it is needed.
@@ -912,13 +2235,18 @@ export function useConversationFollow(
       const tuning = debugRuntime.activeTuning()
       last = now
       const root = rootRef.current
-      if (root === null) return
+      if (root === null) return activeRef.current
       const nextPort = root.closest<HTMLElement>('[data-conversation-scroll]')
-      if (nextPort === null) return
+      if (nextPort === null) return activeRef.current
       bindPort(nextPort)
+      observeTailSurface()
+      resetHostScrollOwnershipForNewTurn(nextPort)
+      hostOwnsScroll = followHostScrollPorts.has(nextPort)
+      if (activeRef.current) followActivePorts.add(nextPort)
+      else followActivePorts.delete(nextPort)
       // A hidden/unmeasured port has no meaningful floor yet. Keep this owner
-      // unprimed and let the already-scheduled RAF initialize it after layout.
-      if (nextPort.clientHeight <= 0) return
+      // unprimed and let the shared clock initialize it after layout.
+      if (nextPort.clientHeight <= 0) return true
 
       const floor = Math.max(0, nextPort.scrollHeight - nextPort.clientHeight)
       const reportedLag = floor - nextPort.scrollTop
@@ -928,6 +2256,25 @@ export function useConversationFollow(
       )
 
       if (!primed) {
+        // A completion settle owns this port (the swap remounted this arm in
+        // the same frame cluster): stay a passive watcher. Taking over here
+        // would zero the pad mid-retirement and re-inherit it as reserve —
+        // double-counting the extent for one giant jump.
+        if (completionSettleGuardsPort(nextPort)) {
+          primed = true
+          following = false
+          return activeRef.current
+        }
+        if (activeRef.current) {
+          // A new live reply starts from the natural geometry left by the
+          // previous reply. Do not carry its terminal ledger into this turn;
+          // otherwise the direct terminal-floor path could own the first
+          // frame of the new stream before a fresh drain is observed.
+          followTerminalPhases.delete(nextPort)
+          followTerminalBudgets.delete(nextPort)
+          followCompletionGrowthCredit.delete(nextPort)
+          followHadStatus.delete(nextPort)
+        }
         const inherited = nextPort.hasAttribute(FOLLOW_OWNED_ATTR)
           ? followMotionStates.get(nextPort)
           : undefined
@@ -935,18 +2282,60 @@ export function useConversationFollow(
           // A new Agent row is already part of scrollHeight on its first
           // frame. Start at the pre-insert extent so that initial Context and
           // Tool chrome enters through the same spring as later height growth.
+          // The predictive runway starts pre-opened at the current reveal
+          // pressure: it rides canceled by the equal transform, and waiting
+          // out the response ramp would leave the first wraps unpinned.
           const entranceExtent = entrancePending
             ? entranceExtentRef?.current ?? entranceExtentOf(root)
             : 0
-          animatedH = Math.max(0, nextPort.scrollHeight - entranceExtent)
-          reservePx = 0
+          const predictGrowth = predictiveRef?.current ?? predictive
+          // Start the entrance at the pre-insert extent, not the raw reported
+          // lag: holding the reader's small first-frame offset here would keep
+          // the entrance lag above the settle epsilon for ~a second (the
+          // spring's advance at single-digit lag is sub-pixel), leaving the
+          // entrance arm alive past a settled swap and deferring the
+          // completion settle until it finally closes.
+          animatedH = entrancePending
+            ? Math.max(0, nextPort.scrollHeight - entranceExtent)
+            : nextPort.scrollHeight
+          // Established before first paint; the matching margin below is
+          // written in the same commit, so this held-and-canceled space
+          // never moves a pixel.
+          const hasStatus = turnStatusOf(nextPort) !== null
+          if (hasStatus) followHadStatus.add(nextPort)
+          // ZERO-DOWNWARD-REBOUND: the reservation must never land below the
+          // margin this port already owns. base = margin − reservation is the
+          // painted shift; a reservation smaller than the owned margin would
+          // repaint the difference as an instant downward step on this arm's
+          // first frame. The margin stays owned (see the growth-only rule in
+          // the frame loop), so the reservation opens at least to match it.
+          reservePx = Math.max(
+            ownedBottomSpaceOf(nextPort),
+            predictGrowth && (hasStatus || speedCpsRef.current > FOLLOW_RESERVE_MIN_CPS)
+              ? computeFollowReserve(speedCpsRef.current, tuning.runwayPx)
+              : 0,
+          )
+          // Adopt-time reclaim, exactly once and in this same pre-paint task:
+          // the previous completion's pad becomes this stream's reserve gap,
+          // so the extent — and the pinned floor — never steps between turns.
+          // A completion settle still owning the port keeps its ledgers: the
+          // swap's remounted arms must not zero the pad mid-retirement.
+          if (!completionSettleGuardsPort(nextPort)) setFlowPad(nextPort, 0)
+          statusWasPresent = hasStatus
           velocityPxPerSec = 0
           // The committed row/growth delta has already moved the new floor.
-          // Decide ownership from the reader's position before that delta;
-          // otherwise any atomic result taller than FOLLOW_SLACK_PX looks
-          // indistinguishable from an intentional reader pull-up.
-          const lagBeforeEntrance = Math.max(0, reportedLag - entranceExtent)
-          following = lagBeforeEntrance <= FOLLOW_SLACK_PX
+          // Decide ownership from READER INTENT EVIDENCE, not raw lag: an
+          // upward move recorded past our own ledger is a pull-up; anything
+          // else (content that mounted while the host had not re-pinned yet,
+          // a completion clamp, first-frame geometry) must keep following,
+          // otherwise the whole stream falls back to the host's hard snap.
+          void reportedLag
+          // A prior follower's reader-release record outranks ledger
+          // evidence: its closure died with `following = false` after the
+          // release already reset the ledger to the held position, so the
+          // delta-based check alone can no longer see the unpin.
+          following = !readerScrolledUp(nextPort)
+            && !followReaderHolds.has(nextPort)
         } else {
           animatedH = Math.min(nextPort.scrollHeight, inherited.extent)
           reservePx = inherited.reservePx
@@ -956,7 +2345,41 @@ export function useConversationFollow(
         if (following) {
           hold(nextPort)
           if (isLeader(nextPort)) {
-            animatedH = applyVisual(nextPort, animatedH, reservePx, velocityPxPerSec, tuning.runwayPx)
+            animatedH = applyVisual(
+              nextPort,
+              animatedH,
+              reservePx,
+              velocityPxPerSec,
+              tuning.runwayPx,
+              Number.POSITIVE_INFINITY,
+              !(predictiveRef?.current ?? predictive),
+              undefined,
+              0,
+              !hostOwnsScroll,
+            )
+            if (
+              predictive
+              && root.querySelector('[data-variant="think"]') === null
+              && runwayOffsetOf(nextPort) > 0
+            ) {
+              const floor = Math.max(0, nextPort.scrollHeight - nextPort.clientHeight)
+              const requestedMinLagPx = Math.max(
+                FOLLOW_TRAJECTORY_MIN_LAG_PX,
+                runwayOffsetOf(nextPort) - FOLLOW_TRAJECTORY_PHASE_PX,
+              )
+              const paintMaxLagPx = Math.max(0, safeShiftLimit(nextPort, shiftSurfacesOf(nextPort)) - FOLLOW_PAINT_GUARD_PX)
+              const minLagPx = Math.min(requestedMinLagPx, paintMaxLagPx)
+              const currentShift = currentShiftOf(shiftSurfacesOf(nextPort).at(-1) ?? nextPort)
+              trajectoryPositionPx = floor - Math.min(paintMaxLagPx, Math.max(minLagPx, currentShift))
+              trajectoryTargetVelocityPxPerMs = Math.max(0, speedCpsRef.current) * 0.4 / 1000
+              trajectoryVelocityPxPerMs = trajectoryTargetVelocityPxPerMs
+              trajectoryFloorPx = floor
+              trajectoryGrowthAtMs = now
+              trajectoryAccumulatedGrowthPx = 0
+              trajectoryAccumulatedGrowthMs = 0
+              trajectoryGrowthSamples = 0
+              trajectoryWasActive = true
+            }
             updateRevealScale(nextPort, elapsedMs)
             reportFollow(nextPort, activeRef.current)
             const runwayOffset = runwayOffsetOf(nextPort)
@@ -969,7 +2392,7 @@ export function useConversationFollow(
           finishEntrance()
         }
         primed = true
-        return
+        return activeRef.current
       }
 
       const repinSlack = readerReleased ? FOLLOW_REPIN_PX : FOLLOW_SLACK_PX
@@ -979,6 +2402,7 @@ export function useConversationFollow(
       if (!following && (!interacting || returnedToFloor) && reportedLag <= repinSlack) {
         following = true
         readerReleased = false
+        followReaderHolds.delete(nextPort)
         animatedH = extent
         reservePx = 0
         velocityPxPerSec = 0
@@ -990,6 +2414,7 @@ export function useConversationFollow(
         following = false
         readerGestureIntent = false
         readerReleased = true
+        followReaderHolds.set(nextPort, { atMs: performance.now() })
         handBackVisual(nextPort)
         animatedH = nextPort.scrollHeight
         reservePx = 0
@@ -1001,61 +2426,294 @@ export function useConversationFollow(
       if (!activeRef.current || !following) {
         followScrollLedgers.set(nextPort, nextPort.scrollTop)
         reportFollow(nextPort, activeRef.current)
-        return
+        return activeRef.current
+      }
+      detectHostScroll(nextPort, floor)
+      if (hostOwnsScroll) {
+        followScrollLedgers.set(nextPort, nextPort.scrollTop)
+        reportFollow(nextPort, false)
+        return false
       }
       hold(nextPort)
       if (!isLeader(nextPort)) {
         finishEntrance()
-        return
+        return true
       }
-
       // Runway and an equal transform cancel visually. It is the zero point,
       // not residual motion: decaying below it would scroll past the final
       // resting position and rebound when runway is removed.
+      //
+      // The reservation scales with reveal pressure — idle holds nothing,
+      // because speculative space at rest is a visible defect on handback —
+      // but the runway MARGIN tracks the reservation 1:1 in the same frame,
+      // so their difference (the only part that can move pixels) stays
+      // constant. Growing the reservation without the margin would glide the
+      // whole column; growing both together is invisible.
+      const predictGrowth = predictiveRef?.current ?? predictive
+      const statusElement = turnStatusOf(nextPort)
+      const hasStatus = statusElement !== null
+      if (hasStatus) followHadStatus.add(nextPort)
+      if (statusElement !== null) lastStatusHeightPx = statusElement.offsetHeight
+      const statusJustRemoved = predictGrowth && statusWasPresent === true && !hasStatus
+      if (statusJustRemoved) {
+        // The dying status row takes its own layout height AND the margin
+        // riding on it out of the scroll extent in one commit. Re-open the
+        // margin on the next surface in the same frame, sized to cover both,
+        // or the floor sinks by that height and the transcript slides down
+        // under the pin before the replacement margin can land.
+        reservePx = Math.max(reservePx, tuning.runwayPx) + lastStatusHeightPx
+      }
+      statusWasPresent = hasStatus
+      const reserveEnabled = hasStatus
+        || statusJustRemoved
+        || reservePx > FOLLOW_SETTLE_EPSILON_PX
+        || speedCpsRef.current > FOLLOW_RESERVE_MIN_CPS
+      const pressureReserveTarget = predictGrowth && reserveEnabled
+        ? computeFollowReserve(speedCpsRef.current, tuning.runwayPx)
+        : 0
+      // ZERO-DOWNWARD-REBOUND (root cause): while this follower owns the port
+      // it pins scrollTop to the floor, and the floor rides the owned bottom
+      // margin 1:1. Shrinking that margin under the pin clamps scrollTop
+      // downward and slides the whole transcript down — the one motion this
+      // module must never paint; no shift remains to release it because the
+      // reservation already covers the margin (base = margin − reservation
+      // stays flat). An owned margin therefore only GROWS here: prediction
+      // shutdown and reveal-pressure drops freeze it at its current size, and
+      // retirement is deferred to reader handback (a user-driven scroll) or
+      // the next ownership. Growth stays invisible because the reservation
+      // grows in the same frame and the baseline difference never moves.
+      const effectiveReserveTarget = Math.max(reservePx, pressureReserveTarget)
+      const reserveStep = 1 - Math.exp(-elapsedMs / tuning.reserveResponseMs)
+      reservePx += (effectiveReserveTarget - reservePx) * reserveStep
+      // TERMINAL DRAIN: the producer has stopped but the reveal queue still owes
+      // text. From here the owned margin is no longer free to stay at the full
+      // streaming runway — it is held to the space this completion has actually
+      // measured, so the final text converges on its natural floor instead of
+      // reserving a fixed 72px that a later retirement has to give back.
+      //
+      // The budget is seeded from a real measurement (the offset already in the
+      // DOM plus the length the last observed commit added) and then only
+      // shrinks. It is also never allowed below the reservation this port has
+      // already made, because `runwayOffset < reservePx` is precisely the
+      // mismatch whose difference repaints the whole message.
+      const terminalState = refreshTerminalRevealLedger()
+      if (terminalState.drain) {
+        if (!followTerminalPhases.has(nextPort)) {
+          const seeded = Math.min(
+            FOLLOW_STATUS_RUNWAY_PX,
+            Math.max(runwayOffsetOf(nextPort), 0) + Math.max(0, lastCommitGrowthPx),
+          )
+          followTerminalPhases.set(nextPort, 'terminal-drain')
+          followTerminalBudgets.set(nextPort, seeded)
+          followTrace('terminal-drain', { budget: Math.round(seeded), reserve: Math.round(reservePx), backlog: followRemainingRevealChars })
+        }
+      }
+      const terminalBudget = followTerminalPhases.has(nextPort)
+        ? Math.max(
+            Math.min(followTerminalBudgets.get(nextPort) ?? FOLLOW_STATUS_RUNWAY_PX, FOLLOW_STATUS_RUNWAY_PX),
+            reservePx,
+          )
+        : FOLLOW_STATUS_RUNWAY_PX
+      if (predictGrowth || runwayOffsetOf(nextPort) > 0.5) {
+        ensureRunway(nextPort, shiftSurfacesOf(nextPort), terminalBudget)
+      }
       const runwayOffset = runwayOffsetOf(nextPort)
       const contentHeight = nextPort.scrollHeight
-      const lag = Math.max(0, contentHeight - animatedH - runwayOffset)
-      const predictGrowth = predictiveRef?.current ?? predictive
-      const reserveTarget = !predictGrowth
-        ? 0
-        : computeFollowReserve(speedCpsRef.current, tuning.runwayPx)
-      const reserveStep = 1 - Math.exp(-elapsedMs / tuning.reserveResponseMs)
-      reservePx += (reserveTarget - reservePx) * reserveStep
-      const step = computeFollowStep(dt, {
-        lag,
-        speedEma: speedCpsRef.current,
-        velocityPxPerSec,
-      }, tuning)
-      if (lag <= 0.1) {
-        animatedH = contentHeight - runwayOffset
-        velocityPxPerSec = 0
-      } else {
-        const minimumLag = predictGrowth ? 0 : Math.max(0, reservePx)
-        animatedH = Math.min(
-          contentHeight - runwayOffset - minimumLag,
-          animatedH + step.advancePx,
+      const floorNow = Math.max(0, contentHeight - nextPort.clientHeight)
+      // Ledger the length this commit actually added, so the terminal budget is
+      // seeded from observed geometry rather than from the streaming constant.
+      lastCommitGrowthPx = lastObservedContentHeight > 0
+        ? Math.max(0, contentHeight - lastObservedContentHeight)
+        : 0
+      lastObservedContentHeight = contentHeight
+      const trajectoryActive = predictive
+        && root.querySelector('[data-variant="think"]') === null
+        && runwayOffset > 0
+      let trajectoryShift: number | undefined
+      if (trajectoryActive) {
+        const requestedMinLagPx = Math.max(
+          FOLLOW_TRAJECTORY_MIN_LAG_PX,
+          runwayOffset - FOLLOW_TRAJECTORY_PHASE_PX,
         )
-        velocityPxPerSec = step.velocityPxPerSec
+        // Phase-band upper bound comes from paint space, not a runway-derived
+        // constant: `minLag + 39` can exceed the real gap to status/composer
+        // chrome and get clipped into a hard catch-up exactly at the wrap
+        // cadence the band exists to absorb (see docs §3.1).
+        const paintLimit = safeShiftLimit(nextPort, shiftSurfacesOf(nextPort))
+        const maxLagPx = Math.max(0, paintLimit - FOLLOW_PAINT_GUARD_PX)
+        const minLagPx = Math.min(requestedMinLagPx, maxLagPx)
+        if (trajectoryPositionPx === null || trajectoryFloorPx === null) {
+          const currentShift = currentShiftOf(shiftSurfacesOf(nextPort).at(-1) ?? nextPort)
+          trajectoryPositionPx = floorNow - Math.min(maxLagPx, Math.max(minLagPx, currentShift))
+          trajectoryTargetVelocityPxPerMs = Math.max(0, speedCpsRef.current) * 0.4 / 1000
+          trajectoryVelocityPxPerMs = trajectoryTargetVelocityPxPerMs
+          trajectoryGrowthAtMs = now
+        } else if (floorNow > trajectoryFloorPx + 0.5) {
+          const intervalMs = Math.max(1, now - (trajectoryGrowthAtMs ?? now))
+          if (trajectoryGrowthSamples > 0) {
+            trajectoryAccumulatedGrowthPx += floorNow - trajectoryFloorPx
+            trajectoryAccumulatedGrowthMs += intervalMs
+            const measuredVelocity = trajectoryAccumulatedGrowthPx
+              / trajectoryAccumulatedGrowthMs
+            // A single wrap interval is quantized by layout and may also span a
+            // dropped frame. Do not replace the trajectory target with that
+            // staircase sample: low-pass it over a few wraps so the visual
+            // velocity remains continuous when the host is busy or a retry row
+            // changes the layout.
+            const targetBlend = 1 - Math.exp(-intervalMs / 240)
+            trajectoryTargetVelocityPxPerMs += (
+              measuredVelocity - trajectoryTargetVelocityPxPerMs
+            ) * targetBlend
+          }
+          trajectoryGrowthSamples += 1
+          trajectoryGrowthAtMs = now
+        } else if (floorNow < trajectoryFloorPx - 0.5) {
+          trajectoryPositionPx = floorNow - minLagPx
+          trajectoryGrowthAtMs = now
+          trajectoryAccumulatedGrowthPx = 0
+          trajectoryAccumulatedGrowthMs = 0
+          trajectoryGrowthSamples = 0
+        }
+        trajectoryFloorPx = floorNow
+        const phaseTarget = revealedCharsRef === undefined
+          ? floorNow
+          : revealPhase.advance(floorNow, revealedCharsRef.current).targetPx
+        const trajectoryStep = computeFollowTrajectoryStep(elapsedMs, {
+          positionPx: trajectoryPositionPx,
+          velocityPxPerMs: trajectoryVelocityPxPerMs,
+          targetPx: phaseTarget,
+          targetVelocityPxPerMs: trajectoryTargetVelocityPxPerMs,
+          minLagPx,
+          maxLagPx,
+          paintFloorPx: floorNow,
+        })
+        trajectoryPositionPx = trajectoryStep.positionPx
+        trajectoryVelocityPxPerMs = trajectoryStep.velocityPxPerMs
+        trajectoryShift = trajectoryStep.shiftPx
+        trajectoryWasActive = true
+        const baselineShift = runwayOffset - Math.min(runwayOffset, Math.max(0, reservePx))
+        animatedH = contentHeight - runwayOffset - Math.max(0, trajectoryShift - baselineShift)
+        velocityPxPerSec = trajectoryVelocityPxPerMs * 1000
+      } else {
+        if (trajectoryWasActive) {
+          const currentShift = currentShiftOf(shiftSurfacesOf(nextPort).at(-1) ?? nextPort)
+          animatedH = contentHeight - runwayOffset - Math.max(0, currentShift)
+          velocityPxPerSec = trajectoryVelocityPxPerMs * 1000
+          trajectoryPositionPx = null
+          trajectoryWasActive = false
+        }
+        const lag = Math.max(0, contentHeight - animatedH - runwayOffset)
+        const step = computeFollowStep(dt, {
+          lag,
+          speedEma: speedCpsRef.current,
+          velocityPxPerSec,
+        }, tuning)
+        if (lag <= 0.1) {
+          animatedH = contentHeight - runwayOffset
+          velocityPxPerSec = 0
+        } else {
+          // ZERO-DOWNWARD-REBOUND: the reservation is NOT real lag. With the
+          // steady-state tail pin it already rides as baseline-canceled gap
+          // (shift = margin − reservation + reveal lag), so forcing the spring
+          // to stop `reservePx` short of the natural floor — the pre-tail-pin
+          // "hold the reserve as lag" semantic — would double-count it and
+          // repaint the difference as an instant downward step the moment
+          // prediction shuts off. The spring always drains to the natural
+          // floor; the painted shift decays through the rate-limited release.
+          animatedH = Math.min(
+            contentHeight - runwayOffset,
+            animatedH + step.advancePx,
+          )
+          velocityPxPerSec = step.velocityPxPerSec
+        }
       }
-      animatedH = applyVisual(nextPort, animatedH, reservePx, velocityPxPerSec, tuning.runwayPx)
+      animatedH = applyVisual(
+        nextPort,
+        animatedH,
+        reservePx,
+        velocityPxPerSec,
+        tuning.runwayPx,
+        Number.POSITIVE_INFINITY,
+        !predictGrowth,
+        trajectoryShift,
+        elapsedMs,
+        !hostOwnsScroll,
+      )
+      if (trajectoryActive) {
+        const currentShift = followLastShiftPx.get(nextPort) ?? (trajectoryShift ?? 0)
+        trajectoryPositionPx = floorNow - currentShift
+      }
       updateRevealScale(nextPort, elapsedMs)
       reportFollow(nextPort, true)
+      // Keep the previous painted tail as the completion handoff baseline.
+      // The active loop is the only place that sees the old surface before a
+      // host live->settled replacement disconnects it.
+      // Per-frame anchor hold — completion window only. During live
+      // streaming the lockstep in this very frame's applyVisual already
+      // cancels wraps; a guard running here fights it (its pad/raise writes
+      // shift the next frame's lag bookkeeping) and visibly degrades the
+      // reveal. The completion cascade is different: the settled-side arm
+      // that primes IN the swap frame has active=false from mount, so ITS
+      // first poll runs before paint and compensates the swap jump that the
+      // older arms' observers were too late (or too unprivileged) to fix.
+      // Track the reading surface's rendered position so the completion
+      // guard inherits the exact last-painted baseline (never a stale or
+      // already-jumped one) when the stream hands off. Compensation is NOT
+      // done from this poll (a guard beside the active loop's own lockstep
+      // fights it and degrades the reveal), and a NON-leader arm must not
+      // even refresh the baseline: its measurement would store the very
+      // jump the owning guard is about to correct and neutralize its next
+      // pass.
+      if (isLeader(nextPort)) {
+        if (!activeRef.current) enforceReadingAnchor(nextPort)
+        else measureReadingAnchor(nextPort)
+      }
       const remainingEntranceLag = Math.max(
         0,
         nextPort.scrollHeight - animatedH - runwayOffsetOf(nextPort),
       )
       if (remainingEntranceLag <= FOLLOW_SETTLE_EPSILON_PX) finishEntrance()
+      // Stay armed while the reply is streaming or the entrance is settling;
+      // the coordinator parks the loop once both are done.
+      return true
     }
 
     // Prime ownership and the final committed height in this layout phase.
-    // A producer-complete text arm can mount and drain before the next RAF;
+    // A producer-complete text arm can mount and drain before the next frame;
     // deferring this first pass would let it unmount unprimed after replacing
     // the previous owner, leaving a large final append at the old scrollTop.
+    // The shared clock then keeps this owner framed; the loop still parks
+    // itself whenever the reply is neither streaming nor being followed.
+    frameTaskRef.id = coordinator.registerTask({
+      onSimulate: (_dtMs, now) => frame(now),
+    })
     frame(performance.now())
     return () => {
-      cancelAnimationFrame(rafId)
+      if (!controlScrollRef.current) {
+        stopFollowTask()
+        if (port !== null) followActivePorts.delete(port)
+        unsubscribeCommit?.()
+        resize?.disconnect()
+        mutations?.disconnect()
+        if (port !== null) {
+          for (const name of GESTURE_EVENTS) port.removeEventListener(name, markGesture)
+        }
+        if (interactTimer !== null) clearTimeout(interactTimer)
+        const disabledHost = rootRef.current?.closest<HTMLElement>('[data-conversation-scroll]') ?? port
+        if (disabledHost !== null) {
+          clearVisual(disabledHost)
+          followLeaders.delete(disabledHost)
+          debugRuntime.reportFollow(disabledHost, null)
+        }
+        releaseRevealScale()
+        return
+      }
+      stopFollowTask()
+      if (port !== null) followActivePorts.delete(port)
+      unsubscribeCommit?.()
       if (interactTimer !== null) clearTimeout(interactTimer)
       resize?.disconnect()
+      mutations?.disconnect()
       if (port !== null) {
         for (const name of GESTURE_EVENTS) port.removeEventListener(name, markGesture)
       }
@@ -1066,6 +2724,13 @@ export function useConversationFollow(
       if (!isLeader(host)) return
       const preserveReader = interacting && (readerGestureIntent || readerScrolledUp(host))
       if (!following || !primed) {
+        if (!following && primed) {
+          // A follower that already released the reader must carry that fact
+          // across this closure's death: the draining arm mounting after this
+          // cleanup would otherwise read the held viewport as its own
+          // at-bottom state and hard-snap it to the floor.
+          followReaderHolds.set(host, { atMs: performance.now() })
+        }
         clearVisual(host)
         followLeaders.delete(host)
         releaseRevealScale()
@@ -1074,6 +2739,7 @@ export function useConversationFollow(
       }
       if (preserveReader) {
         handBackVisual(host)
+        followReaderHolds.set(host, { atMs: performance.now() })
         clearVisual(host)
         followLeaders.delete(host)
         releaseRevealScale()
@@ -1084,21 +2750,141 @@ export function useConversationFollow(
       // Completion can land the final Tool/command height in this same
       // commit. Preserve the logical extent and drain it after unmount instead
       // of clearing the compositor state before the first settled paint.
-      const completionTuning = debugRuntime.activeTuning()
-      ensureRunway(host, shiftSurfacesOf(host), completionTuning.runwayPx)
-      const completionRunway = runwayOffsetOf(host)
-      const completionMinimumLag = Math.max(0, reservePx)
-      animatedH = Math.min(
-        animatedH,
-        host.scrollHeight - completionRunway - completionMinimumLag,
+      // NOTE: do NOT clamp animatedH down by the held reserve here — the
+      // reserve is canceled space (base = margin − reservation stays flat),
+      // so treating it as real lag paints a whole runway-height step at the
+      // exact moment leadership hands to the draining arm. The settle loop
+      // caps animatedH against the shrinking extent directly.
+      // Settle state (declared before the handoff so the completion paths can
+      // measure the extent against it):
+      let settleQuietMs = 0
+      let settleSig = ''
+      if (!activeRef.current) {
+        followTraceUntilMs = Math.max(followTraceUntilMs, performance.now() + 10000)
+        followTrace('fast-gate', { sh: host.scrollHeight, st: Math.round(host.scrollTop), pad: Math.round(flowPadOf(host)) })
+        const stableTail = turnStatusOf(host) === null
+          && followTerminalPhases.get(host) !== 'host-cascade'
+          && !followHadStatus.has(host)
+        const ownedRunway = runwayOffsetOf(host)
+        if (
+          stableTail
+          && (ownedRunway > FOLLOW_SETTLE_EPSILON_PX || flowPadOf(host) > FOLLOW_SETTLE_EPSILON_PX)
+        ) {
+          // Stable terminal text has no host surface left to cascade. Remove
+          // the owned space and land on the natural floor in this same task;
+          // there is no second pad-retirement animation to move the message
+          // away from the target and then back again.
+          restoreRunway(host)
+          setFlowPad(host, 0)
+          finishAtNaturalFloor(host, !startedAsEntrance, true)
+          followLeaders.delete(host)
+          followCompletionSettle.delete(host)
+          releaseRevealScale()
+          debugRuntime.reportFollow(host, null)
+          return
+        }
+        restoreRunway(host)
+        setFlowPad(host, 0)
+        finishAtNaturalFloor(host, !startedAsEntrance, true)
+        followLeaders.delete(host)
+        followCompletionSettle.delete(host)
+        releaseRevealScale()
+        debugRuntime.reportFollow(host, null)
+        return
+      }
+      const completionShift = currentShiftOf(shiftSurfacesOf(host).at(-1) ?? host)
+      // Freeze, never raise, in this same-task paint — same race as the
+      // observer above; the settle's first rAF frame funds the re-open.
+      // Entrance handoffs are mount transients with no collapse in flight:
+      // their first cover must paint immediately (the soften contract).
+      const completionShiftCeiling = startedAsEntrance && completionShift <= FOLLOW_SETTLE_EPSILON_PX
+        ? Number.POSITIVE_INFINITY
+        : completionShift
+      if (hostOwnsScroll) {
+        clearVisual(host)
+        setFollowScrollTop(host, Math.max(0, host.scrollHeight - host.clientHeight))
+        host.removeAttribute(FOLLOW_OWNED_ATTR)
+        followLeaders.delete(host)
+        releaseRevealScale()
+        debugRuntime.reportFollow(host, null)
+        return
+      }
+      // The completion commit often REPLACES the last surface (live→settled
+      // swap re-keys the row), and the owned margin written on the old element
+      // dies with it in the same layout pass. Do NOT bank that loss as a flow
+      // pad: the next ensureRunway opens the completion runway in this same
+      // pre-paint task. Converting the dead margin to pad creates a second
+      // owned extent that must later retire as the visible "slow rebound".
+      followTraceUntilMs = performance.now() + 15000
+      // Terminal phase ledger. The drain phase (producer stopped, reveal queue
+      // still owes text) may only converge upward on the natural floor, so its
+      // measured budget survives the handoff; the cascade phase is entered
+      // whenever a real host transaction is what moved the layout.
+      followTerminalPhases.set(
+        host,
+        statusWasPresent === true || turnStatusOf(host) !== null || followHadStatus.has(host)
+          ? 'host-cascade'
+          : 'terminal-drain',
       )
-      settleAtFloor(host)
-      animatedH = applyVisual(host, animatedH, reservePx, velocityPxPerSec, completionTuning.runwayPx)
+      if (!followTerminalBudgets.has(host)) {
+        followTerminalBudgets.set(host, Math.min(FOLLOW_STATUS_RUNWAY_PX, Math.max(0, reservePx)))
+      }
+      // Seed the growth credit with the content this task actually committed, so
+      // the settle's first frames can pay down the runway it is retiring instead
+      // of waiting for a later frame's growth to fund it.
+      followCompletionGrowthCredit.set(host, Math.max(0, environmentCommitGrowthPx(host)))
+      if (pruneDeadRunway(host)) {
+        followTrace('cleanup-dead-margin', { sh: host.scrollHeight, st: Math.round(host.scrollTop), pad: Math.round(flowPadOf(host)) })
+        reservePx = 0
+      }
+      // The completion handoff keeps at least one real runway open so the
+      // final height has reserved paint room to drain through: with zero
+      // margin the whole final height lands as shift in ONE paint (offset
+      // space collapses to the paint limit), the exact teleport this drain
+      // exists to prevent. The draining arm ramps its reserve from here.
+      const completionTuning = debugRuntime.activeTuning()
+      const previousCompletionRunway = runwayOffsetOf(host)
+      // The completion pad already holds retired extent below the fold; the
+      // handoff only opens the runway room the pad does not cover, or the
+      // same pixels are added twice and the restored floor overshoots.
+      ensureRunway(
+        host,
+        shiftSurfacesOf(host),
+        Math.max(reservePx, Math.max(0, completionTuning.runwayPx - flowPadOf(host))),
+      )
+      const completionRunway = runwayOffsetOf(host)
+      // The reading anchor's baseline is already live (the active loop
+      // refreshed it every frame, and the guard observers keep it current);
+      // only seed it here when this port somehow has none, so the first
+      // completion commit has a real screen-space baseline to compare
+      // against instead of silently adopting the jumped position.
+      measureReadingAnchor(host)
+      // Rebase the spring extent onto the new offset domain before the paint:
+      // adding the margin drops targetHeight by the same amount, so animatedH
+      // must drop in lockstep or the margin's px release as an instant shift.
+      animatedH = Math.max(0, animatedH - (completionRunway - previousCompletionRunway))
+      if (!hostOwnsScroll) settleAtFloor(host)
+      animatedH = applyVisual(
+        host,
+        animatedH,
+        reservePx,
+        velocityPxPerSec,
+        completionRunway,
+        completionShiftCeiling,
+        false,
+        undefined,
+        0,
+        !hostOwnsScroll,
+      )
       reportFollow(host, false)
       const runwayOffset = runwayOffsetOf(host)
       const remainingLag = Math.max(0, host.scrollHeight - animatedH - runwayOffset)
-      if (remainingLag <= FOLLOW_SETTLE_EPSILON_PX && reservePx <= FOLLOW_SETTLE_EPSILON_PX) {
-        finishAtNaturalFloor(host)
+      if (
+        remainingLag <= FOLLOW_SETTLE_EPSILON_PX
+        && runwayOffset <= FOLLOW_SETTLE_EPSILON_PX
+        && reservePx <= FOLLOW_SETTLE_EPSILON_PX
+      ) {
+        finishAtNaturalFloor(host, !startedAsEntrance, !hostOwnsScroll)
         followLeaders.delete(host)
         releaseRevealScale()
         debugRuntime.reportFollow(host, null)
@@ -1108,67 +2894,271 @@ export function useConversationFollow(
       for (const name of GESTURE_EVENTS) {
         host.addEventListener(name, markGesture, { passive: true })
       }
+      const settleTaskRef: { id: string | null } = { id: null }
+      const stopSettleTask = (): void => {
+        if (settleTaskRef.id === null) return
+        coordinator.unregisterTask(settleTaskRef.id)
+        settleTaskRef.id = null
+      }
       const stopSettleListeners = (): void => {
+        stopSettleTask()
         for (const name of GESTURE_EVENTS) host.removeEventListener(name, markGesture)
+        resize?.disconnect()
+        mutations?.disconnect()
         if (interactTimer !== null) {
           clearTimeout(interactTimer)
           interactTimer = null
         }
       }
+      // Re-arm pre-paint observation for the whole completion cascade. The
+      // active effect's observers were disconnected above, but status/tail
+      // commits continue while the detached settle loop owns the port.
+      if (typeof ResizeObserver !== 'undefined') {
+        resize = new ResizeObserver(() => restoreBeforePaint())
+        resize.observe(host)
+        const proxy = resizeProxyOf(host)
+        if (proxy !== null) resize.observe(proxy)
+      }
+      if (typeof MutationObserver !== 'undefined') {
+        const flow = flowElementOf(host)
+        if (flow !== null) {
+          mutations = new MutationObserver(() => { restoreBeforePaint() })
+          mutations.observe(flow, { childList: true, subtree: true })
+        }
+      }
+      // From here this closure's observers are the completion guard of last
+      // resort (see `handedOff` above), and this settle OWNS the port until
+      // it finishes.
+      followCompletionSettle.add(host)
+      followCompletionSettleRows.set(host, countUserRows(host))
+      handedOff = true
       let settleLast = performance.now()
-      const settleFrame = (now: number): void => {
+      // Settle-pad transfer state lives above the completion handoff; the
+      // loop below only drives it frame by frame. `settleRetiring` marks the
+      // final glide: the cascade has quieted, so the pad that kept every host
+      // commit pixel-stable is handed back to the layout at the bounded
+      // settle rate and the pinned viewport glides down to the natural
+      // resting position against the composer.
+      const settleFrame = (now: number): boolean => {
         if (!isLeader(host)) {
           stopSettleListeners()
-          return
+          return false
         }
         if (interacting && (readerGestureIntent || readerScrolledUp(host))) {
           readerGestureIntent = false
           handBackVisual(host)
           clearVisual(host)
+          followCompletionSettle.delete(host)
           followLeaders.delete(host)
           releaseRevealScale()
           debugRuntime.reportFollow(host, null)
           stopSettleListeners()
-          return
+          return false
         }
         const dt = Math.min(FOLLOW_MAX_FRAME_MS, Math.max(0, now - settleLast))
         const tuning = debugRuntime.activeTuning()
         settleLast = now
-        const runwayOffset = runwayOffsetOf(host)
-        const lag = Math.max(0, host.scrollHeight - animatedH - runwayOffset)
-        const reserveStep = 1 - Math.exp(-dt / tuning.reserveResponseMs)
-        reservePx += (0 - reservePx) * reserveStep
-        if (lag <= FOLLOW_SETTLE_EPSILON_PX && reservePx <= FOLLOW_SETTLE_EPSILON_PX) {
-          animatedH = host.scrollHeight - runwayOffset
-          reservePx = 0
-          velocityPxPerSec = 0
-          finishAtNaturalFloor(host)
+        detectHostScroll(host, Math.max(0, host.scrollHeight - host.clientHeight))
+        if (hostOwnsScroll) {
+          clearVisual(host)
+          setFollowScrollTop(host, Math.max(0, host.scrollHeight - host.clientHeight))
+          host.removeAttribute(FOLLOW_OWNED_ATTR)
+          followCompletionSettle.delete(host)
           followLeaders.delete(host)
           releaseRevealScale()
           debugRuntime.reportFollow(host, null)
           stopSettleListeners()
-          return
+          return false
+        }
+        // HOST COMPLETION CASCADE: around completion the host swaps the status
+        // row for its process/tail rows, auto-collapses the think disclosure
+        // and mounts the metrics tail — each a same-frame layout shrink under
+        // the pinned floor. Re-open every lost pixel below the last surface
+        // (out of sight; extent, floor and pinned scrollTop restored) and hold
+        // ownership until the cascade has been quiet for
+        // FOLLOW_SETTLE_QUIET_MS, so the host's own floor-snap never paints a
+        // host action as a single-frame slam of the whole transcript.
+        // ANCHOR SCREEN HOLD: the completion cascade moves the reading
+        // anchor's viewport position (status swap, live→settled replacement,
+        // clamp jumps). The reading-surface baseline lives in the shared
+        // followGuardAnchors ledger; the shift-excluded delta filters the
+        // engine's own glide, so the per-frame poll only answers real host
+        // motion. While the pad retires, extent motion is OUR OWN glide —
+        // the hold stands down.
+        const guardDelta = !settleRetiring && !followActivePorts.has(host)
+          ? enforceReadingAnchor(host, true)
+          : null
+        settleQuietMs = !settleRetiring && (guardDelta === null || Math.abs(guardDelta) <= 0.5) ? settleQuietMs + dt : 0
+        // The settle OWNS the port only while a hostile host transaction is
+        // still on screen. With no status row left, this is ordinary terminal
+        // text drain: converge on the natural floor instead of keeping the
+        // fixed streaming runway the settle path would otherwise re-assert.
+        if (followTerminalPhases.get(host) !== 'host-cascade') {
+          followTerminalPhases.set(host, turnStatusOf(host) === null ? 'terminal-drain' : 'host-cascade')
+        }
+        // ZERO-DOWNWARD-REBOUND (root cause): scrollTop is pinned to the floor
+        // and the floor rides the owned margin 1:1, so the settle must NOT
+        // shrink the margin — that clamps scrollTop downward with no shift
+        // left to release (the reservation covers the margin, so base = margin
+        // − reservation never moves). Instead the margin MOVES below the
+        // status row: marginTop −δ and marginBottom +δ in the same layout
+        // pass keep the scroll extent constant, so the floor, the pinned
+        // scrollTop and every content pixel stay put while the status glides
+        // up to close the reserve gap — the completion 归位, with zero
+        // downward motion.
+        const settleStatus = turnStatusOf(host)
+        const ownedRunwayPx = runwayOffsetOf(host)
+        if (ownedRunwayPx > FOLLOW_SETTLE_EPSILON_PX) {
+          // CREDIT-BOUNDED TRANSFER (U3). Moving the margin into the pad is
+          // compensation for a HOST transaction — a status swap or a row
+          // replacement stealing layout height under the pin. That credit must
+          // be earned: once the cascade has quieted and the drain has closed,
+          // the remaining margin is no longer compensation for anything, so it
+          // is capped by the terminal budget instead of being transferred in
+          // full and then retired on the `FOLLOW_RUNWAY_RETIRE_MS` timer. The
+          // timer path stays only as the host-cascade fallback.
+          const terminalDrain = followTerminalPhases.get(host) === 'terminal-drain'
+          const earnedBudgetPx = Math.min(
+            FOLLOW_STATUS_RUNWAY_PX,
+            Math.max(followTerminalBudgets.get(host) ?? FOLLOW_STATUS_RUNWAY_PX, reservePx),
+          )
+          const requestedTransferPx = settleStatus === null
+            ? ownedRunwayPx
+            : Math.min(
+                reservePx,
+                ((tuning.runwayPx || FOLLOW_STATUS_RUNWAY_PX) / FOLLOW_RUNWAY_RETIRE_MS) * dt,
+              )
+          const cappedTransferPx = terminalDrain
+            ? Math.min(requestedTransferPx, Math.max(0, ownedRunwayPx - earnedBudgetPx))
+            : requestedTransferPx
+          const transferredPx = transferRunwayToFlowPad(host, cappedTransferPx)
+          // Do not bank a completion pad. The margin release and pad removal
+          // happen in one layout pass, so there is no extra extent to retire
+          // later and no second slow rebound after the cascade quiets.
+          if (transferredPx > 0) setFlowPad(host, Math.max(0, flowPadOf(host) - transferredPx))
+          reservePx = Math.max(0, reservePx - transferredPx)
+          followTerminalBudgets.set(
+            host,
+            Math.max(reservePx, Math.min(earnedBudgetPx, runwayOffsetOf(host))),
+          )
+          // targetHeight = scrollHeight - runway. The equal margin-to-pad
+          // transfer keeps scrollHeight fixed and lowers runway by δ, so the
+          // logical extent rises by exactly δ (not 2δ). Both this rebase and
+          // applyVisual's offset-history rebase are required: dropping either
+          // one stalls the spring or leaks residual motion into the quiet
+          // window (audit burst-gap/ramp quiescence-move).
+          animatedH += transferredPx
+        }
+        const runwayOffset = runwayOffsetOf(host)
+        const lag = Math.max(0, host.scrollHeight - animatedH - runwayOffset)
+        // PAD RETIREMENT (the final glide of 收尾归位): cascade quiet, drain
+        // closed — the pad that kept every host commit pixel-stable is handed
+        // back to the layout at the bounded settle rate. The floor sinks with
+        // it and the pinned viewport glides down to the natural resting
+        // position against the composer; smooth and rate-limited, never the
+        // single-frame slam the raw host snap paints.
+        if (
+          !settleRetiring
+          && lag <= FOLLOW_SETTLE_EPSILON_PX
+          && reservePx <= FOLLOW_SETTLE_EPSILON_PX
+          && settleQuietMs >= FOLLOW_SETTLE_QUIET_MS
+          && flowPadOf(host) > FOLLOW_SETTLE_EPSILON_PX
+        ) {
+          followTrace('retire-start', { pad: Math.round(flowPadOf(host)), sh: host.scrollHeight, st: Math.round(host.scrollTop) })
+          settleRetiring = true
+        }
+        if (settleRetiring) {
+          const padPx = flowPadOf(host)
+          const retirePx = Math.min(
+            padPx,
+            ((tuning.runwayPx || FOLLOW_STATUS_RUNWAY_PX) / FOLLOW_RUNWAY_RETIRE_MS) * dt,
+          )
+          if (padPx - retirePx <= FOLLOW_SETTLE_EPSILON_PX) {
+            setFlowPad(host, 0)
+            settleRetiring = false
+          } else {
+            setFlowPad(host, padPx - retirePx)
+          }
+        }
+        if (
+          lag <= FOLLOW_SETTLE_EPSILON_PX
+          && (reservePx <= FOLLOW_SETTLE_EPSILON_PX || settleStatus === null)
+          && flowPadOf(host) <= FOLLOW_SETTLE_EPSILON_PX
+          && settleQuietMs >= FOLLOW_SETTLE_QUIET_MS
+        ) {
+          followTrace('finish', { st: Math.round(host.scrollTop), sh: host.scrollHeight, pad: Math.round(flowPadOf(host)) })
+          animatedH = host.scrollHeight
+          velocityPxPerSec = 0
+          finishAtNaturalFloor(host, !startedAsEntrance, !hostOwnsScroll)
+          followLeaders.delete(host)
+          releaseRevealScale()
+          debugRuntime.reportFollow(host, null)
+          stopSettleListeners()
+          return false
         }
         const step = computeFollowStep(dt, {
           lag,
           speedEma: speedCpsRef.current,
           velocityPxPerSec,
         }, tuning)
-        // The temporary runway is visually neutral only while an equal lag
-        // remains in the transform. Do not let the spring outrun the runway's
-        // closing reserve or cleanup would reveal an overshoot and rebound.
-        const minimumLag = Math.max(0, reservePx)
         animatedH = Math.min(
-          host.scrollHeight - runwayOffset - minimumLag,
+          host.scrollHeight - runwayOffset,
           animatedH + step.advancePx,
         )
         velocityPxPerSec = step.velocityPxPerSec
-        settleAtFloor(host)
-        animatedH = applyVisual(host, animatedH, reservePx, velocityPxPerSec, tuning.runwayPx)
+        if (!hostOwnsScroll) settleAtFloor(host)
+        // Once the host has written, never write scrollTop again. The settle
+        // still computes compositor shifts and rebases the spring; the host
+        // owns the scrollport. A completion commit that GROWS the extent
+        // changes the host floor; the host snaps while applyVisual answers
+        // with the matching shift raise — the same lockstep the active loop
+        // paints for a wrap.
+        animatedH = applyVisual(
+          host,
+          animatedH,
+          reservePx,
+          velocityPxPerSec,
+          runwayOffset,
+          Number.POSITIVE_INFINITY,
+          false,
+          undefined,
+          0,
+          !hostOwnsScroll,
+        )
+        if (traceActive()) {
+          const sig = `${Math.round(host.scrollTop)}|${host.scrollHeight}|${Math.round(flowPadOf(host))}|${Math.round(reservePx)}|${settleRetiring}`
+          if (sig !== settleSig) {
+            followTrace('settle', { st: Math.round(host.scrollTop), sh: host.scrollHeight, pad: Math.round(flowPadOf(host)), reserve: Math.round(reservePx), lag: Math.round(lag * 10) / 10, retiring: settleRetiring })
+            settleSig = sig
+          }
+        }
         reportFollow(host, false)
-        requestAnimationFrame(settleFrame)
+        return true
       }
-      requestAnimationFrame(settleFrame)
+      settleTaskRef.id = coordinator.registerTask({
+        onSimulate: (_dtMs, now) => settleFrame(now),
+      })
     }
-  }, [active, rootRef, speedCpsRef, revealScaleRef, predictive, predictiveRef])
+  }, [active, rootRef, speedCpsRef, revealScaleRef, predictive, predictiveRef, controlScroll])
+
+  useLayoutEffect(() => {
+    const host = rootRef.current?.closest<HTMLElement>('[data-conversation-scroll]') ?? null
+    if (host !== null) {
+      followFlowFillUsers.set(host, (followFlowFillUsers.get(host) ?? 0) + 1)
+    }
+    return () => {
+      if (host === null) return
+      const remaining = Math.max(0, (followFlowFillUsers.get(host) ?? 1) - 1)
+      if (remaining > 0) {
+        followFlowFillUsers.set(host, remaining)
+        return
+      }
+      followFlowFillUsers.delete(host)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!followLeaders.has(host) && !followFlowFillUsers.has(host)) restoreFlowFill(host)
+        })
+      })
+    }
+  }, [rootRef])
 }

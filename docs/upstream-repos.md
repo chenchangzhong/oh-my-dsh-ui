@@ -115,14 +115,23 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 | `bcc305f` / `737ebe6` / `e2b4398` | 入场亚像素抖动 / 思考块高度上限 + 智能滚动 / 对数淡出每帧 jank |
 | `dfe69bb` | 解耦流式渲染（`FrameCoordinator` / `StreamBuffer` / `useDecoupledMarkdown`，FollowHost 收敛为单一 owner）—— 架构级，本地未移植 |
 
-> **0.1.7 复核（2026-09-23）**：本地 `src/client/smooth/` 全无 `terminalPhase` /
-> `followTerminalPhase` / `FrameCoordinator` / `StreamBuffer` / `useDecoupledMarkdown`
-> （本地 `teleprompterGlide.ts` 1174 行 vs 上游 3164 行）。
-> 但收尾**目标一致、路径不同**：本地已是「Lifecycle completion settles at the floor」
-> ＋ `FOLLOW_SETTLE_EPSILON_PX` 子像素阈值 ＋「reader-released follow only re-acquires
-> at the actual floor」，另有自有的 `runwayAnchorOf` / `FOLLOW_RUNWAYS_SYMBOL`。
-> 因此 `66f15c7` 等应只在**确实出现"完成时回弹/收尾位置不稳"**时按语义移植——
-> 不要因为上游改了就跟，本地这套机制已被验证过。
+> **smooth 已于 2026-09-23 整体对齐上游 HEAD（`2e2c1c4`）**：本地原本是上游
+> `6f596ee`（2026-08-26，PR #10）的整文件快照 + 3 处自造空白行修复，落后 28 个
+> 涉及 `src/client/` 的提交。现按文件取上游 HEAD 版本替换：**18 个文件更新 +
+> 7 个新增**（`FrameCoordinator`、`StreamBuffer`、`useDecoupledMarkdown`、`clientStore`、
+> `harnessIcons`、`turn-process-face.d.ts`、`AgentRowEntrance.module.css`），
+> 并补上 pacing preset 设置项（位置见下方「移植注意事项」第 2 条的补记）。
+>
+> - 上游 `readBootConfig` **不适用**：它读 `globalThis.__DSH_SMOOTH_STREAM_CONFIG__`，
+>   写入方是上游 Host 侧 `plugin.ts`，而本地刻意移除了 Host 半边。
+> - `StreamBuffer.ts` 上游自己也没引用（重构遗留）。
+> - 本地保留：设置三件套（`config` / `settings` / `smooth-settings-adapter`）、
+>   `FollowErrorBoundary` / `TakeoverErrorBoundary`（在未替换的本地 `index.ts` 内）。
+> - 随替换移除：`teleprompterGlide` 的 3 个自造空白行符号（由上游
+>   `followTerminalPhases` / `setFlowPad` / `FollowScrollOwnership` / `FollowReaderHold`
+>   接管）、`useThinkMaxLines` 等 4 个、`FollowRowErrorBoundary`。
+> - **回归观察点**：聊天区空白行与收尾位置。若空白行复现，把那 3 个本地修复加回
+>   上游版即可，无需整体回滚。
 
 ---
 
@@ -149,6 +158,18 @@ ES 模块 + 整合插件，2026-09 那轮移植连续踩到几类坑，都不是
    **动手前先确认**：承载新 UI 的槽位在当前 DSH 里确实会渲染——最快的办法是看
    同一个 slot 上是否已经有本地代码成功渲染过（例如 `settings.section` 上的
    ui-enhance 页）。
+
+   > **2026-09-23 补记：这条真被踩到了**
+   > `SmoothStreamCard.tsx` 注册的就是 `settings.plugin.item`，**从建立起就没渲染过**
+   > （`HEAD` 版本亦然），本地那套插件升级 UI 也从未可见。当天先误把 pacing preset 加进
+   > 这个文件、随后又把它的上游版搬了进来，**白做两轮**。现已**删除该文件及其注册**。
+   >
+   > - **加 smooth 设置项的唯一正确位置**：`src/client/zh/logic/settings-section.tsx`
+   >   的「丝滑流式」分组（渲染在「UI 增强 → 增强」标签，`c8f989a` 整合）；
+   >   文案加在 `src/client/zh/data/settings-dicts.ts`。
+   > - **必查项**：`src/client/smooth/index.ts` 的 `SettingsCell.refresh()` 是
+   >   **按字段逐一比较**来决定是否通知渲染层的（它驱动 `preferences`）。新增设置字段
+   >   必须同步加进那个比较，否则值已写入 scope 也不会重新渲染，表现为"设置了无效"。
 
 3. **`settingsScope` 必须绑定 namespace。** 未绑定的 `ctx.settingsScope` 既读不到
    本插件的 section（`getSnapshot().value` 不是它，字段恒为 `undefined` → 回落
