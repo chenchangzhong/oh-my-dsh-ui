@@ -88,3 +88,14 @@
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
+
+/* Plain-text paragraphs (0.1.7 removed primitives' MessageText; the local
+   wrapper in UserMarkdownNodeView stays visually identical to stock). */
+.plainText {
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* Font metrics inherit from the consumer's container (bubble 16/24) — a
+     generic text primitive must not pin its own size. */
+  font-size: inherit;
+  line-height: inherit;
+}

@@ -7,7 +7,8 @@
  * the namespace — the unbound `ctx.settingsScope` neither exposes this section's
  * values nor a `subscribe`, which is what made the enable toggle a no-op.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '../dsh-client-types.ts'
+import { bindSettingsScope } from '../settings-source.ts'
 import { createSnapshotStore, type SnapshotStore } from '../snapshot-store.ts'
 import { UI_CUSTOM_SETTINGS_NS } from '../../shared.ts'
 import {
@@ -72,6 +73,7 @@ export class SmoothStreamCardController {
   private restartRequired = false
   private loadStatus: 'loading' | 'ready' | 'unavailable' = 'loading'
   private scopeUnsubscribe: (() => void) | undefined
+  private scopeFace: BoundSettingsScope | undefined
 
   constructor(private readonly ctx: ClientContext) {}
 
@@ -84,11 +86,8 @@ export class SmoothStreamCardController {
    * writes were invisible — which made the enable toggle a no-op.
    */
   private scope(): BoundSettingsScope {
-    const root = this.ctx.settingsScope as unknown as { bind?: (options: { namespace: string }) => unknown }
-    if (root !== null && root !== undefined && typeof root.bind === 'function') {
-      return root.bind({ namespace: UI_CUSTOM_SETTINGS_NS }) as BoundSettingsScope
-    }
-    return root as unknown as BoundSettingsScope
+    this.scopeFace ??= bindSettingsScope(this.ctx) as unknown as BoundSettingsScope
+    return this.scopeFace
   }
 
   start(): void {

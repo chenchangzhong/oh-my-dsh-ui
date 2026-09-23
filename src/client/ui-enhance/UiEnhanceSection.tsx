@@ -1,44 +1,41 @@
 /**
- * Unified "UI增强" settings section: tabbed container that embeds the four
- * sub-sections (appearance / usage / motion / zh) under a single left-nav entry.
+ * Unified "UI增强" settings section: tabbed container that embeds the three
+ * sub-sections (appearance / motion / zh) under a single left-nav entry.
  *
- * Tab order: 外观 → 用量 → 动效 → 增强
+ * Tab order: 外观 → 动效 → 增强
  * Default tab: 外观 (appearance)
  *
  * IMPORTANT (DSH host contract for `settings.section`):
  *   The inject may carry a `hooks` map. The host wraps every value under
  *   `hooks` and delivers it to the component as a TOP-LEVEL prop named
  *   `use<Key>` for hook/snapshot sources (e.g. `hooks.appearance` → prop
- *   `useAppearance`, `hooks.sessions` → `useSessions`, `hooks.motion` →
- *   `useMotion`), and passes ScopeFace values (`settings` / `promptSettings`)
- *   through as top-level props of the same name. The host does NOT forward a
- *   `hooks` object itself — so this component must read `useAppearance` /
- *   `useSessions` / `useMotion` / `settings` / `promptSettings` as top-level
- *   props, exactly like each sub-section expects them.
+ *   `useAppearance`, `hooks.motion` → `useMotion`), and passes ScopeFace
+ *   values (`settings` / `promptSettings`) through as top-level props of the
+ *   same name. The host does NOT forward a `hooks` object itself — so this
+ *   component must read `useAppearance` / `useMotion` / `settings` /
+ *   `promptSettings` as top-level props, exactly like each sub-section
+ *   expects them.
  */
 import { useState, useMemo } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AppearanceInjected } from '../appearance/controller.ts'
-import type { UsageInjected } from '../usage/contract.ts'
 import type { MotionSectionInjected } from '../motion/MotionSection.tsx'
 import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ZhSettingsSection, ZhPromptSection } from '../zh/shared.ts'
 import { AppearanceSection } from '../appearance/AppearanceSection.tsx'
-import { UsageSection } from '../usage/UsageSection.tsx'
 import { MotionSection } from '../motion/MotionSection.tsx'
 import { ZhSettingsSectionComponent } from '../zh/logic/settings-section.tsx'
 import css from './UiEnhanceSection.module.css'
 
 /** Union of all tab ids */
-export type UiEnhanceTab = 'appearance' | 'usage' | 'motion' | 'zh'
+export type UiEnhanceTab = 'appearance' | 'motion' | 'zh'
 
 /** All tab ids in display order */
-export const UI_ENHANCE_TABS: UiEnhanceTab[] = ['appearance', 'usage', 'motion', 'zh']
+export const UI_ENHANCE_TABS: UiEnhanceTab[] = ['appearance', 'motion', 'zh']
 
 /** Locale key → tab id mapping */
 export const TAB_LABELS: Record<UiEnhanceTab, string> = {
   appearance: 'nav',
-  usage: 'nav',
   motion: 'nav',
   zh: 'nav',
 } as const
@@ -57,7 +54,6 @@ export interface UiEnhanceInjected {
   /** Raw snapshot sources the host wraps into callable hooks. */
   hooks: {
     appearance: AppearanceInjected['hooks']['appearance']
-    sessions: UsageInjected['hooks']['sessions']
     motion: MotionSectionInjected['hooks']['motion']
   }
   // ── zh scopes (ScopeFace, top-level) ─────────────────────────────────────
@@ -90,10 +86,9 @@ export interface UiEnhanceInjected {
   zhT: (key: string) => string
   // ── per-section translators (each bound to its OWN locale namespace) ────────
   // The host binds the section's `t` to UI_ENHANCE_NS only; the sub-sections
-  // call keys from their own namespaces (APPEARANCE_NS / USAGE_NS / MOTION_NS),
+  // call keys from their own namespaces (APPEARANCE_NS / MOTION_NS),
   // so each must receive a translator bound to that namespace.
   appearanceT: (key: string) => string
-  usageT: (key: string) => string
   motionT: (key: string) => string
 }
 
@@ -113,7 +108,6 @@ export function UiEnhanceSection(props: UiEnhanceSectionProps): React.ReactEleme
     t: uiEnhanceT,
     enabledTabs,
     useAppearance,
-    useSessions,
     useMotion,
     settings,
     promptSettings,
@@ -140,7 +134,6 @@ export function UiEnhanceSection(props: UiEnhanceSectionProps): React.ReactEleme
     applyMotionPreset,
     zhT,
     appearanceT,
-    usageT,
     motionT,
     close,
   } = props
@@ -155,12 +148,11 @@ export function UiEnhanceSection(props: UiEnhanceSectionProps): React.ReactEleme
     tabs.includes('appearance') ? 'appearance' : tabs[0],
   )
 
-  // Per-tab translators: appearanceT/usageT/motionT come from the inject,
+  // Per-tab translators: appearanceT/motionT come from the inject,
   // each already bound to its own locale namespace. Tab-bar labels use the
   // section's own ui-enhance t.
   const tabLabels = useMemo(() => ({
     appearance: uiEnhanceT('tabAppearance') || '外观',
-    usage: uiEnhanceT('tabUsage') || '用量',
     motion: uiEnhanceT('tabMotion') || '动效',
     zh: uiEnhanceT('tabZh') || '增强',
   }), [uiEnhanceT])
@@ -188,8 +180,8 @@ export function UiEnhanceSection(props: UiEnhanceSectionProps): React.ReactEleme
       {/* Tab panels — only render for tabs present in enabledTabs; only mount a
           panel when its required hook is non-null (defense-in-depth against a
           disabled feature whose store was never created). The host passes the
-          wrapped hooks as top-level props (useAppearance / useSessions /
-          useMotion / settings / promptSettings), so we guard on those. */}
+          wrapped hooks as top-level props (useAppearance / useMotion /
+          settings / promptSettings), so we guard on those. */}
       <div className={css.panels}>
         {tabs.includes('appearance') && useAppearance != null && (
           <div
@@ -215,17 +207,6 @@ export function UiEnhanceSection(props: UiEnhanceSectionProps): React.ReactEleme
               resetAll={resetAll}
               close={close}
             />
-          </div>
-        )}
-
-        {tabs.includes('usage') && useSessions != null && (
-          <div
-            id={`ui-enhance-tab-usage`}
-            role="tabpanel"
-            aria-labelledby={`ui-enhance-tab-btn-usage`}
-            className={`${css.panel} ${activeTab !== 'usage' ? css.panelHidden : ''}`}
-          >
-            <UsageSection t={usageT} useSessions={useSessions} />
           </div>
         )}
 

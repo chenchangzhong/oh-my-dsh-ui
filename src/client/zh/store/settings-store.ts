@@ -10,7 +10,7 @@
  * The store maintains the same getSnapshot()/subscribe()/set() interface
  * so that settings-section.ts and dom-enhance.ts require minimal changes.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '../../dsh-client-types.ts'
 import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   ZH_SETTINGS_NS,

@@ -15,8 +15,6 @@ describe('configFromThemeSection', () => {
 
   it('overlays section fields over the loader defaults', () => {
     const config = configFromThemeSection(normalized, {
-      wallpaper: '/wall.jpg',
-      glass: 'mica',
       accent: '#ff7fb2',
       autoAccent: true,
       surfaceOpacity: 42,
@@ -25,28 +23,31 @@ describe('configFromThemeSection', () => {
       inputOpacity: 70,
       codeBlockOpacity: 55,
       darkSurfaceOpacity: 40,
-      gradient: 'linear-gradient(red, blue)',
-      darkScrim: 30,
       fontFamily: 'MiSans',
+      codeFontFamily: 'JetBrains Mono',
+      fontScale: 1.05,
       scrollbarAccent: true,
-      vignette: true,
+      cornerRadius: 'lg',
+      surfaceShadow: 'soft',
+      darkAccent: '#223355',
     })
-    expect(config.wallpaper).toBe('/wall.jpg')
-    expect(config.glass).toBe('mica')
     expect(config.accent).toBe('#ff7fb2')
     expect(config.autoAccent).toBe(true)
     expect(config.surfaceOpacity).toBe(42)
-    expect(config.darkScrim).toBe(30)
+    expect(config.darkSurfaceOpacity).toBe(40)
     expect(config.fontFamily).toBe('MiSans')
-    expect(config.vignette).toBe(true)
+    expect(config.codeFontFamily).toBe('JetBrains Mono')
+    expect(config.fontScale).toBe(1.05)
+    expect(config.scrollbarAccent).toBe(true)
+    expect(config.cornerRadius).toBe('lg')
+    expect(config.surfaceShadow).toBe('soft')
+    expect(config.darkAccent).toBe('#223355')
     // Untouched fields keep loader defaults.
     expect(config.preset).toBe(normalized.preset)
   })
 
   it('falls back per field when the section leaves it undefined', () => {
     const config = configFromThemeSection(normalized, {
-      wallpaper: undefined,
-      glass: undefined,
       accent: undefined,
       autoAccent: undefined,
       surfaceOpacity: undefined,
@@ -55,52 +56,59 @@ describe('configFromThemeSection', () => {
       inputOpacity: undefined,
       codeBlockOpacity: undefined,
       darkSurfaceOpacity: undefined,
-      gradient: undefined,
-      darkScrim: undefined,
       fontFamily: undefined,
+      codeFontFamily: undefined,
+      fontScale: undefined,
       scrollbarAccent: undefined,
-      vignette: undefined,
+      cornerRadius: undefined,
+      surfaceShadow: undefined,
+      darkAccent: undefined,
     })
     expect(config).toEqual(normalized)
   })
 
-  it('rejects an invalid glass level (falls back to the loader)', () => {
+  it('rejects an invalid refinement knob (falls back to the loader)', () => {
     const config = configFromThemeSection(normalized, {
-      wallpaper: '/x.png', glass: 'banana' as string, accent: undefined,
+      accent: '#123456', cornerRadius: 'banana' as string,
       autoAccent: undefined, surfaceOpacity: undefined, sidebarOpacity: undefined,
       chatSurfaceOpacity: undefined, inputOpacity: undefined, codeBlockOpacity: undefined,
-      darkSurfaceOpacity: undefined, gradient: undefined, darkScrim: undefined,
-      fontFamily: undefined, scrollbarAccent: undefined, vignette: undefined,
+      darkSurfaceOpacity: undefined, fontFamily: undefined, codeFontFamily: undefined,
+      fontScale: undefined, scrollbarAccent: undefined, surfaceShadow: undefined,
+      darkAccent: undefined,
     })
-    expect(config.wallpaper).toBe('/x.png')
-    expect(config.glass).toBe(normalized.glass)
+    expect(config.accent).toBe('#123456')
+    expect(config.cornerRadius).toBe(normalized.cornerRadius)
+    expect(config.surfaceShadow).toBe(normalized.surfaceShadow)
   })
 
   it('never lands an explicit undefined on the optional darkSurfaceOpacity', () => {
     const config = configFromThemeSection(normalized, {
-      wallpaper: '/x.png', glass: 'frosted', accent: undefined, autoAccent: undefined,
+      accent: undefined, autoAccent: undefined,
       surfaceOpacity: undefined, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
-      gradient: undefined, darkScrim: undefined, fontFamily: undefined,
-      scrollbarAccent: undefined, vignette: undefined,
+      fontFamily: undefined, codeFontFamily: undefined,
+      fontScale: undefined, scrollbarAccent: undefined, cornerRadius: undefined,
+      surfaceShadow: undefined, darkAccent: undefined,
     })
     expect(typeof config.darkSurfaceOpacity).toBe('number')
   })
 
-  it('treats empty string knobs as "no override" (falls back to the loader)', () => {
-    // Clearing wallpaper/gradient/etc. in the settings form must revert to
-    // the loader layer — never silently disable the theme with ''.
+  it('treats an explicit empty string as "clear the field" (preset reset)', () => {
+    // An explicit '' from a preset clears the knob (back to stock defaults):
+    // a visual preset resets fontFamily even if a font preset was active.
+    // Absent fields (undefined) fall back to the loader layer instead — that
+    // is the per-field fallback test above, not this one.
     const config = configFromThemeSection(normalized, {
-      wallpaper: '', glass: 'frosted', accent: '', autoAccent: undefined,
+      accent: '', autoAccent: undefined,
       surfaceOpacity: undefined, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
-      gradient: '', darkScrim: undefined, fontFamily: '', scrollbarAccent: undefined,
-      vignette: undefined,
+      fontFamily: '', codeFontFamily: '', darkAccent: '',
+      fontScale: undefined, scrollbarAccent: undefined, cornerRadius: undefined,
+      surfaceShadow: undefined,
     })
-    expect(config.wallpaper).toBe(normalized.wallpaper)
-    expect(config.accent).toBe(normalized.accent)
-    expect(config.gradient).toBe(normalized.gradient)
-    expect(config.fontFamily).toBe(normalized.fontFamily)
+    expect(config.accent).toBe('')
+    expect(config.fontFamily).toBe('')
+    expect(config.darkAccent).toBe('')
   })
 
   it('inherits the dark surface opacity from the live surfaceOpacity when unset', () => {
@@ -108,20 +116,22 @@ describe('configFromThemeSection', () => {
     // follows 表面不透明度 (index.ts drops the loader-base dark value unless
     // the raw user layer carries an explicit override).
     const config = configFromThemeSection(normalized, {
-      wallpaper: '/x.png', glass: 'frosted', accent: '#123456', autoAccent: undefined,
+      accent: '#123456', autoAccent: undefined,
       surfaceOpacity: 72, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
-      gradient: undefined, darkScrim: undefined, fontFamily: undefined,
-      scrollbarAccent: undefined, vignette: undefined,
+      fontFamily: undefined, codeFontFamily: undefined, fontScale: undefined,
+      scrollbarAccent: undefined, cornerRadius: undefined, surfaceShadow: undefined,
+      darkAccent: undefined,
     })
     expect(config.darkSurfaceOpacity).toBe(72)
     // An explicit dark override still wins.
     const overridden = configFromThemeSection(normalized, {
-      wallpaper: '/x.png', glass: 'frosted', accent: undefined, autoAccent: undefined,
+      accent: undefined, autoAccent: undefined,
       surfaceOpacity: 72, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: 41,
-      gradient: undefined, darkScrim: undefined, fontFamily: undefined,
-      scrollbarAccent: undefined, vignette: undefined,
+      fontFamily: undefined, codeFontFamily: undefined, fontScale: undefined,
+      scrollbarAccent: undefined, cornerRadius: undefined, surfaceShadow: undefined,
+      darkAccent: undefined,
     })
     expect(overridden.darkSurfaceOpacity).toBe(41)
   })

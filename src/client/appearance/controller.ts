@@ -8,7 +8,7 @@
  * re-applies the saved values.
  */
 import { createSnapshotStore, type SnapshotStore } from '../snapshot-store.ts'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope } from '../dsh-client-types.ts'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CustomThemeConfig } from '../config.ts'
 import { DEFAULTS, normalizeConfig } from '../config.ts'

@@ -42,7 +42,7 @@
  *     new-session button. Clicks outside the list do NOT exit.
  *   - subagent and blank sessions are excluded (invisible after restore).
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '../../dsh-client-types.ts'
 import { ZH_ARCHIVE_NS } from '../shared.ts'
 import { archiveLocales } from '../locales/zh-locales.ts'
 import { settingsStore } from '../store/settings-store.ts'

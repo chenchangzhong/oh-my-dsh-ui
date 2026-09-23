@@ -14,7 +14,7 @@
  *   - ctx.locale (must support bind(), register(), subscribe(), getLocale(), translate)
  *   - settingsStore (local module, bridged to ctx.settingsScope)
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '../../dsh-client-types.ts'
 import { ZH, ZH_PARTIAL } from '../data/zh-dict.ts'
 import { TERMS } from '../data/terms.ts'
 import { PERMISSION_NAMES, PERMISSION_DESCRIPTIONS, COMMAND_DESCRIPTIONS, CHAT_LABELS } from '../data/dom-labels.ts'

@@ -7,7 +7,6 @@ export const UI_ENHANCE_NS = 'ui-enhance'
 export type UiEnhanceKey =
   | 'nav'
   | 'tabAppearance'
-  | 'tabUsage'
   | 'tabMotion'
   | 'tabZh'
 
@@ -15,7 +14,6 @@ export type UiEnhanceKey =
 export const zh: Record<UiEnhanceKey, string> = {
   nav: 'UI增强',
   tabAppearance: '外观',
-  tabUsage: '用量',
   tabMotion: '动效',
   tabZh: '增强',
 }
@@ -24,7 +22,6 @@ export const zh: Record<UiEnhanceKey, string> = {
 export const en: Record<UiEnhanceKey, string> = {
   nav: 'UI Enhancements',
   tabAppearance: 'Appearance',
-  tabUsage: 'Usage',
   tabMotion: 'Motion',
   tabZh: 'Enhancements',
 }

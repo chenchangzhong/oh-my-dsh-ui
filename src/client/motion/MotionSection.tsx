@@ -7,8 +7,8 @@
 
 import { useState } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
-import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SettingsScope } from '../dsh-client-types.ts'
+import { IconChevronDownOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   DEFAULT_MOTION_STYLE, DEFAULT_NEW_CHAT_MOTION_STYLE, DEFAULT_SIDEBAR_MOTION_STYLE,
   MOTION_PRESETS, isMotionStyle, isNewChatMotionStyle, isSidebarMotionStyle,
@@ -194,7 +194,7 @@ export function MotionSection({
               onClick={() => { setOpen(value => !value) }}
             >
               {translator(selectedLabel)}
-              <IconChevronDownOutline14 className={css.chevron} />
+              <IconChevronDownOutlineRegular className={css.chevron} />
             </button>
           )}
         />
@@ -241,7 +241,7 @@ export function MotionSection({
               onClick={() => { setSidebarOpen(value => !value) }}
             >
               {translator(sidebarSelectedLabel)}
-              <IconChevronDownOutline14 className={css.chevron} />
+              <IconChevronDownOutlineRegular className={css.chevron} />
             </button>
           )}
         />
@@ -303,7 +303,7 @@ export function MotionSection({
               onClick={() => { setNewChatOpen(value => !value) }}
             >
               {translator(newChatSelectedLabel)}
-              <IconChevronDownOutline14 className={css.chevron} />
+              <IconChevronDownOutlineRegular className={css.chevron} />
             </button>
           )}
         />

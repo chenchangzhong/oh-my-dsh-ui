@@ -18,7 +18,7 @@
  */
 import { createElement, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
 import { Component } from 'react'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '../dsh-client-types.ts'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -35,6 +35,7 @@ import { NS as SETTINGS_NS, en, zh } from './locales.ts'
 import { DEFAULT_STREAM_CONFIG, type StreamConfig } from './config.ts'
 import { DEFAULT_STREAM_SETTINGS, publishMotionPreference, publishLogFade, type StreamSettings } from './settings.ts'
 import { UI_CUSTOM_SETTINGS_NS } from '../../shared.ts'
+import { bindSettingsScope } from '../settings-source.ts'
 
 /**
  * Surfaces the real cause of a render crash inside the assistant-step takeover.
@@ -297,6 +298,10 @@ export function apply(ctx: ClientContext, config?: { preset?: string; takeover?:
     }
   }, 'smooth: settings card + debug panel registration')
 
+  // Settings face for the renderer's think-block clamp. Bound once here so
+  // React renders never re-bind the harness scope.
+  const nodeSettingsScope = bindSettingsScope(ctx)
+
   // Typewriter renderer registration
   const configured = function StreamConfiguredView(props: AssistantProps) {
     const preferences = useSyncExternalStore(
@@ -315,7 +320,7 @@ export function apply(ctx: ClientContext, config?: { preset?: string; takeover?:
         scrollSpeedPxPerSec: streamConfig.scrollSpeedPxPerSec,
         maxScrollSpeedPxPerSec: streamConfig.maxScrollSpeedPxPerSec,
         thinkAutoExpand: preferences.thinkAutoExpand,
-        settingsScope: ctx.settingsScope.bind({ namespace: UI_CUSTOM_SETTINGS_NS }),
+        settingsScope: nodeSettingsScope,
       }),
     )
   }

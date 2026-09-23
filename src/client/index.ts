@@ -10,12 +10,12 @@
  *   is a no-op and the profile stays stock.
  *
  * Feature selection (config.ts resolveFeatures / shared.ts FEATURES): each
- * independently selectable feature (markdown / appearance /
- * usage / motion) mounts its own settings rows, pages and DOM effects. The
- * loader config's `features` whitelist decides which mount; absent or
- * empty = everything (backward compatible).
+ * independently selectable feature (markdown / appearance / motion) mounts its
+ * own settings rows, pages and DOM effects. The loader config's `features`
+ * whitelist decides which mount; absent or empty = everything (backward
+ * compatible).
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '../dsh-client-types.ts'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the locale Context merge (ctx.locale) and the settings
 // scope + settings.section slot declarations (ctx.settingsScope, SlotMap).
@@ -30,6 +30,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { ZH_SETTINGS_NS, type ZhSettingsSection, type ZhPromptSection } from './zh/shared.ts'
 import { applyConfig } from './apply.ts'
+import { bindSettingsScope } from './settings-source.ts'
 import { normalizeConfig, resolveFeatures, type CustomThemeConfig } from './config.ts'
 import { resolvePreset } from './presets.ts'
 import {
@@ -38,16 +39,11 @@ import {
   UI_CUSTOM_SETTINGS_NS,
   type PluginFeature, type ThemeSection, type UiCustomSection,
 } from '../shared.ts'
-import { usageOverlay } from './usage-overlay.ts'
-import { USAGE_NS, en as usageEn, zh as usageZh } from './usage/usage-locales.ts'
 import { APPEARANCE_NS, en as appearanceEn, zh as appearanceZh } from './appearance/appearance-locales.ts'
 import { AppearanceSettingsController, type AppearanceInjected } from './appearance/controller.ts'
 import { AppearanceSection } from './appearance/AppearanceSection.tsx'
 import { PreviewBar, type PreviewBarInjected } from './appearance/PreviewBar.tsx'
 import { previewBar } from './preview-bar.ts'
-import { UsageSection } from './usage/UsageSection.tsx'
-import { UsageOverlay } from './usage/UsageOverlay.tsx'
-import type { UsageInjected, UsageOverlayInjected } from './usage/contract.ts'
 import { configFromThemeSection } from './theme-section.ts'
 import { MARKDOWN_NS, zh as markdownZh, en as markdownEn } from './markdown/markdown-locales.ts'
 import { UserMarkdownNodeView, type MarkdownRenderInjected } from './markdown/UserMarkdownNodeView.tsx'
@@ -68,18 +64,26 @@ export { DEFAULTS, CONFIG_KEYS, normalizeConfig, resolveFeatures, clampNumber, c
 export { PRESETS, PRESET_MAP, resolvePreset } from './presets.ts'
 export { FEATURES, type PluginFeature } from '../shared.ts'
 
-/** Required services: theme (none extra), settings UI (slots/locale/settingsScope/sessions). */
-export const inject = ['slots', 'locale', 'connection', 'sessions', 'workspaces', 'settingsScope', 'remote', 'remote.pluginInventory']
+/**
+ * Required services: theme (none extra), settings UI (slots/locale/sessions).
+ *
+ * The settings service itself is deliberately absent: it is
+ * `ctx.settingsScope` on ≤0.1.6 and `ctx.configForms` on 0.1.7, and a
+ * required name that one generation never provides leaves this client
+ * fiber pending forever — the fatal `web boot: N entries did not
+ * activate`. `bindSettingsScope` waits for whichever one exists.
+ */
+export const inject = ['slots', 'locale', 'connection', 'sessions', 'workspaces', 'remote', 'remote.pluginInventory']
 
 /**
  * Client plugin body: mount each enabled feature (appearance /
- * usage / markdown). The loader config's `features` whitelist
+ * markdown). The loader config's `features` whitelist
  * decides which features register; absent = everything.
  * @param ctx - client root context.
  * @param config - profile-level plugin config (partial over the preset).
  */
 export function apply(ctx: ClientContext, config?: Partial<CustomThemeConfig>): void {
-  const scope = ctx.settingsScope.bind<UiCustomSection>({ namespace: UI_CUSTOM_SETTINGS_NS })
+  const scope = bindSettingsScope<UiCustomSection>(ctx)
   const presetId = typeof config?.preset === 'string' ? config.preset : ''
   const normalized = normalizeConfig(config, resolvePreset(presetId))
   // The runtime settings scope is the only config channel that reaches the
@@ -241,7 +245,6 @@ export function apply(ctx: ClientContext, config?: Partial<CustomThemeConfig>): 
     const uiEnhanceT = ctx.locale.bind(UI_ENHANCE_NS)
 
     // ── Locales: register mounted features' dictionaries (needed for t() inside tabs) ──
-    if (enabled('usage')) ctx.effect(() => ctx.locale.register(USAGE_NS, { zh: usageZh, en: usageEn }), 'ui-custom: usage dictionaries')
     if (enabled('appearance')) {
       ctx.effect(
         () => ctx.locale.register(APPEARANCE_NS, { zh: appearanceZh, en: appearanceEn }),
@@ -326,19 +329,6 @@ export function apply(ctx: ClientContext, config?: Partial<CustomThemeConfig>): 
     }, PreviewBar))
   }
 
-  // ── 用量 overlay（settings section is now inside ui-enhance）───────────────
-  if (enabled('usage')) {
-    ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-      name: 'shell.overlay',
-      id: 'ui-custom-usage',
-      order: 100,
-      locale: USAGE_NS,
-      inject: (): UsageOverlayInjected => ({
-        hooks: { sessions: ctx.sessions.list, usageVisible: usageOverlay },
-      }),
-    }, UsageOverlay))
-  }
-
   // ── 用户消息 Markdown 渲染：user/steering node shadowing ─────────────────
   if (enabled('markdown')) {
     ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
@@ -361,8 +351,10 @@ export function apply(ctx: ClientContext, config?: Partial<CustomThemeConfig>): 
   // Prepare zh scopes BEFORE the unified section so the inject can capture them.
   // The section registration itself is skipped (consolidated into ui-enhance).
   if (enabled('zh')) {
-    zhSettingsScope = ctx.settingsScope.bind<ZhSettingsSection>({ namespace: UI_CUSTOM_SETTINGS_NS }) as unknown as ScopeFace<ZhSettingsSection>
-    zhPromptScope = ctx.settingsScope.bind<ZhPromptSection>({ namespace: UI_CUSTOM_SETTINGS_NS }) as unknown as ScopeFace<ZhPromptSection>
+    // Same namespace as `scope` above: one ui-custom section carries the zh
+    // fields too, so both feature faces read the SAME backing scope.
+    zhSettingsScope = scope as unknown as ScopeFace<ZhSettingsSection>
+    zhPromptScope = scope as unknown as ScopeFace<ZhPromptSection>
   }
 
   // ── 统一 UI增强 settings.section（外观/用量/动效/增强 → tab）────────────
@@ -375,7 +367,6 @@ export function apply(ctx: ClientContext, config?: Partial<CustomThemeConfig>): 
   // UI_ENHANCE_NS only, but each sub-section calls keys from its OWN namespace.
   // Bind a translator for each so t() resolves the right dictionary.
   const appearanceT = ctx.locale.bind(APPEARANCE_NS)
-  const usageT = ctx.locale.bind(USAGE_NS)
   const motionT = ctx.locale.bind(MOTION_NS)
   // Build the tab allowlist from the feature whitelist so disabled features
   // don't render inside the unified panel.
@@ -384,7 +375,6 @@ export function apply(ctx: ClientContext, config?: Partial<CustomThemeConfig>): 
     if (enabled('appearance')) tabs.push('appearance')
     if (enabled('motion')) tabs.push('motion')
     if (enabled('zh')) tabs.push('zh')
-    if (enabled('usage')) tabs.push('usage')
     return tabs.length > 0 ? tabs : (['appearance'] as UiEnhanceTab[])
   })()
   ctx.slots.inject('settings.section', () => ctx.slots.register({
@@ -449,7 +439,6 @@ export function apply(ctx: ClientContext, config?: Partial<CustomThemeConfig>): 
       // zh
       zhT,
       appearanceT,
-      usageT,
       motionT,
     }),
   }, UiEnhanceSection))

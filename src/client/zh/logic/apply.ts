@@ -12,7 +12,7 @@
  * All subsystems are wrapped in ctx.effect() so they are tied to the Fiber
  * lifecycle and automatically cleaned up on unmount.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '../../dsh-client-types.ts'
 import type { ScopeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { UiCustomSection } from '../../../shared.ts'
 import { UI_CUSTOM_SETTINGS_NS } from '../../../shared.ts'
@@ -22,6 +22,7 @@ import {
   type ZhSettingsSection,
   type ZhPromptSection,
 } from '../shared.ts'
+import { bindSettingsScope } from '../../settings-source.ts'
 import { registerSettingsSection } from './register-section.ts'
 import { SETTINGS_ZH, SETTINGS_EN } from '../data/settings-dicts.ts'
 import { ZH_SETTINGS_NS } from '../shared.ts'
@@ -51,12 +52,8 @@ export function applyZh(ctx: ClientContext, opts?: ApplyZhOptions): () => void {
   // ZhSection; unknown theme/motion fields are ignored by the zh reads.
   // After prompt/locale removal only zhAutoArchiveDays remains on promptScope,
   // still bound to the same namespace.
-  const settingsScope = ctx.settingsScope.bind<ZhSettingsSection>({
-    namespace: UI_CUSTOM_SETTINGS_NS,
-  }) as unknown as ScopeFace<ZhSettingsSection>
-  const promptScope = ctx.settingsScope.bind<ZhPromptSection>({
-    namespace: UI_CUSTOM_SETTINGS_NS,
-  }) as unknown as ScopeFace<ZhPromptSection>
+  const settingsScope = bindSettingsScope<ZhSettingsSection>(ctx)
+  const promptScope = bindSettingsScope<ZhPromptSection>(ctx)
 
   const zhCtx: ZhApplyContext = { ctx, settingsScope, promptScope }
 

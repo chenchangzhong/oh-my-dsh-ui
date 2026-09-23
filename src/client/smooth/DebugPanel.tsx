@@ -3,11 +3,11 @@ import { createPortal } from 'react-dom'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
-  IconCloseOutline16,
-  IconCodeOutline16,
-  IconCopyOutline16,
-  IconQuestionOutline14,
-  IconRefreshOutline16,
+  IconCloseOutlineRegular,
+  IconCodeOutlineRegular,
+  IconCopyOutlineRegular,
+  IconQuestionOutlineRegular,
+  IconRefreshOutlineRegular,
   Tooltip,
   writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -93,7 +93,7 @@ function TuningField({
               aria-label={label}
               title={t(control.tip)}
             >
-              <IconQuestionOutline14 />
+              <IconQuestionOutlineRegular />
             </button>
           </Tooltip>
         </span>
@@ -165,7 +165,7 @@ export function DebugPanel(props: DebugPanelProps) {
         <span className={css.state}>{t(live ? 'debugLive' : 'debugIdle')}</span>
         {state.dirty ? <span className={css.unsaved}>{t('debugUnsaved')}</span> : null}
         <button className={css.iconButton} type="button" title={t('debugCopy')} aria-label={t('debugCopy')} onClick={() => { void copyDiagnostics() }}>
-          <IconCopyOutline16 />
+          <IconCopyOutlineRegular size={16} />
         </button>
         <button
           className={css.iconButton}
@@ -179,7 +179,7 @@ export function DebugPanel(props: DebugPanelProps) {
             props.save()
           }}
         >
-          <IconCloseOutline16 />
+          <IconCloseOutlineRegular size={16} />
         </button>
         <span className={css.visuallyHidden} aria-live="polite">{copied ? t('debugCopied') : ''}</span>
       </header>
@@ -220,7 +220,7 @@ export function DebugPanel(props: DebugPanelProps) {
 
       <footer className={css.footer}>
         <button className={css.secondaryButton} type="button" disabled={!state.writable} onClick={props.reset}>
-          <IconRefreshOutline16 />
+          <IconRefreshOutlineRegular size={16} />
           {t('debugReset')}
         </button>
         <span className={css.footerSpacer} />
@@ -240,7 +240,7 @@ export function DebugPanel(props: DebugPanelProps) {
         title={t('debugPanelToggle')}
         onClick={() => { setOpen(current => !current) }}
       >
-        <IconCodeOutline16 />
+        <IconCodeOutlineRegular size={16} />
       </button>
       {typeof document === 'undefined' || panel === null ? null : createPortal(panel, document.body)}
     </>

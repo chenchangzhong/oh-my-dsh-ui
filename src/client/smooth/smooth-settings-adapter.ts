@@ -6,7 +6,7 @@
  * This port uses the host's `ctx.settingsScope` under the `ui-custom` namespace,
  * with smooth-specific fields stored there.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScopeFace } from '../settings-source.ts'
 import {
   DEFAULT_STREAM_DEBUG_TUNING,
   DEFAULT_STREAM_SETTINGS,
@@ -80,9 +80,9 @@ export interface SmoothSettingsFace {
   writable(): boolean
 }
 
-/** Create a settings API backed by the host's settingsScope. */
+/** Create a settings API backed by the plugin's ui-custom settings face. */
 export function createHostSettingsApi(
-  scope: ClientContext extends { settingsScope: infer S } ? S extends { bind: (ns: unknown) => { getSnapshot: () => { value: unknown } } } ? S : never : never,
+  scope: SettingsScopeFace<SmoothScopeSnapshot>,
 ): SmoothSettingsFace {
   // The scope is already bound; read from it directly.
   return {

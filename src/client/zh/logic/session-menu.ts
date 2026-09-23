@@ -12,7 +12,7 @@
  * Language-independent: the delete item is injected regardless of UI language,
  * with文案 following the current locale (zh/en).
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '../../dsh-client-types.ts'
 import { ZhApplyContext } from './apply.ts'
 import { settingsStore } from '../store/settings-store.ts'
 import { batchSelectionIds, batchSelectionSize, clearBatchSelection } from './session-batch.ts'

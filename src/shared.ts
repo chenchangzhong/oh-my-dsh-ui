@@ -13,7 +13,7 @@ export const UI_CUSTOM_SETTINGS_NS = 'ui-custom'
  * owns its settings rows / pages, so an unlisted feature is simply absent
  * from the Settings surface and the DOM.
  */
-export const FEATURES = ['markdown', 'appearance', 'usage', 'motion', 'zh', 'smooth'] as const
+export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as const
 
 /** One opt-in plugin feature id (see {@link FEATURES}). */
 export type PluginFeature = typeof FEATURES[number]
@@ -320,7 +320,7 @@ export interface SmoothSection {
 export interface UiCustomSection extends ThemeSection, ZhSection, SmoothSection {
   /**
    * Feature whitelist: which independently selectable features mount on the
-   * web client (markdown / appearance / usage / motion / zh / smooth). Absent
+   * web client (markdown / appearance / motion / zh / smooth). Absent
    * or empty = every feature; present = only the listed ones register. Lives
    * in the settings namespace (the client never receives the loader config),
    * seeded from the loader config's `features`.

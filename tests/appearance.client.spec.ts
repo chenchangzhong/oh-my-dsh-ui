@@ -6,7 +6,7 @@
  * resolved section until the user stages an edit.
  */
 import { describe, expect, it } from 'vitest'
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope, SettingsScopeSnapshot } from '../src/client/dsh-client-types.ts'
 import { AppearanceSettingsController } from '../src/client/appearance/controller.ts'
 import { normalizeConfig } from '../src/client/config.ts'
 import type { ThemeSection } from '../src/shared.ts'
@@ -39,13 +39,12 @@ const loaded = (value: Partial<ThemeSection>): SettingsScopeSnapshot<ThemeSectio
 
 describe('AppearanceSettingsController', () => {
   it('seeds the draft from an already-loaded scope section, not schema defaults', () => {
-    const scope = fakeScope(loaded({ wallpaper: '/wallpaper.png', surfaceOpacity: 35, accent: '#4176e6' }))
+    const scope = fakeScope(loaded({ surfaceOpacity: 35, accent: '#4176e6', fontFamily: 'MiSans' }))
     const controller = new AppearanceSettingsController(scope, defaults)
     const state = controller.store.getSnapshot()
-    expect(state.values.wallpaper).toBe('/wallpaper.png')
-    expect(state.draft.wallpaper).toBe('/wallpaper.png')
+    expect(state.values.surfaceOpacity).toBe(35)
     expect(state.draft.surfaceOpacity).toBe(35)
-    expect(state.draft.accent).toBe('#4176e6')
+    expect(state.draft.fontFamily).toBe('MiSans')
     expect(state.dirty).toBe(false)
   })
 
@@ -53,46 +52,48 @@ describe('AppearanceSettingsController', () => {
     const scope = fakeScope({ status: 'loading', value: undefined, base: undefined, user: undefined, revision: undefined, writable: false, mode: 'host' })
     const controller = new AppearanceSettingsController(scope, defaults)
     const { dispose } = controller.mount()
-    void scope.set('wallpaper', '/wallpaper.png')
+    void scope.set('surfaceOpacity', 42)
     const state = controller.store.getSnapshot()
-    expect(state.draft.wallpaper).toBe('/wallpaper.png')
+    expect(state.draft.surfaceOpacity).toBe(42)
     expect(state.dirty).toBe(false)
     dispose()
   })
 
   it('keeps a user-staged edit while the scope updates elsewhere', () => {
-    const scope = fakeScope(loaded({ wallpaper: '/wallpaper.png', surfaceOpacity: 35 }))
+    const scope = fakeScope(loaded({ surfaceOpacity: 35 }))
     const controller = new AppearanceSettingsController(scope, defaults)
     const { dispose } = controller.mount()
-    controller.setField('surfaceOpacity', 77)
-    void scope.set('wallpaper', '/other.png')
+    controller.setField('fontScale', 1.05)
+    void scope.set('surfaceOpacity', 42)
     const state = controller.store.getSnapshot()
-    // The staged edit survives the external update; the draft is preserved
-    // wholesale until the user resolves it (save/reset).
-    expect(state.draft.surfaceOpacity).toBe(77)
-    expect(state.draft.wallpaper).toBe('/wallpaper.png')
+    // Once the user stages an edit the draft is preserved wholesale until
+    // they resolve it (save/reset) — the external document change only
+    // refreshes `values`, never the staged draft.
+    expect(state.draft.fontScale).toBe(1.05)
+    expect(state.draft.surfaceOpacity).toBe(35)
+    expect(state.values.surfaceOpacity).toBe(42)
     expect(state.dirty).toBe(true)
     dispose()
   })
 
   it('save writes only the edited fields and re-syncs the draft', async () => {
-    const scope = fakeScope(loaded({ wallpaper: '/wallpaper.png', surfaceOpacity: 35 }))
+    const scope = fakeScope(loaded({ surfaceOpacity: 35, accent: '#4176e6' }))
     const controller = new AppearanceSettingsController(scope, defaults)
     controller.setField('surfaceOpacity', 77)
     await controller.save()
     expect(scope.getSnapshot().value?.surfaceOpacity).toBe(77)
-    expect(scope.getSnapshot().value?.wallpaper).toBe('/wallpaper.png')
+    expect(scope.getSnapshot().value?.accent).toBe('#4176e6')
     const state = controller.store.getSnapshot()
     expect(state.draft.surfaceOpacity).toBe(77)
     expect(state.dirty).toBe(false)
   })
 
   it('resetAll unsets every field and the draft follows the composition layer', async () => {
-    const scope = fakeScope(loaded({ wallpaper: '/wallpaper.png', surfaceOpacity: 35 }))
+    const scope = fakeScope(loaded({ surfaceOpacity: 35, accent: '#4176e6' }))
     const controller = new AppearanceSettingsController(scope, defaults)
     await controller.resetAll()
     expect(scope.getSnapshot().value).toEqual({})
     // Draft now reflects the scope (empty section → loader defaults), not stale edits.
-    expect(controller.store.getSnapshot().draft.wallpaper).toBe(defaults.wallpaper)
+    expect(controller.store.getSnapshot().draft.surfaceOpacity).toBe(defaults.surfaceOpacity)
   })
 })

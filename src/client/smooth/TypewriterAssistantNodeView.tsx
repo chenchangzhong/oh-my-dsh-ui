@@ -1,7 +1,5 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from 'react'
-import { IconThinkOutline14, JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import { type ImageLoader, type MessageImageLabels } from '@deepseek-ai/dsh-client-ui-attachment'
-import * as AttachmentNS from '@deepseek-ai/dsh-client-ui-attachment'
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from 'react'
+import { JsonBlock, MarkdownText, IconThinkOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeViewProps, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { AnimatedDisclosure } from './AnimatedDisclosure.tsx'
 import { useSmoothStreamContent, type StreamSmoothingPreset } from './useSmoothStreamContent.ts'
@@ -433,20 +431,6 @@ function AnimatedMarkdownText({
   )
 }
 
-function imageLabels(t: AssistantProps['t']): MessageImageLabels {
-  return {
-    image: t('image.label'),
-    open: t('image.openOriginal'),
-    openNamed: label => t('image.openOriginalLabel', { label }),
-    loading: t('image.loading'),
-    loadFailed: t('image.loadFailed'),
-    lightbox: {
-      dialog: t('image.preview'),
-      close: t('image.closePreview'),
-    },
-  }
-}
-
 function firstLine(text: string): string {
   const newline = text.indexOf('\n')
   return newline === -1 ? text : text.slice(0, newline)
@@ -487,6 +471,7 @@ function AnimatedReasoning({
   followRevealScaleRef?: { current: number } | undefined
   t: AssistantProps['t']
   settingsScope?: unknown
+  groupPart?: 'reasoning' | 'response'
 }) {
   const reduced = useReducedMotion()
   const [expanded, setExpanded] = useState(running && thinkAutoExpand)
@@ -553,7 +538,7 @@ function AnimatedReasoning({
           leadingClassName={css.thinkLeading}
           titleClassName={css.thinkTitle}
           chevronClassName={css.thinkChevron}
-          icon={<IconThinkOutline14 size={14} />}
+          icon={<IconThinkOutlineRegular size={14} />}
           title="Think"
           open={expanded}
           onToggle={() => { setExpanded(value => !value) }}
@@ -600,9 +585,9 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
   node,
   useTurnData,
   openFile,
-  loadImage,
   fileMentions,
   t,
+  groupPart,
 }: AssistantProps & {
   mode?: StreamMode
   preset?: StreamSmoothingPreset
@@ -658,12 +643,20 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
     () => ({ code: { copyLabel: t('copy'), copiedLabel: t('copied') }, footnotes: t('markdown.footnotes') }),
     [t],
   )
-  const imageLoader: ImageLoader = loadImage ?? (async () => {
-    throw new Error(t('image.serviceUnavailable'))
+  // 0.1.7 host contract: an assistant step is projected as TWO seats
+  // (ProcessGroup split). `groupPart === 'reasoning'` renders ONLY reasoning
+  // blocks, `'response'` ONLY non-reasoning blocks; absent = everything
+  // (0.1.5 Desktop behavior). The host's own AssistantMarkdown filters the
+  // same way (dsh-client-ui-chat 0.1.7 AssistantMarkdown). Rendering full
+  // blocks in both seats duplicated the think and reply blocks.
+  const visibleBlocks = data.blocks.filter(block => {
+    if (groupPart === 'reasoning' && block.kind !== 'reasoning') return false
+    if (groupPart === 'response' && block.kind === 'reasoning') return false
+    return true
   })
   const hasVisible = streaming
     || data.status === 'interrupted'
-    || data.blocks.some(block => block.kind !== 'tool-call')
+    || visibleBlocks.some(block => block.kind !== 'tool-call')
   if (!hasVisible) return null
   const announcementText = data.blocks
     .filter(block => block.kind === 'text')
@@ -671,14 +664,13 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
     .join('\n')
 
   const rendered: ReactNode[] = []
-  const last = data.blocks.length - 1
   let lastFollow = -1
-  for (let index = 0; index < data.blocks.length; index += 1) {
-    const kind = data.blocks[index]?.kind
+  for (let index = 0; index < visibleBlocks.length; index += 1) {
+    const kind = visibleBlocks[index]?.kind
     if (kind === 'text' || kind === 'reasoning') lastFollow = index
   }
-  for (let index = 0; index < data.blocks.length; index += 1) {
-    const block = data.blocks[index]
+  for (let index = 0; index < visibleBlocks.length; index += 1) {
+    const block = visibleBlocks[index]
     if (block === undefined) continue
     // Guard: skip blocks with missing content to prevent DSH MarkdownText crash
     if ((block.kind === 'text' || block.kind === 'reasoning') && (block.text === undefined || typeof block.text !== 'string')) continue
@@ -705,12 +697,12 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
           <AnimatedReasoning
             key={index}
             text={String(block.text)}
-            running={streaming && index === last}
+            running={streaming && index === visibleBlocks.length - 1}
             preset={preset}
             thinkAutoExpand={thinkAutoExpand}
             shouldHoldBack={shouldHoldBack}
-            followSpeedCpsRef={reasoningOwnsSpeed && index === last ? rootSpeedRef : undefined}
-            followRevealScaleRef={reasoningOwnsSpeed && index === last ? rootRevealScaleRef : undefined}
+            followSpeedCpsRef={reasoningOwnsSpeed && index === visibleBlocks.length - 1 ? rootSpeedRef : undefined}
+            followRevealScaleRef={reasoningOwnsSpeed && index === visibleBlocks.length - 1 ? rootRevealScaleRef : undefined}
             t={t}
             settingsScope={settingsScope}
           />,
@@ -719,17 +711,25 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
       case 'image': {
         const start = index
         const group = [block]
-        while (index + 1 < data.blocks.length) {
+        while (index + 1 < visibleBlocks.length) {
           const next = data.blocks[index + 1]
           if (next === undefined || next.kind !== 'image') break
           group.push(next)
           index += 1
         }
         {
-          const Gallery = (AttachmentNS as unknown as { ImageGallery?: typeof import('@deepseek-ai/dsh-client-ui-attachment')['ImageGallery'] }).ImageGallery
-          if (Gallery !== undefined) {
+          // 0.1.7: ImageGallery is no longer exported by the attachment machine
+          // package; images dispatch through the platform's renderMessageImages
+          // (the Images slot session outlet, with the outlet's loadImage).
+          const renderImages = (props as unknown as { renderMessageImages?: unknown }).renderMessageImages
+          if (typeof renderImages === 'function') {
             rendered.push(
-              <Gallery key={start} images={group} load={imageLoader} align="start" labels={imageLabels(t)} />,
+              <Fragment key={start}>
+                {renderImages({
+                  images: group.map(({ attachment }) => ({ attachment })),
+                  align: 'start',
+                })}
+              </Fragment>,
             )
           }
         }
@@ -761,7 +761,7 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
       >
         <div className={css.body}>
           {rendered}
-          {data.status === 'interrupted' && <span className={css.stopped}>{t('message.stopped')}</span>}
+          {data.status === 'interrupted' && (groupPart === undefined || groupPart === 'response' || visibleBlocks.some(block => block.kind !== 'reasoning' && block.kind !== 'tool-call')) && <span className={css.stopped}>{t('message.stopped')}</span>}
         </div>
       </FollowHost>
     </div>

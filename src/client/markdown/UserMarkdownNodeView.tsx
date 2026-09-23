@@ -15,11 +15,11 @@ import { Component, memo, useState } from 'react'
 import type { ComponentProps, ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  IconCheckOutline16, IconCopyOutline16, JsonBlock, MarkdownText, MessageText, Tooltip, writeClipboard,
+  JsonBlock, MarkdownText, Tooltip, writeClipboard,
+  IconCheckOutlineRegular, IconCopyOutlineRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ImageGallery, type ImageLoader, type MessageImageLabels } from '@deepseek-ai/dsh-client-ui-attachment'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
-import type { UserMessageNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope } from '../dsh-client-types.ts'
+import type { UserMessageNode } from '../dsh-client-types.ts'
 import type { UiCustomSection } from '../../shared.ts'
 import css from './MarkdownRender.module.css'
 
@@ -27,6 +27,13 @@ import css from './MarkdownRender.module.css'
 // keyed slot and the `conversation` locale namespace) from the platform
 // package — erased before bundling, so the purity gate never sees it.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+
+/** Local plain-text primitive — 0.1.7 removed primitives' MessageText, so the
+ * two-line wrapper (pre-wrap + break-word, metrics inherited from the bubble)
+ * is replicated here with the file's own CSS module. */
+function MessageText({ text }: { text: string }): ReactNode {
+  return <div className={css.plainText}>{text}</div>
+}
 
 type UserImage = Extract<UserMessageNode['content'][number], { type: 'image' }>
 
@@ -61,21 +68,6 @@ function contentParts(content: readonly unknown[]): {
     else rest.push(block)
   }
   return { text: texts.join(''), images, rest }
-}
-
-/** Image-gallery labels from the `conversation` namespace (see ui-conversation). */
-function imageLabels(t: TranslateNS<'conversation'>): MessageImageLabels {
-  return {
-    image: t('image.label'),
-    open: t('image.openOriginal'),
-    openNamed: label => t('image.openOriginalLabel', { label }),
-    loading: t('image.loading'),
-    loadFailed: t('image.loadFailed'),
-    lightbox: {
-      dialog: t('image.preview'),
-      close: t('image.closePreview'),
-    },
-  }
 }
 
 /**
@@ -148,17 +140,28 @@ function UserBubbleActions({ text, time, t }: {
       {time !== undefined ? <span className={css.timeStart}>{formatClock(time, t)}</span> : null}
       <Tooltip label={copied ? t('copied') : t('copy')} side="bottom">
         <button type="button" className={css.action} aria-label={copied ? t('copied') : t('copy')} onClick={onCopy}>
-          {copied ? <IconCheckOutline16 /> : <IconCopyOutline16 />}
+          {copied ? <IconCheckOutlineRegular size={16} /> : <IconCopyOutlineRegular size={16} />}
         </button>
       </Tooltip>
     </div>
   )
 }
 
+/** 0.1.7 image dispatch: the platform passes the owner-bound
+ * `renderMessageImages` helper (backed by the attachment plugin's
+ * `conversation.message.images` slot and the outlet's loadImage) through the
+ * standard kit — image blocks render through it exactly like stock. */
+type RenderMessageImages = (owner: {
+  images: readonly { attachment: UserImage['attachment'] }[]
+  align?: 'start' | 'end'
+  compact?: boolean
+}) => ReactNode
+
 /** Right-aligned bubble shared by user and steering rows. */
-function UserStyleBubble({ content, imageLoader, renderMarkdown, t, actions }: {
+function UserStyleBubble({ content, renderMessage, renderMarkdown, t, actions }: {
   content: readonly unknown[]
-  imageLoader: ImageLoader
+  /** Platform-provided image renderer (stock UserMessageNodeView props share). */
+  renderMessage: RenderMessageImages | undefined
   /** Whether the text renders through MarkdownText (else plain + chips). */
   renderMarkdown: boolean
   t: TranslateNS<'conversation'>
@@ -167,12 +170,11 @@ function UserStyleBubble({ content, imageLoader, renderMarkdown, t, actions }: {
   const { text, images, rest } = contentParts(content)
   const truncated = (total: number): string => t('json.truncated', { total })
   const showBubble = text !== '' || rest.length > 0
-  const hasGallery = typeof ImageGallery !== 'undefined' && ImageGallery !== null
   return (
     <div className={css.userRow} data-time-hover-root>
       <div className={css.userStack}>
-        {hasGallery ? (
-          <ImageGallery images={images} load={imageLoader} align="end" labels={imageLabels(t)} />
+        {typeof renderMessage === 'function' ? (
+          images.length > 0 ? renderMessage({ images, align: 'end', compact: images.length > 1 }) : null
         ) : images.length > 0 ? (
           <div className={css.bubble} style={{ opacity: 0.6, fontSize: 12 }}>{t('image.label')}: {images.length}</div>
         ) : null}
@@ -190,7 +192,7 @@ function UserStyleBubble({ content, imageLoader, renderMarkdown, t, actions }: {
   )
 }
 
-class MarkdownRowErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+class MarkdownRowErrorBoundary extends Component<{ children: ReactNode; renderMessage?: RenderMessageImages | undefined }, { error: Error | null }> {
   state = { error: null as Error | null }
   static getDerivedStateFromError(error: Error) { return { error } }
   componentDidCatch(error: Error, info: unknown) {
@@ -201,12 +203,11 @@ class MarkdownRowErrorBoundary extends Component<{ children: ReactNode }, { erro
       name: (error as { name?: string })?.name,
       stack: error?.stack,
       componentStack: stack,
-      // Extra: which primitives are undefined at render time
+      // Extra: which platform atoms are available at render time
       hasMarkdownText: typeof MarkdownText !== 'undefined',
-      hasMessageText: typeof MessageText !== 'undefined',
-      hasImageGallery: typeof ImageGallery !== 'undefined',
       hasJsonBlock: typeof JsonBlock !== 'undefined',
       hasTooltip: typeof Tooltip !== 'undefined',
+      hasRenderMessageImages: typeof (this.props.renderMessage) === 'function',
     }, info)
   }
   render() {
@@ -217,19 +218,19 @@ class MarkdownRowErrorBoundary extends Component<{ children: ReactNode }, { erro
 
 // Inner component that always calls the hook - only rendered when hook exists
 const UserMarkdownNodeViewInner = memo(function UserMarkdownNodeViewInner({
-  node, loadImage, t, useMdRender,
+  node, renderMessageImages, t, useMdRender,
 }: UserMarkdownNodeProps) {
   const md = useMdRender((value) => value)
   const renderMarkdown = (md as { value?: { renderUserMarkdown?: boolean } })?.value?.renderUserMarkdown ?? false
   const data = (node as { data?: { content?: unknown; time?: number } })?.data ?? {}
   const content = Array.isArray((data as { content?: unknown }).content) ? (data as { content: unknown[] }).content : []
   const time = typeof (data as { time?: unknown }).time === 'number' ? (data as { time: number }).time : undefined
-  const safeLoadImage = (typeof loadImage === 'function' ? loadImage : undefined) as unknown as typeof loadImage
+  const safeRender = (typeof renderMessageImages === 'function' ? renderMessageImages : undefined) as RenderMessageImages | undefined
   const safeT = (typeof t === 'function' ? t : ((k: string) => k)) as typeof t
   return (
     <UserStyleBubble
       content={content}
-      imageLoader={safeLoadImage}
+      renderMessage={safeRender}
       renderMarkdown={renderMarkdown}
       t={safeT}
       actions={(text) => <UserBubbleActions text={text} time={time} t={safeT} />}
@@ -242,17 +243,17 @@ export const UserMarkdownNodeView = memo(function UserMarkdownNodeView(props: Us
   const useMdRender = (props as unknown as { useMdRender?: unknown }).useMdRender
   // Historical refresh may deliver props without injected hook - avoid conditional hook call
   if (typeof useMdRender !== 'function') {
-    const { node, loadImage, t } = props as UserMarkdownNodeProps & Record<string, unknown>
+    const { node, renderMessageImages, t } = props as UserMarkdownNodeProps & Record<string, unknown>
     const data = (node as { data?: { content?: unknown; time?: number } })?.data ?? {}
     const content = Array.isArray((data as { content?: unknown }).content) ? (data as { content: unknown[] }).content : []
     const time = typeof (data as { time?: unknown }).time === 'number' ? (data as { time: number }).time : undefined
-    const safeLoadImage = (typeof loadImage === 'function' ? loadImage : undefined) as unknown as typeof loadImage
+    const safeRender = (typeof renderMessageImages === 'function' ? renderMessageImages : undefined) as RenderMessageImages | undefined
     const safeT = (typeof t === 'function' ? t : ((k: string) => k)) as unknown as typeof t
     return (
-      <MarkdownRowErrorBoundary>
+      <MarkdownRowErrorBoundary renderMessage={safeRender}>
         <UserStyleBubble
           content={content}
-          imageLoader={safeLoadImage}
+          renderMessage={safeRender}
           renderMarkdown={false}
           t={safeT}
           actions={(text) => <UserBubbleActions text={text} time={time} t={safeT} />}
@@ -260,8 +261,10 @@ export const UserMarkdownNodeView = memo(function UserMarkdownNodeView(props: Us
       </MarkdownRowErrorBoundary>
     )
   }
+  const renderMessageImages = (props as unknown as { renderMessageImages?: unknown }).renderMessageImages
+  const safeRender = (typeof renderMessageImages === 'function' ? renderMessageImages : undefined) as RenderMessageImages | undefined
   return (
-    <MarkdownRowErrorBoundary>
+    <MarkdownRowErrorBoundary renderMessage={safeRender}>
       <UserMarkdownNodeViewInner {...props} />
     </MarkdownRowErrorBoundary>
   )

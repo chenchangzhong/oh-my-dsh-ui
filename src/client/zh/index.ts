@@ -30,7 +30,7 @@
  *   import { applyZh } from './zh/index.ts'
  * and mounts it inside registerFeatures under enabled('zh').
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '../dsh-client-types.ts'
 import { applyZh } from './logic/apply.ts'
 
 export { applyZh }

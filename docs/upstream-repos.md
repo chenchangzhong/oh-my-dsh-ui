@@ -10,14 +10,14 @@
 
 | Feature | 来源 | 说明 |
 |---------|------|------|
-| `appearance` / `usage` / `motion` / `markdown` | 原生（源自 yoli-mi） | DSH UI 增强（壁纸/动效/用量统计等） |
+| `appearance` / `motion` / `markdown` | 原生（源自 yoli-mi） | DSH UI 增强（壁纸/动效等） |
 | `zh` | 整合自 `deepseek-harness-zh_pro` | 中文界面增强 |
 | `smooth` | 整合自 `dsh-smooth-stream` | 丝滑流式打字机 |
 
 实际 `FEATURES` 见 `src/shared.ts`：
 
 ```ts
-export const FEATURES = ['markdown', 'appearance', 'usage', 'motion', 'zh', 'smooth'] as const
+export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as const
 ```
 
 > 上游 yoli-mi 原版还有 `shortcuts` / `history` / `marketplace` / `pin` 四个模块，
@@ -30,7 +30,7 @@ export const FEATURES = ['markdown', 'appearance', 'usage', 'motion', 'zh', 'smo
 | Remote 名 | GitHub 地址 | 关系 |
 |-----------|-------------|------|
 | `oh-my-dsh-ui` | https://github.com/chenchangzhong/oh-my-dsh-ui | 本地 fork（可 push） |
-| `yoli-mi` | https://github.com/yoli-mi/dsh-client-ui-custom | 主上游（appearance/usage/motion/markdown 来源） |
+| `yoli-mi` | https://github.com/yoli-mi/dsh-client-ui-custom | 主上游（appearance/motion/markdown 来源） |
 | `upstream` | https://github.com/magian1127/deepseek-harness-zh_pro | `zh` Feature 上游 |
 | `dsh-smooth-stream` | https://github.com/Laplace-bit/dsh-smooth-stream | `smooth` Feature 上游（**remote 地址待更正**） |
 
@@ -189,10 +189,9 @@ oh-my-dsh-ui/
 │   │   ├── custom.css         # 主题 token 级联覆盖
 │   │   ├── snapshot-store.ts  # 轻量快照 store
 │   │   ├── theme-section.ts   # 主题设置区块
-│   │   ├── preview-bar.ts / usage-overlay.ts
+│   │   ├── preview-bar.ts
 │   │   ├── appearance/        # 壁纸/毛玻璃/强调色/透明度/字体/质感
 │   │   ├── motion/            # 入场动效
-│   │   ├── usage/             # 用量统计面板
 │   │   ├── markdown/          # 用户消息 Markdown 渲染
 │   │   ├── ui-enhance/        # UI 增强设置页
 │   │   ├── zh/                # ===== 整合自 zh_pro =====
@@ -229,7 +228,7 @@ oh-my-dsh-ui/
 ├── cordis.patch.yml           # 持久 bundle 行（id: oh-my-dsh-ui）
 ├── package.json               # 包名 oh-my-dsh-ui
 ├── tsdown.config.ts           # 构建配置
-├── tests/                     # 单元测试（appearance / color / motion / theme-section / usage）
+├── tests/                     # 单元测试（appearance / color / motion / theme-section）
 └── docs/                      # 文档
 ```
 
@@ -239,7 +238,7 @@ oh-my-dsh-ui/
 
 ```ts
 // src/shared.ts
-export const FEATURES = ['markdown', 'appearance', 'usage', 'motion', 'zh', 'smooth'] as const
+export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as const
 export type PluginFeature = typeof FEATURES[number]
 
 // src/client/config.ts

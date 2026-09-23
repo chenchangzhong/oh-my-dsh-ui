@@ -8,7 +8,7 @@
  * This is declared in the host's inject list, so it is always available.
  */
 import type React from 'react'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '../../dsh-client-types.ts'
 import { ZH_SETTINGS_NS } from '../shared.ts'
 import { SETTINGS_ZH, SETTINGS_EN } from '../data/settings-dicts.ts'
 import { settingsLocales } from '../locales/zh-locales.ts'

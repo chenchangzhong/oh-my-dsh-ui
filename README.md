@@ -15,10 +15,10 @@
 ### 简介
 
 oh-my-dsh-ui 是一个纯前端的 DSH Web UI 客制化插件：提供外观定制、入场动效、
-用量统计与用户消息 Markdown 渲染，并整合了**中文界面增强**（`zh`）与
+用户消息 Markdown 渲染，并整合了**中文界面增强**（`zh`）与
 **丝滑流式打字机**（`smooth`）两个第三方能力。
 
-- **新增设置页** —— 「外观」「用量统计」「动效」；
+- **新增设置页** —— 「外观」「动效」；
 - **修改通用设置页** —— 新增用户消息 Markdown 渲染开关；
 - **中文界面增强（zh）** —— 中文化词典与界面增强、思考折叠、归档视图、会话删除（回收站）等；
 - **丝滑流式（smooth）** —— 逐字揭示的流式输出与行高平滑跟随。
@@ -31,7 +31,7 @@ oh-my-dsh-ui 是一个纯前端的 DSH Web UI 客制化插件：提供外观定�
 
 ### 功能选择（按需安装）
 
-插件由六个**相互独立**的功能模块组成：`appearance`（外观）、`usage`（用量统计）、
+插件由五个**相互独立**的功能模块组成：`appearance`（外观）、
 `markdown`（用户消息 Markdown 渲染）、`motion`（动效）、`zh`（中文界面增强）、
 `smooth`（丝滑流式）。可在插件配置里用 `features` 白名单选择要安装的功能：
 
@@ -42,7 +42,7 @@ oh-my-dsh-ui 是一个纯前端的 DSH Web UI 客制化插件：提供外观定�
     features: [appearance, zh]   # 只安装「外观」+「中文增强」
 ```
 
-`features` 缺省或为空时，六个功能全部启用。
+`features` 缺省或为空时，五个功能全部启用。
 
 ---
 
@@ -51,7 +51,6 @@ oh-my-dsh-ui 是一个纯前端的 DSH Web UI 客制化插件：提供外观定�
 | 位置 | 类型 | 内容 |
 | --- | --- | --- |
 | 设置 → UI增强 → 外观 | 标签页 | 主题定制，包括壁纸、玻璃、强调色、表面不透明度、字体与质感 |
-| 设置 → UI增强 → 用量 | 标签页 | 用量统计，使用四窗口聚合、趋势图，展示会话用量排行 |
 | 设置 → UI增强 → 动效 | 标签页 | 对话/侧边栏/新建对话入场动效与选中框动效，含三套一键预设 |
 | 设置 → UI增强 → 增强 | 标签页 | 中文界面增强（zh）、丝滑流式（smooth）与服务监控的设置 |
 | 设置 → 通用 | 修改原有页 | 新增用户消息 Markdown 渲染开关 |
@@ -136,17 +135,6 @@ config:
   customVars:
     '--my-accent-soft': 'rgb(255 127 178 / 0.3)'
 ```
-
----
-
-### 用量统计（设置 → 应用用量）
-
-用量统计页会统计展示各会话的用量总和（token-meter + session-stats），用户可自选时间跨度
-（当前年内到最近三天）。页面展示 **总 / 输入 / 输出 Token、
-缓存命中、使用时长、会话数与步数**，并带用量趋势图与会话排行。
-会话列表行已携带 Host 计算好的投影基线，无需额外 RPC。
-
-面板可通过内置快捷键 `Mod+Alt+U` 在任何界面呼出。
 
 ---
 
@@ -266,7 +254,7 @@ oh-my-dsh-ui/
 │   │   ├── presets.ts   # ThemePreset 注册表
 │   │   ├── apply.ts     # config → DOM：--dsu-* 变量、customCss、customVars
 │   │   ├── custom.css   # 消费 --dsu-* 变量的 token 覆盖
-│   │   └── …            # 功能子目录（appearance/ usage/ markdown/ motion/ ui-enhance/ zh/ smooth/）
+│   │   └── …            # 功能子目录（appearance/ markdown/ motion/ ui-enhance/ zh/ smooth/）
 │   └── server/           # 主机半边（session-delete / trash 路由）
 ├── lib/                  # tsdown 构建产物
 ├── cordis.patch.yml      # 持久 bundle 行（id: oh-my-dsh-ui）
@@ -278,7 +266,7 @@ oh-my-dsh-ui/
 
 - profile 的 `cordis.patch.yml` 改动需要重启 `dsh web` 才生效。
 - 壁纸必须能被浏览器访问（例如放在 Web 服务静态根目录下，或外部 URL）。
-- 插件自带的设置页（外观、用量统计、动效等）修改**实时生效**、无需重启；
+- 插件自带的设置页（外观、动效等）修改**实时生效**、无需重启；
   通过内置「插件配置」页直接编辑 loader 层配置暂不支持（待 `ui-settings-plugins` 的 schema）。
 
 ---
@@ -288,7 +276,7 @@ oh-my-dsh-ui/
 ### Overview
 
 Dsh-client-ui-custom is a pure front-end customization plugin for the DSH web
-UI: appearance theming, entrance motion, usage statistics and user-message
+UI: appearance theming, entrance motion and user-message
 Markdown rendering — plus two integrated third-party capabilities: **Chinese
 UI enhancement** (`zh`) and **smooth streaming** (`smooth`).
 
@@ -302,8 +290,8 @@ whitelist as needed. Zero shell modifications.
 
 ### Feature selection (install on demand)
 
-The plugin is composed of six **independent** feature modules: `appearance`,
-`usage` (usage statistics), `markdown` (user-message Markdown rendering),
+The plugin is composed of five **independent** feature modules: `appearance`,
+`markdown` (user-message Markdown rendering),
 `motion` (entrance animations), `zh` (Chinese UI enhancement) and `smooth`
 (smooth streaming). Use the `features` whitelist in the plugin config to
 choose which to install:
@@ -315,7 +303,7 @@ choose which to install:
     features: [appearance, zh]   # install only appearance + Chinese enhancement
 ```
 
-When `features` is absent or empty, all six features are enabled.
+When `features` is absent or empty, all five features are enabled.
 
 ---
 
@@ -324,7 +312,6 @@ When `features` is absent or empty, all six features are enabled.
 | Where | Kind | What |
 | --- | --- | --- |
 | Settings → UI enhancement → Appearance | tab | custom theming: wallpaper, glass, accent, surface opacity, fonts & texture |
-| Settings → UI enhancement → App Usage | tab | usage stats: aggregated over a selectable time span, with a trend chart and session ranking |
 | Settings → UI enhancement → Motion | tab | entrance motion for conversation / sidebar / new conversation, selection box, three one-click presets |
 | Settings → UI enhancement → Enhancements | tab | Chinese UI enhancement (zh), smooth streaming and the service monitor |
 | Settings → General | added row | user-message Markdown toggle |
@@ -413,19 +400,6 @@ config:
   customVars:
     '--my-accent-soft': 'rgb(255 127 178 / 0.3)'
 ```
-
----
-
-### Usage statistics (Settings → App Usage)
-
-The usage-statistics page aggregates each session's total usage (token-meter +
-session-stats) over a user-selectable time span, from the current year down to
-the last three days. It shows **total / input / output tokens, cache hits,
-usage time, and session & step counts**, together with a usage trend chart and
-a session ranking. The session list rows already carry the host-computed
-projection baseline, so no extra RPCs are needed.
-
-The panel can be popped up from any screen via the built-in `Mod+Alt+U` shortcut.
 
 ---
 
@@ -562,7 +536,7 @@ oh-my-dsh-ui/
 │   │   ├── presets.ts     # ThemePreset registry
 │   │   ├── apply.ts       # config → DOM: --dsu-* vars, customCss, customVars
 │   │   ├── custom.css     # token overrides consuming the --dsu-* vars
-│   │   └── …              # feature subdirectories (appearance/ usage/ markdown/ motion/ ui-enhance/ zh/ smooth/)
+│   │   └── …              # feature subdirectories (appearance/ markdown/ motion/ ui-enhance/ zh/ smooth/)
 │   └── server/            # host half (session-delete / trash routes)
 ├── lib/                   # tsdown build output
 ├── cordis.patch.yml       # persistent bundle row (id: oh-my-dsh-ui)

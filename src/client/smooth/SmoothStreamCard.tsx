@@ -8,7 +8,7 @@
 import { useState } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
-import { IconChevronDownOutline14, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SmoothStreamCardFace } from './smooth-stream-card-controller.ts'
 import css from './SmoothStreamCard.module.css'
 
@@ -43,7 +43,7 @@ export function SmoothStreamCard(props: SmoothStreamCardProps) {
         </span>
         {versionLabel === null ? null : <span className={css.version}>{versionLabel}</span>}
         {state.dirty ? <span className={css.pending}>{t('unsaved')}</span> : null}
-        <IconChevronDownOutline14 className={open ? `${css.chevron} ${css.chevronOpen}` : css.chevron} />
+        <IconChevronDownOutlineRegular className={open ? `${css.chevron} ${css.chevronOpen}` : css.chevron} />
       </button>
       {open
         ? (
@@ -131,7 +131,7 @@ export function SmoothStreamCard(props: SmoothStreamCardProps) {
                     title={state.canUpgrade ? undefined : t('updateUnavailable')}
                     onClick={props.upgrade}
                   >
-                    <span aria-hidden="true"><IconRefreshOutline14 /></span>
+                    <span aria-hidden="true"><IconRefreshOutlineRegular /></span>
                     {t(state.upgrading ? 'updating' : 'update')}
                   </button>
                 </div>
