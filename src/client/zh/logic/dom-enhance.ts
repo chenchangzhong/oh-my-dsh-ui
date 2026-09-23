@@ -42,6 +42,13 @@ const THINK_SHOWN_ATTR = 'data-dsh-zh-think-shown'
 const THINK_LIVE_ATTR = 'data-dsh-zh-think-live'
 
 // ─── Stats full display constants ───────────────────────────────────────────
+// 「统计全显示」是本地自有功能，**刻意与上游 zh_pro 不同**：上游在 eb3846d（0.1.7 适配）
+// 把整条链路删除了（词典项 + DOM 逻辑 + 设置开关），但理由是产品取舍——它注明「统计行恢复
+// 上游默认单行省略号样式」，**不是因为失效**。2026-09-23 在 0.1.7-alpha.2 部署版复验，本
+// 功能依赖的三个条件全部成立：① 计数组外层仍是 pill（chat 包 `bOPqQW_pill`，inline-flex /
+// border-radius 24px / padding 1px 8px）② 内层仍是 label（`bOPqQW_label`）③ 文案仍是 chat
+// 词典的 `stats.counts`「{turns} 轮 {steps} 步」，与下方 STATS_COUNTS_ZH 匹配。
+// 所以别因为「上游删了」就跟着删；真要删，先做一次实机确认（切换开关时统计行毫无变化）。
 const STATS_FULL_STYLES: Array<[string, string]> = [
   ['white-space', 'nowrap'], ['overflow', 'hidden'],
   ['text-overflow', 'clip'], ['max-width', 'none'],

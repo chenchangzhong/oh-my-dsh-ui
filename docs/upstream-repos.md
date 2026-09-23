@@ -32,10 +32,10 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 | `oh-my-dsh-ui` | https://github.com/chenchangzhong/oh-my-dsh-ui | 本地 fork（可 push） |
 | `yoli-mi` | https://github.com/yoli-mi/dsh-client-ui-custom | 主上游（appearance/motion/markdown 来源） |
 | `upstream` | https://github.com/magian1127/deepseek-harness-zh_pro | `zh` Feature 上游 |
-| `dsh-smooth-stream` | https://github.com/Laplace-bit/dsh-smooth-stream | `smooth` Feature 上游（**remote 地址待更正**） |
+| `dsh-smooth-stream` | https://github.com/Laplace-bit/dsh-smooth-stream | `smooth` Feature 上游 |
 
-> ⚠️ `dsh-smooth-stream` remote 当前指向 `git@github.com:magian1127/dsh-smooth-stream.git`，
-> 该地址已 404；仓库已迁移至 **Laplace-bit/dsh-smooth-stream**。
+> `dsh-smooth-stream` remote 已更正为 **Laplace-bit/dsh-smooth-stream**
+> （原 `magian1127/dsh-smooth-stream` 已 404 并迁移，2026-09-23 复核确认）。
 
 ---
 
@@ -55,8 +55,8 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 
 ### magian1127/deepseek-harness-zh_pro（`zh` Feature 上游）
 
-- **分支**：`main`，当前 **v0.9.3**（`0522430`，2026-09-10）
-- **本地基线**：约 **v0.7.0**（2026-08-21）
+- **分支**：`main`，当前 **v0.9.4**（`eb3846d`，2026-09-23；README 最低要求已提到 DSH `≥0.1.7-alpha.2`）
+- **本地基线**：约 **v0.7.0**（2026-08-21），此后逐项移植；0.1.7 对齐见下表
 - **本地整合位置**：`src/client/zh/`（Client 半边）+ `src/server/`（Host 半边），均为**精简重写版**而非直接拷贝
   （例：上游 `trash.ts` 282 行 → 本地 3 行，改用 `@dsh-community/trash-utils`）
 
@@ -64,6 +64,8 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 
 | 上游提交 | 内容 | 状态 |
 |---------|------|------|
+| `eb3846d` | DSH 0.1.7-alpha.2 适配（v0.9.4） | ✅ 已整合。设置服务面 `settingsScope`→`configForms` 由本地 `settings-source.ts` 的双代 binder 覆盖（上游改用 `ctx.inject(['configForms'])`）；词典/DOM 层：`ZH['*']` 通配兜底改为**尊重上游已中文化值**、补 0.1.7 新增键、新增 `PLUGIN_ITEM_LABELS` 数据层改写表、删除实测空转的补丁。**两处刻意与上游不同**：① 子代理模型选择卡随 `settings.plugins`→`settings.subagent` **迁移**（上游直接删除；0.1.7 复验其 zh 值仍夹带 Agent/Subagent）② 保留 `statsFull`（上游整条链路删除，理由是产品取舍而非失效）|
+| `659eb8b` / `6d6b38e` | 文档整理 / 网络搜索新功能 | 不适用（本地无 CLI、hot-reload 与 Host 工具壳体系）；网络搜索若要做需独立评估 |
 | `ccd93b4` | sessionPersistence 句柄化契约（0.1.3+ 删除会话不再假删除） | ✅ 已整合（`readRaw → stat → list` 三级取 header + 目录扫描定位；定位失败直接中止） |
 | `0522430` | DSH 0.1.5 适配 | ✅ 已整合（`command` 命名空间、trajectory/turnUsage 键、StatsPills 结构、四位空格分组） |
 | `79f47ec` / `ad75b24` | 0.1.2-rc.1 / 0.1.2-alpha.2 词条与本地化对齐 | ✅ 已整合（`subagent` 术语、子代理模型选择卡、pluginInventory、程序模式、menu.download） |
@@ -93,7 +95,8 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 ### Laplace-bit/dsh-smooth-stream（`smooth` Feature 上游）
 
 - **地址**：https://github.com/Laplace-bit/dsh-smooth-stream （原 `magian1127/dsh-smooth-stream` 已迁移）
-- **当前版本**：**v0.6.1**（`fa828cb`，2026-09-11）
+- **当前版本**：`package.json` 仍标 **v0.6.1**，但 `main` 已到 `2e2c1c4`（2026-09-23，PR #33 合入）
+- **0.1.7 适配**：**无**（README 内核兼容表仍只列到 `0.1.2-alpha.3`，既未声明也未否认 0.1.7）
 - **本地整合状态**：`src/client/smooth/` 为**深度定制分支**，非实时同步
 
 关键差异：上游用 loopback RPC 通道 `/smooth-stream` 读写设置，
@@ -108,6 +111,18 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 | `8a9e4e0` | 完成时遵循 Host turn-process fold，折叠 inline reasoning |
 | `139eb1b` | 自适应对数透明度淡出（CSS Custom Highlight，仅 paint 层） |
 | `d412aef` | 三态动效偏好（auto / force-smooth / force-reduced） |
+| `66f15c7` | 收尾落在自然底：同帧量 `scrollHeight - clientHeight` 后直接写入，取代渐进退休 tail pad；新增 `flowPadElementOf` 保证行替换时 padding 挂在稳定的 flow wrapper 上 |
+| `bcc305f` / `737ebe6` / `e2b4398` | 入场亚像素抖动 / 思考块高度上限 + 智能滚动 / 对数淡出每帧 jank |
+| `dfe69bb` | 解耦流式渲染（`FrameCoordinator` / `StreamBuffer` / `useDecoupledMarkdown`，FollowHost 收敛为单一 owner）—— 架构级，本地未移植 |
+
+> **0.1.7 复核（2026-09-23）**：本地 `src/client/smooth/` 全无 `terminalPhase` /
+> `followTerminalPhase` / `FrameCoordinator` / `StreamBuffer` / `useDecoupledMarkdown`
+> （本地 `teleprompterGlide.ts` 1174 行 vs 上游 3164 行）。
+> 但收尾**目标一致、路径不同**：本地已是「Lifecycle completion settles at the floor」
+> ＋ `FOLLOW_SETTLE_EPSILON_PX` 子像素阈值 ＋「reader-released follow only re-acquires
+> at the actual floor」，另有自有的 `runwayAnchorOf` / `FOLLOW_RUNWAYS_SYMBOL`。
+> 因此 `66f15c7` 等应只在**确实出现"完成时回弹/收尾位置不稳"**时按语义移植——
+> 不要因为上游改了就跟，本地这套机制已被验证过。
 
 ---
 
@@ -302,7 +317,16 @@ DSH 插件每个 Feature 都分两侧运行：
 ## 目标运行环境
 
 - **DSH Desktop**：2.0.7
-- **dsh CLI**：0.1.5-rc.1
+- **dsh CLI**：0.1.7-alpha.2（全局装在 `~/.nvm/versions/node/v24.20.0/lib/node_modules/@deepseek-ai/dsh`）
 
 > `zh` Feature 的词典与 DOM 改写表基线来自 zh_pro v0.7.0（对应更早的 DSH 版本）。
 > DSH 0.1.5 起大量界面已由官方词典化，旧 DOM 层改写会失效或冗余 —— 移植上游 `0522430` 时需一并处理。
+>
+> **0.1.7 起核对词典只认部署版 bundle**：该发行包只有 `lib/`、**没有 `src/`**，真值在
+> `node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-*/lib/client.js`。
+> 每条补丁必须两步核对：① 在对应包内精确搜 `"键名"` 确认存在；
+> ② 确认 zh 值里的原文片段能被 `TERMS` 命中（区分大小写，如 `shell` 只匹配大写 `Shell`）。
+> 反面案例：`settings.plugins` 的十条补丁、`message.turnTime.ttft`、`modelMaxTokens` 等
+> 曾长期空转（上游 v0.9.4 才清理）；而 `subagentModelSelection*` 看似失效、
+> 实为迁到了 `settings.subagent` —— 照搬上游删除会漏翻。
+> 另注意 `settings.agentPreset` 附近的 `rtSEdW_error` 是 **CSS 类名**，不是 locale 键。
