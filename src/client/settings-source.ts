@@ -60,9 +60,41 @@ interface LegacySettingsScopeLike {
   bind?: (options: { namespace: string }) => unknown
 }
 
-/** Snapshot served while no backing scope is attached. */
-function loadingSnapshot<T>(): SettingsScopeSnapshot<T> {
-  return { status: 'loading' }
+/**
+ * Snapshot served while no backing scope is attached. A shared singleton:
+ * React re-reads `getSnapshot()` through `useSyncExternalStore`, which keeps
+ * re-rendering until the returned reference stops changing.
+ */
+const LOADING_SNAPSHOT: SettingsScopeSnapshot<never> = { status: 'loading' }
+
+/** One settings layer (`base` / `user` / `value`) is a plain JSON section. */
+function isSection(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Compose the effective section from the layers the Host keeps current.
+ *
+ * 0.1.7's describe answers `value` from the entry's RUNTIME config. Every field
+ * of this plugin is a volatile live preference (`liveField`) — that is what
+ * makes its section editable without remounting the plugin — and for such an
+ * entry the runtime config can stay pinned to the section resolved the last
+ * time the entry remounted. This profile froze on the pre-0.1.7 `settings.yaml`
+ * section (surfaces 0 / 99…) while every later save kept landing in the
+ * document, so the form rendered stale values and reset to them after each
+ * save. `base` (schema defaults plus inherited config) and `user` (the profile
+ * row writes target) are the layers that DO track the document, so the section
+ * the plugin renders and diffs against is their overlay; `value` is only the
+ * last resort for a generation that serves neither.
+ *
+ * @param snapshot - the backing scope's snapshot.
+ * @returns the effective section (undefined while the scope is not resolved).
+ */
+function effectiveSection<T>(snapshot: SettingsScopeSnapshot<T>): T | undefined {
+  const base = isSection(snapshot.base) ? snapshot.base : undefined
+  const user = isSection(snapshot.user) ? snapshot.user : undefined
+  if (base === undefined && user === undefined) return snapshot.value
+  return { ...(base ?? {}), ...(user ?? {}) } as T
 }
 
 /**
@@ -119,16 +151,32 @@ export function bindSettingsScope<T = unknown>(
     if (root !== undefined && typeof root.bind === 'function') attach(root.bind({ namespace }))
   })
 
+  // The corrected view is derived ONCE per backing snapshot: the backing
+  // answers a stable reference until its own next change, and
+  // `useSyncExternalStore` re-renders forever if `getSnapshot()` hands back a
+  // fresh object every call.
+  let derivedSource: SettingsScopeSnapshot<T> | undefined
+  let derivedSnapshot: SettingsScopeSnapshot<T> | undefined
+  const deriveSnapshot = (source: SettingsScopeSnapshot<T>): SettingsScopeSnapshot<T> => {
+    if (derivedSource !== source || derivedSnapshot === undefined) {
+      derivedSource = source
+      derivedSnapshot = { ...source, value: effectiveSection(source) }
+    }
+    return derivedSnapshot
+  }
+
   return {
     getSnapshot(): SettingsScopeSnapshot<T> {
-      if (backing === undefined) return loadingSnapshot<T>()
+      if (backing === undefined) return LOADING_SNAPSHOT
       try {
         const snapshot = backing.getSnapshot?.()
-        if (snapshot !== null && snapshot !== undefined) return snapshot as SettingsScopeSnapshot<T>
+        if (snapshot !== null && snapshot !== undefined) {
+          return deriveSnapshot(snapshot as SettingsScopeSnapshot<T>)
+        }
       } catch {
         // Keep serving `loading` rather than throwing into React.
       }
-      return loadingSnapshot<T>()
+      return LOADING_SNAPSHOT
     },
     subscribe(listener: () => void): () => void {
       listeners.add(listener)
