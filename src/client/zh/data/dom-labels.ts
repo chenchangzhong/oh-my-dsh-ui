@@ -155,4 +155,28 @@ const CHAT_LABELS = {
   'Context compacted': '上下文已压缩',
 }
 
-export { PERMISSION_NAMES, PERMISSION_DESCRIPTIONS, COMMAND_DESCRIPTIONS, CHAT_LABELS }
+// 插件页（ui-plugin-manager）卡片与「代理团队」动作按钮上的固定文案。这些文本渲染到
+// DOM 时是独立文本节点（形如 `<button aria-label="查看 Agent 循环">Agent 循环</button>`、
+// `<div data-slot="plugins.item">控制 Agent 派发工具调用的方式。</div>`、
+// `<div data-team-action="true"><span>Agent Team</span></div>`），词典层拦不到，只能像
+// CHAT_LABELS 一样做整段精确改写：每一条都要求「整段文本恰好等于原文」，不做句中
+// 全局替换，避免误伤正文。
+const PLUGIN_ITEM_LABELS = {
+  // 团队动作按钮（data-team-action）。
+  // ⚠️ 刻意**不改动**官方已有的「智能体团队」中文名：官方插件卡把同一功能叫「智能体
+  // 团队」，而本插件的 agentLabel 术语把 Agent 译作「代理」，这里只改这个英文按钮；
+  // 两者并存是预期状态，别把「同一功能有两个中文名」当 bug 统一掉。
+  'Agent Team': '代理团队',
+  // 官方插件卡片标题（data-plugin-item="agent-loop" / "subagent"）。
+  'Agent 循环': '代理循环',
+  'Subagent': '子代理',
+  // 卡片标题按钮的 aria-label（「查看 <插件名>」，由插件页词典的 openDetail 模板拼成），
+  // 需整串匹配。
+  '查看 Agent 循环': '查看代理循环',
+  '查看 Subagent': '查看子代理',
+  // 卡片一句话描述（plugins.item 槽位的 summary）。
+  '控制 Agent 派发工具调用的方式。': '控制代理派发工具调用的方式。',
+  '设置 Subagent 的递归层级、数量和模型。': '设置子代理的递归层级、数量和模型。',
+}
+
+export { PERMISSION_NAMES, PERMISSION_DESCRIPTIONS, COMMAND_DESCRIPTIONS, CHAT_LABELS, PLUGIN_ITEM_LABELS }

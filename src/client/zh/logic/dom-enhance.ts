@@ -17,7 +17,7 @@
 import type { ClientContext } from '../../dsh-client-types.ts'
 import { ZH, ZH_PARTIAL } from '../data/zh-dict.ts'
 import { TERMS } from '../data/terms.ts'
-import { PERMISSION_NAMES, PERMISSION_DESCRIPTIONS, COMMAND_DESCRIPTIONS, CHAT_LABELS } from '../data/dom-labels.ts'
+import { PERMISSION_NAMES, PERMISSION_DESCRIPTIONS, COMMAND_DESCRIPTIONS, CHAT_LABELS, PLUGIN_ITEM_LABELS } from '../data/dom-labels.ts'
 import { TRAJ_PATTERNS, TRAJ_REVERSE } from '../data/traj-patterns.ts'
 import { SETTINGS_ZH, SETTINGS_EN } from '../data/settings-dicts.ts'
 import { enStepCount, enToolCallCount, applyPatterns, rewriteText, resolvePairs, applyPairs, formatZhSeconds, interpolateZh, PARAM_TRANSFORMS } from './format-utils.ts'
@@ -25,7 +25,7 @@ import { settingsStore } from '../store/settings-store.ts'
 import type { ZhApplyContext } from './apply.ts'
 
 // ─── Forward / reverse label tables (built once) ─────────────────────────────
-const FORWARD = Object.assign({}, PERMISSION_NAMES, PERMISSION_DESCRIPTIONS, COMMAND_DESCRIPTIONS, CHAT_LABELS)
+const FORWARD = Object.assign({}, PERMISSION_NAMES, PERMISSION_DESCRIPTIONS, COMMAND_DESCRIPTIONS, CHAT_LABELS, PLUGIN_ITEM_LABELS)
 const REVERSE: Record<string, string> = {}
 for (const k of Object.keys(FORWARD)) {
   if (REVERSE[FORWARD[k]] === undefined) REVERSE[FORWARD[k]] = k

@@ -75,17 +75,24 @@ const ZH_PARTIAL = {
     // 上游 0.1.2-alpha.2 起回答末尾的用量/耗时统计（TurnUsagePanel）与轮次
     // 过程摘要行，模板仍夹带英文单元（{count} tok / 首 token 用时 / subagent）。
     'message.turnUsage.count': ['tok'],
-    'message.turnTime.ttft': ['token'],
+    // 'message.turnTime.ttft' 已删除（0.1.7 复验：该键在部署版 chat 词典里已不存在，
+    // 补丁一直空转）。
     'message.turnProcess.subagents.one': ['subagent'],
     'message.turnProcess.subagents.other': ['subagent'],
     // 0.1.5 StatsPills 统计对话框（stats.dialog.*）：zh 值仍夹带英文。
     'stats.dialog.usageTitle': [['Token', '词元']],
     'stats.dialog.ttft': ['token'],
+    // 0.1.7 复验新增：速度行 zh 为「输出速度（TPS）」，与同组的 tok/tok-s 术语对齐。
+    'stats.dialog.speed': [['TPS', '词元/秒']],
   },
   conversation: {
     'access.confirm.title': ['fullAccess'],
     'access.confirm.description': ['fullAccess', 'agent'],
     'access.confirm.enable': ['fullAccess'],
+    // 0.1.7 复验新增：工具详情表的字段名 zh 为「输入 Schema / 输出 Schema」，与
+    // trajectory.tab.schema 同源问题（上游把 Schema 当专有名词保留）。
+    'detail.field.inputSchema': [['Schema', '模式']],
+    'detail.field.outputSchema': [['Schema', '模式']],
   },
   trajectory: {
     // 该命名空间 zh 词典整体还是英文，按整条短语替换；上游补齐 zh 后这些术语自然不再命中。
@@ -128,7 +135,7 @@ const ZH_PARTIAL = {
     modelIdRequired: ['modelId'],
     modelIdDuplicate: ['modelId'],
     modelDuplicate: ['modelId'],
-    modelMaxTokens: ['token'],
+    // modelMaxTokens 已删除（0.1.7 复验：部署版只剩 modelMaxTokensInvalid，键本身已不存在）。
     fetchNeedsBaseUrl: ['api'],
     customRoute: ['providerId'],
     customRouteTaken: ['modelId'],
@@ -137,14 +144,15 @@ const ZH_PARTIAL = {
     onboardingTitle: ['apiKey'],
     keyRequired: ['api'],
   },
-  'settings.plugins': {
-    bashDescription: ['agent'],
-    agentLoopTitle: ['agentLabel'],
-    agentLoopDescription: ['agentLabel'],
-    webSearchApiKey: ['apiKey'],
-    // 上游 0.1.2-rc.1 新增的子代理模型选择卡：zh 模板仍夹带 Agent/Subagent。
-    subagentModelSelectionTitle: ['subagent'],
-    subagentModelSelectionDescription: ['subagent', 'agentLabel'],
+  // settings.plugins（内置插件设置分区）在 DSH 0.1.7 已迁移：插件配置表单搬到侧栏插件页、
+  // 由各插件 schemastery Config 自动投影，该命名空间不再含这些键。原十条补丁**已实测
+  // 失效**（键名在部署版 0.1.7-alpha.2 的该包内 0 处出现）：其中 bashDescription /
+  // agentLoopTitle / agentLoopDescription / webSearchApiKey / subagentModelSelectionDescription
+  // 五条键已全树不存在，删除；子代理模型选择卡则迁到了下面这个新命名空间。
+  'settings.subagent': {
+    // 子代理模型选择卡 0.1.7 起归本包自己的命名空间（键名延续），其 zh 值仍夹带
+    // Agent/Subagent，故补丁随之迁移。Title 的 zh 已是「模型选择」、其余新增键
+    // （Loading / LoadFailed / Partial / Unavailable / …）亦无英文残留，均不列。
     subagentModelSelectionToggle: ['subagent', 'agentLabel'],
     subagentModelSelectionChoose: ['subagent', 'agentLabel'],
     subagentModelSelectionAllowed: ['agentLabel'],
@@ -152,7 +160,8 @@ const ZH_PARTIAL = {
   },
   'settings.agentPreset': {
     title: ['agentLabel'],
-    error: ['agentLabel'],
+    // error 已删除（0.1.7 复验：该键在部署版已不存在，补丁空转——该包里的
+    // `rtSEdW_error` 是 CSS 类名，不是 locale 键）。
     seatHint: ['agentLabel'],
     headerHint: ['agentLabel'],
     nav: ['agentLabel'],
@@ -164,6 +173,8 @@ const ZH_PARTIAL = {
     // bash / str_replace_editor 字面量，仅 Agent 术语仍生效。
     presetMinimalDescription: ['agentLabel'],
     presetCordisDescription: ['agentLabel', 'preset'],
+    // 0.1.7 复验新增：「让 Agent 帮我创建预设模式」按钮文案。
+    creatorDraft: ['agentLabel'],
   },
   'settings.permission': {
     'confirm.title': ['fullAccess'],
@@ -176,10 +187,10 @@ const ZH_PARTIAL = {
     'confirm.enable': ['fullAccess'],
   },
   plan: {
+    // chip.off.* 已删除（0.1.7 复验：部署版 plan 词典只剩 chip.on.* / chip.label /
+    // chip.exitFailed，off 两个键不存在）。
     'chip.on.aria': ['planMode'],
     'chip.on.title': ['planMode'],
-    'chip.off.aria': ['planMode'],
-    'chip.off.title': ['planMode'],
   },
   skill: {
     'row.running': ['skill'],
@@ -194,6 +205,8 @@ const ZH_PARTIAL = {
     // 上游 0.1.2-rc.1 插件清单面板：预设切换与按会话提供说明仍夹带 Agent。
     switcherLabel: ['agentLabel'],
     presetProvidedDetail: ['agentLabel'],
+    // 0.1.7 复验新增：分组副标题「由 Agent 预设按会话组成」同样夹带 Agent。
+    presetSubtitle: ['agentLabel'],
   },
   'session-log-download': {
     // 上游 zh 词典里夹带英文 Session（导出会话 ZIP 的弹窗文案），键级修正。
@@ -205,6 +218,12 @@ const ZH_PARTIAL = {
     'dialog.commandFailed': ['session'],
     // 0.1.5 上游新增的菜单项（下载 Session 日志）仍夹带英文。
     'menu.download': ['session'],
+  },
+  sidebarTerminal: {
+    // 0.1.7 复验新增：侧栏终端功能自己的词典，zh 值仍夹带 Shell（同 shell 术语）。
+    shell: ['shell'],
+    shellLoading: ['shell'],
+    shellEmpty: ['shell'],
   },
 }
 
