@@ -143,6 +143,24 @@ const ZH_PARTIAL = {
     customNeedsBaseUrl: ['api'],
     onboardingTitle: ['apiKey'],
     keyRequired: ['api'],
+    // 0.1.7 新增（同 ns，此前未覆盖）：zh 值仍夹带 token / API。
+    modelMaxTokensInvalid: ['token'],
+    addCatalogHint: ['api'],
+    addCustom: ['api'],
+    addCustomHint: ['api'],
+    addCustomUnavailable: ['api'],
+    customNeedsModels: ['api'],
+    deepSeekEndpointHint: ['api'],
+  },
+  // 0.1.7 新增：Agent 循环卡片描述（数据层同一句已由 PLUGIN_ITEM_LABELS 整段改写，
+  // 这里补词典层，避免其它渲染路径漏网）。
+  'settings.agentLoop': {
+    description: ['agentLabel'],
+  },
+  // 0.1.7 账号设置页：zh 值夹带 API / API Key，按与 settings.models 相同的术语处理。
+  'settings.account': {
+    addApiKey: ['apiKey'],
+    settingsSignedOutDescription: ['apiKey'],
   },
   // settings.plugins（内置插件设置分区）在 DSH 0.1.7 已迁移：插件配置表单搬到侧栏插件页、
   // 由各插件 schemastery Config 自动投影，该命名空间不再含这些键。原十条补丁**已实测
@@ -151,12 +169,20 @@ const ZH_PARTIAL = {
   // 五条键已全树不存在，删除；子代理模型选择卡则迁到了下面这个新命名空间。
   'settings.subagent': {
     // 子代理模型选择卡 0.1.7 起归本包自己的命名空间（键名延续），其 zh 值仍夹带
-    // Agent/Subagent，故补丁随之迁移。Title 的 zh 已是「模型选择」、其余新增键
-    // （Loading / LoadFailed / Partial / Unavailable / …）亦无英文残留，均不列。
+    // Agent/Subagent，故补丁随之迁移。Title 的 zh 已是「模型选择」，模型选择卡的
+    // 其余键（Loading / LoadFailed / Partial / Unavailable / …）亦无英文残留，均不列。
     subagentModelSelectionToggle: ['subagent', 'agentLabel'],
     subagentModelSelectionChoose: ['subagent', 'agentLabel'],
     subagentModelSelectionAllowed: ['agentLabel'],
     subagentModelSelectionOff: ['subagent', 'agentLabel'],
+    // 0.1.7 新增的容量/深度设置（同 ns）：zh 值同样夹带 Agent/Subagent。
+    subagentMaxActive: ['subagent'],
+    subagentCapacityHelpLabel: ['subagent'],
+    subagentCapacityHelp: ['subagent', 'agentLabel'],
+    subagentDepthHelp: ['subagent', 'agentLabel'],
+    subagentDepthOne: ['subagent', 'agentLabel'],
+    subagentDepthZero: ['subagent'],
+    subagentDescription: ['subagent'],
   },
   'settings.agentPreset': {
     title: ['agentLabel'],
@@ -175,6 +201,9 @@ const ZH_PARTIAL = {
     presetCordisDescription: ['agentLabel', 'preset'],
     // 0.1.7 复验新增：「让 Agent 帮我创建预设模式」按钮文案。
     creatorDraft: ['agentLabel'],
+    // 同批新增：新手引导里也夹带 Agent，并沿用了上游「PTC 模式」叫法——按本地既定
+    // 叫法一并改称「程序模式」，与 presetPtcName 的整句覆盖保持一致。
+    guidePtcIntro: [['PTC 模式', '程序模式'], 'agentLabel'],
   },
   'settings.permission': {
     'confirm.title': ['fullAccess'],
