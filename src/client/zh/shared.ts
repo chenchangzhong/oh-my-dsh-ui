@@ -26,7 +26,6 @@ export interface ServiceMonitorTarget {
  */
 export interface ZhSettingsSection {
   zhComplete: boolean
-  statsFull: boolean
   chatWidthEnabled: boolean
   chatWidth: number
   thinkingAuto: boolean
@@ -54,7 +53,6 @@ export interface ZhPromptSection {
 /** Default values for the UI settings store (before scope resolves). */
 export const ZH_SETTINGS_DEFAULTS: ZhSettingsSection = {
   zhComplete: true,
-  statsFull: true,
   chatWidthEnabled: true,
   chatWidth: 90,
   thinkingAuto: true,

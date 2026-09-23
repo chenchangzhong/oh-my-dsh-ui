@@ -3,6 +3,9 @@
 > 宿主：`oh-my-dsh-ui@0.1.0-rc.6` · 收编对象：`deepseek-harness-zh_pro@0.7.0`、`dsh-smooth-stream@0.4.1`
 > 决策：不再三包并存，**单包单 patch**（`id: ui-custom`），两插件以新 `Feature` 身份内置，通过 `features` 白名单按需挂载，存量用户平滑迁移。
 > 工作区：`/Users/zhong/project/dsh-plugins/ui-custom`
+>
+> **后续变更（2026-09-23）**：本文是历史整合方案。其中 `statsFull`（统计全显示）已在 DSH 0.1.7
+> 适配中移除（0.1.7 下不再需要；上游 `eb3846d` 亦已删除）；其余内容仍反映当时的整合决策。
 
 ---
 

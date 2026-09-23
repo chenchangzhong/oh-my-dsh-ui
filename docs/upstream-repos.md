@@ -64,7 +64,7 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 
 | 上游提交 | 内容 | 状态 |
 |---------|------|------|
-| `eb3846d` | DSH 0.1.7-alpha.2 适配（v0.9.4） | ✅ 已整合。设置服务面 `settingsScope`→`configForms` 由本地 `settings-source.ts` 的双代 binder 覆盖（上游改用 `ctx.inject(['configForms'])`）；词典/DOM 层：`ZH['*']` 通配兜底改为**尊重上游已中文化值**、补 0.1.7 新增键、新增 `PLUGIN_ITEM_LABELS` 数据层改写表、删除实测空转的补丁。**两处刻意与上游不同**：① 子代理模型选择卡随 `settings.plugins`→`settings.subagent` **迁移**（上游直接删除；0.1.7 复验其 zh 值仍夹带 Agent/Subagent）② 保留 `statsFull`（上游整条链路删除，理由是产品取舍而非失效）|
+| `eb3846d` | DSH 0.1.7-alpha.2 适配（v0.9.4） | ✅ 已整合。设置服务面 `settingsScope`→`configForms` 由本地 `settings-source.ts` 的双代 binder 覆盖（上游改用 `ctx.inject(['configForms'])`）；词典/DOM 层：`ZH['*']` 通配兜底改为**尊重上游已中文化值**、补 0.1.7 新增键、新增 `PLUGIN_ITEM_LABELS` 数据层改写表、删除实测空转的补丁。**与上游的差异**：子代理模型选择卡随 `settings.plugins`→`settings.subagent` **迁移**（上游直接删除；0.1.7 复验其 zh 值仍夹带 Agent/Subagent）。`statsFull`（统计全显示）本地曾保留，后经实操确认 0.1.7 下已无需要，**已同步删除** |
 | `659eb8b` / `6d6b38e` | 文档整理 / 网络搜索新功能 | 不适用（本地无 CLI、hot-reload 与 Host 工具壳体系）；网络搜索若要做需独立评估 |
 | `ccd93b4` | sessionPersistence 句柄化契约（0.1.3+ 删除会话不再假删除） | ✅ 已整合（`readRaw → stat → list` 三级取 header + 目录扫描定位；定位失败直接中止） |
 | `0522430` | DSH 0.1.5 适配 | ✅ 已整合（`command` 命名空间、trajectory/turnUsage 键、StatsPills 结构、四位空格分组） |

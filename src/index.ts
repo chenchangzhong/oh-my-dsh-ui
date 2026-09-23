@@ -47,7 +47,6 @@ const SECTION_FIELDS = {
   settingsMotionEnabled: z.boolean().default(true),
   // ── zh feature（中文优化，默认与 deepseek-harness-zh_pro 增强设置一致）──
   zhComplete: z.boolean().default(true),
-  statsFull: z.boolean().default(true),
   chatWidthEnabled: z.boolean().default(true),
   chatWidth: z.number().default(90),
   thinkingAuto: z.boolean().default(true),
@@ -234,7 +233,6 @@ function legacyBase(config?: UiCustomConfig): Record<string, unknown> {
     settingsMotionEnabled: config?.settingsMotionEnabled ?? true,
     // ── zh feature base（默认与 deepseek-harness-zh_pro 增强设置一致）──
     zhComplete: config?.zhComplete ?? true,
-    statsFull: config?.statsFull ?? true,
     chatWidthEnabled: config?.chatWidthEnabled ?? true,
     chatWidth: typeof config?.chatWidth === 'number' ? Math.max(50, Math.min(100, config.chatWidth)) : 90,
     thinkingAuto: config?.thinkingAuto ?? true,

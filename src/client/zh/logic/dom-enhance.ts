@@ -32,7 +32,6 @@ for (const k of Object.keys(FORWARD)) {
 }
 
 // ─── DOM attribute keys (unique to zh feature) ────────────────────────────────
-const STATS_FULL_KEY = 'data-dsh-zh-stats-full'
 const PROMPT_PROVIDER_KEY = 'data-dsh-zh-hide-prompt-provider'
 const PROMPT_PROVIDER_NAME = '提示词注入（deepseek-harness-zh_pro）'
 const THINK_LINES_ATTR = 'data-dsh-zh-think'
@@ -41,35 +40,7 @@ const THINK_OPEN_ATTR = 'data-dsh-zh-think-open'
 const THINK_SHOWN_ATTR = 'data-dsh-zh-think-shown'
 const THINK_LIVE_ATTR = 'data-dsh-zh-think-live'
 
-// ─── Stats full display constants ───────────────────────────────────────────
-// 「统计全显示」是本地自有功能，**刻意与上游 zh_pro 不同**：上游在 eb3846d（0.1.7 适配）
-// 把整条链路删除了（词典项 + DOM 逻辑 + 设置开关），但理由是产品取舍——它注明「统计行恢复
-// 上游默认单行省略号样式」，**不是因为失效**。2026-09-23 在 0.1.7-alpha.2 部署版复验，本
-// 功能依赖的三个条件全部成立：① 计数组外层仍是 pill（chat 包 `bOPqQW_pill`，inline-flex /
-// border-radius 24px / padding 1px 8px）② 内层仍是 label（`bOPqQW_label`）③ 文案仍是 chat
-// 词典的 `stats.counts`「{turns} 轮 {steps} 步」，与下方 STATS_COUNTS_ZH 匹配。
-// 所以别因为「上游删了」就跟着删；真要删，先做一次实机确认（切换开关时统计行毫无变化）。
-const STATS_FULL_STYLES: Array<[string, string]> = [
-  ['white-space', 'nowrap'], ['overflow', 'hidden'],
-  ['text-overflow', 'clip'], ['max-width', 'none'],
-  ['width', '100%'], ['height', 'auto'], ['min-height', '0'],
-]
-const STATS_BASE_FONT = 12
-const STATS_MIN_FONT = 9
-// 0.1.5 StatsPills 的 pill（button/span）样式子集：不强行拉满宽度，只放开
-// 省略号并保持单行，让 fit 字号逻辑基于 label 内容宽度工作。
-const STATS_PILL_STYLES: Array<[string, string]> = [
-  ['white-space', 'nowrap'], ['overflow', 'hidden'],
-  ['text-overflow', 'clip'], ['max-width', 'none'],
-]
-// 0.1.5 起计数组以空格分隔（「9 轮 203 步」），旧版用「 · 」，两者都认。
-const STATS_COUNTS_ZH = /^\s*\d+\s*轮(?:\s*·\s*|\s+)\d+\s*步\s*$/
-const STATS_COUNTS_EN = /^\s*\d+\s*turns?(?:\s*·\s*|\s+)\d+\s*steps?\s*$/
-
 // ─── Helper predicates ────────────────────────────────────────────────────────
-function isStatsCounts(text: string): boolean {
-  return STATS_COUNTS_ZH.test(text) || STATS_COUNTS_EN.test(text)
-}
 
 function activeIsZh(ctx: ClientContext): boolean {
   try {
@@ -83,23 +54,6 @@ function activeIsZh(ctx: ClientContext): boolean {
 
 function zhEnhanceOn(ctx: ClientContext): boolean {
   return activeIsZh(ctx) && settingsStore.getSnapshot().zhComplete === true
-}
-
-// ─── Stats row font-fit ──────────────────────────────────────────────────────
-function fitStatsRow(row: HTMLElement): void {
-  if (typeof window === 'undefined' || row.clientWidth <= 0) return
-  row.style.fontSize = STATS_BASE_FONT + 'px'
-  row.style.removeProperty('overflow-x')
-  let size = STATS_BASE_FONT
-  for (let i = 0; i < 4; i += 1) {
-    if (row.scrollWidth <= row.clientWidth) break
-    size = Math.max(STATS_MIN_FONT, Math.round(size * (row.clientWidth / row.scrollWidth) * 10) / 10)
-    row.style.fontSize = size + 'px'
-    if (size <= STATS_MIN_FONT) break
-  }
-  if (row.scrollWidth > row.clientWidth) {
-    row.style.setProperty('overflow-x', 'auto', 'important')
-  }
 }
 
 // ─── Chat width ─────────────────────────────────────────────────────────────
@@ -287,36 +241,6 @@ export function installChineseEnhance(zhCtx: ZhApplyContext): () => void {
   }
 
   // ── Helpers that need ctx ──────────────────────────────────────────────────
-  const fixStatsFull = (textNode: Text): void => {
-    if (settingsStore.getSnapshot().statsFull !== true) return
-    if (!isStatsCounts(textNode.data)) return
-    const group = textNode.parentElement
-    if (group?.nodeType !== 1) return
-    // 0.1.5 StatsPills：计数组 span[class*="label"] 位于 button/span[class*="pill"]。
-    if (group.tagName === 'SPAN'
-      && (group.getAttribute('class') ?? '').indexOf('label') !== -1
-      && group.parentElement?.nodeType === 1
-      && (group.parentElement.tagName === 'BUTTON' || group.parentElement.tagName === 'SPAN')) {
-      const pill = group.parentElement
-      if (pill.getAttribute(STATS_FULL_KEY) === null) {
-        for (const [k, v] of STATS_PILL_STYLES) pill.style.setProperty(k, v, 'important')
-        pill.setAttribute(STATS_FULL_KEY, '')
-      }
-      fitStatsRow(pill)
-      return
-    }
-    // 旧版 StatsLine：DIV 行 > 首个 SPAN 计数组（0.1.4 及之前的结构）。
-    if (group.tagName !== 'SPAN') return
-    const row = group.parentElement
-    if (row?.nodeType !== 1 || row.tagName !== 'DIV') return
-    if (row.firstElementChild !== group) return
-    if (row.getAttribute(STATS_FULL_KEY) === null) {
-      for (const [k, v] of STATS_FULL_STYLES) row.style.setProperty(k, v, 'important')
-      row.setAttribute(STATS_FULL_KEY, '')
-    }
-    fitStatsRow(row as HTMLElement)
-  }
-
   const hidePromptProviderText = (textNode: Text): void => {
     if (!activeIsZh(ctx)) return
     if (textNode.data !== PROMPT_PROVIDER_NAME) return
@@ -342,7 +266,6 @@ export function installChineseEnhance(zhCtx: ZhApplyContext): () => void {
       const tn = root as Text
       const to = rewriteText(tn.data, exact, patterns as Parameters<typeof rewriteText>[2])
       if (to !== tn.data) tn.data = to
-      fixStatsFull(tn)
       if (activeIsZh(ctx)) hidePromptProviderText(tn)
       return
     }
@@ -420,14 +343,12 @@ export function installChineseEnhance(zhCtx: ZhApplyContext): () => void {
     if (!isThinkOpen(target)) toggleThink(target)
   }
 
-  // ── Stats resize handler ───────────────────────────────────────────────────
+  // ── Resize handler（对话宽度自适应） ───────────────────────────────────────
   const statsResizeListener = (): void => {
     if (statsResizeTimer !== undefined) clearTimeout(statsResizeTimer)
     statsResizeTimer = setTimeout(() => {
       statsResizeTimer = undefined
       if (document.body === null) return
-      const rows = document.body.querySelectorAll<HTMLElement>('[' + STATS_FULL_KEY + ']')
-      for (const row of rows) fitStatsRow(row)
       applyChatWidth()
     }, 100)
   }
@@ -445,17 +366,6 @@ export function installChineseEnhance(zhCtx: ZhApplyContext): () => void {
 
     // 自动展开流式中的最新思考（原插件在 rewrite 前调用 runThinkAuto）。
     runThinkAuto()
-
-    // Stats full
-    if (snap.statsFull !== true) {
-      const fixed = document.body.querySelectorAll<HTMLElement>('[' + STATS_FULL_KEY + ']')
-      for (const el of fixed) {
-        for (const [k, v] of STATS_FULL_STYLES) el.style.removeProperty(k)
-        el.style.removeProperty('overflow-x')
-        el.style.removeProperty('font-size')
-        el.removeAttribute(STATS_FULL_KEY)
-      }
-    }
 
     if (!zh) {
       const hidden = document.body.querySelectorAll('[data-dsh-zh-hide-prompt-provider]')
@@ -542,13 +452,6 @@ export function installChineseEnhance(zhCtx: ZhApplyContext): () => void {
       const roots = thinkRoots()
       for (const rt of Array.from(roots)) {
         applyThinkLinesToBody(rt as Element, thinkBodyDiv(rt as Element), 0)
-      }
-      const fixed = document.body.querySelectorAll<HTMLElement>('[' + STATS_FULL_KEY + ']')
-      for (const el of fixed) {
-        for (const [k] of STATS_FULL_STYLES) el.style.removeProperty(k)
-        el.style.removeProperty('overflow-x')
-        el.style.removeProperty('font-size')
-        el.removeAttribute(STATS_FULL_KEY)
       }
     }
   }

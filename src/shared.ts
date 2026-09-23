@@ -254,8 +254,6 @@ export const isMotionPresetId = (value: unknown): value is MotionPresetId =>
 export interface ZhSection {
   /** 中文补全：整句/术语/正则三层翻译 + DOM 文本增强（仅中文界面生效）。默认开。 */
   zhComplete?: boolean
-  /** 统计全显示：状态行不再单行截断。默认开。 */
-  statsFull?: boolean
   /** 对话宽度开关（默认开）与宽度百分比 50–100（默认 90）。 */
   chatWidthEnabled?: boolean
   chatWidth?: number

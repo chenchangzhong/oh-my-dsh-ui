@@ -217,7 +217,7 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
   )
 
   const ui = uiSnap ?? {
-    zhComplete: true, statsFull: true,
+    zhComplete: true,
     thinkingAuto: true, thinkMaxLines: 20, thinkMaxLinesFrom: 'latest' as const,
     thinkMode: 'button' as const, deleteSessionEnabled: true, archiveViewEnabled: true,
     renderUserMarkdown: false,
@@ -492,10 +492,6 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
       // ── 中文补全 ──
       row('zhComplete', t('zhComplete'), t('zhCompleteDesc'),
         toggle(ui.zhComplete, () => settings.set('zhComplete', !ui.zhComplete))),
-
-      // ── 统计全显示 ──
-      row('statsFull', t('statsFull'), t('statsFullDesc'),
-        toggle(ui.statsFull, () => settings.set('statsFull', !ui.statsFull))),
 
       // ── 思考展开分组 ──
       group('thinkingGroup',

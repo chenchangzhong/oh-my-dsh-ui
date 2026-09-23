@@ -25,7 +25,6 @@ export interface SettingsSnapshot extends ZhSettingsSection {}
 /** Sentinel value when the scope is not yet available. */
 const SCOPE_PENDING = Object.freeze({
   zhComplete: ZH_SETTINGS_DEFAULTS.zhComplete,
-  statsFull: ZH_SETTINGS_DEFAULTS.statsFull,
   chatWidthEnabled: ZH_SETTINGS_DEFAULTS.chatWidthEnabled,
   chatWidth: ZH_SETTINGS_DEFAULTS.chatWidth,
   thinkingAuto: ZH_SETTINGS_DEFAULTS.thinkingAuto,
@@ -81,7 +80,6 @@ function normalize(raw: unknown): SettingsSnapshot {
   const snap = ready ? wrapped!.value as Partial<ZhSettingsSection> : {}
   return {
     zhComplete: snap.zhComplete !== false,
-    statsFull: snap.statsFull !== false,
     chatWidthEnabled: snap.chatWidthEnabled !== false,
     chatWidth: clamp(snap.chatWidth ?? ZH_SETTINGS_DEFAULTS.chatWidth, 50, 100),
     thinkingAuto: snap.thinkingAuto !== false,
@@ -157,7 +155,7 @@ class SettingsStore {
     else if (field === 'thinkMaxLines') normalized = clamp(Number(value), 0, 200)
     else if (field === 'serviceMonitorIntervalSec') normalized = clamp(Number(value), 2, 300)
     else if (field === 'serviceMonitorTargets') normalized = normalizeServiceTargets(value)
-    else if (field === 'zhComplete' || field === 'statsFull' || field === 'thinkingAuto' || field === 'deleteSessionEnabled' || field === 'archiveViewEnabled' || field === 'chatWidthEnabled' || field === 'renderUserMarkdown' || field === 'batchOpsEnabled' || field === 'serviceMonitorEnabled' || field === 'serviceMonitorSettingsOpen')
+    else if (field === 'zhComplete' || field === 'thinkingAuto' || field === 'deleteSessionEnabled' || field === 'archiveViewEnabled' || field === 'chatWidthEnabled' || field === 'renderUserMarkdown' || field === 'batchOpsEnabled' || field === 'serviceMonitorEnabled' || field === 'serviceMonitorSettingsOpen')
       normalized = Boolean(value)
     else if (field === 'thinkMaxLinesFrom') normalized = value === 'earliest' ? 'earliest' : 'latest'
     else if (field === 'thinkMode') normalized = value === 'scroll' ? 'scroll' : 'button'
