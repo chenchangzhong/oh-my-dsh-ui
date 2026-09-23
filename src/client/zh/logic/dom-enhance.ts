@@ -263,8 +263,18 @@ export function installChineseEnhance(zhCtx: ZhApplyContext): () => void {
           return interpolateZh(applyPairs(template, resolvePairs(partial[key])), nextParams)
         }
       }
+      // 通配表 ZH['*']：按「键名」跨命名空间兜底，只用于补上游没本地化的通用英文词
+      // （open/done/failed…）。**上游 zh 值已含中文时必须尊重上游**——否则 `empty`
+      // 这类通用键名会把整句中文压成一个词（实测：0.1.7 的 settings.plugins.empty
+      // 「本部署没有开放任何插件视图。」被压成「空」，settings.pluginInventory.empty
+      // 「暂无插件。」同样中招）。
       const star = (ZH as Record<string, Record<string, string>>)['*']?.[key]
-      if (star !== undefined) return interpolateZh(star, nextParams)
+      if (star !== undefined) {
+        const upstreamValue = originalTranslate?.call(this, ns, key)
+        const upstreamLocalized = typeof upstreamValue === 'string' && /[\u4e00-\u9fff]/.test(upstreamValue)
+        if (!upstreamLocalized) return interpolateZh(star, nextParams)
+        return originalTranslate?.call(this, ns, key, nextParams) ?? ''
+      }
       return originalTranslate?.call(this, ns, key, params) ?? ''
     }
   }
