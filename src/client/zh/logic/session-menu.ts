@@ -202,6 +202,33 @@ function titleOf(row: HTMLElement): string {
   return row.textContent?.trim().slice(0, 80) ?? ''
 }
 
+// ─── Menu item anatomy ────────────────────────────────────────────────────────
+/**
+ * Read a menu item's label text.
+ *
+ * 0.1.7 renders items as icon + label + shortcut spans, and the shortcut's keys
+ * (`⌥⌘A`) are part of the item's `textContent` — so matching on `textContent`
+ * silently stops finding the anchor item. Read the label's own span; older
+ * Harness versions have no label class, so fall back to `textContent`.
+ */
+function menuItemLabel(item: HTMLElement): string {
+  const span = item.querySelector<HTMLElement>('span[class*="itemLabel"]')
+  return (span?.textContent ?? item.textContent ?? '').trim()
+}
+
+/** The span holding a menu item's label (see {@link menuItemLabel}). */
+function menuItemLabelSpan(item: HTMLElement): HTMLElement | null {
+  return item.querySelector<HTMLElement>('span[class*="itemLabel"]')
+    ?? item.querySelector<HTMLElement>('span:last-child')
+}
+
+/** Drop the Harness-rendered shortcut hint a cloned item inherits from its anchor. */
+function stripMenuItemShortcut(item: HTMLElement): void {
+  item.removeAttribute('aria-keyshortcuts')
+  const span = item.querySelector<HTMLElement>('span[class*="shortcut"]')
+  if (span?.parentNode) span.parentNode.removeChild(span)
+}
+
 // ─── Delete execution ─────────────────────────────────────────────────────────
 function performDelete(sessionId: string, title: string, ctx: ClientContext): void {
   let currentSessionId: string | null = null
@@ -432,12 +459,11 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
       }
     } catch { /* ignore */ }
 
-    // Find anchor: menuitem with "归档会话" / "Archive session"
+    // Find anchor: menuitem labelled "归档会话" / "Archive session"
     let anchor: HTMLElement | null = null
     const items = menu.querySelectorAll<HTMLElement>('[role="menuitem"]')
     for (const item of Array.from(items)) {
-      const text = item.textContent?.trim() ?? ''
-      if (SESSION_MENU_MARKS.includes(text)) { anchor = item; break }
+      if (SESSION_MENU_MARKS.includes(menuItemLabel(item))) { anchor = item; break }
     }
     if (!anchor) return
 
@@ -457,7 +483,8 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
     // Replace icon with trash emoji
     const iconSpan = btn.querySelector('span:first-child')
     if (iconSpan) { iconSpan.textContent = '🗑'; iconSpan.style.fontSize = '14px' }
-    const labelSpan = btn.querySelector('span:last-child')
+    stripMenuItemShortcut(btn)
+    const labelSpan = menuItemLabelSpan(btn)
     if (labelSpan) { labelSpan.textContent = copy.deleteLabel; labelSpan.title = copy.deleteHint }
     btn.style.color = 'var(--dsw-alias-danger-strong, #d93026)'
     btn.addEventListener('click', (e) => {
@@ -486,7 +513,8 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
         b.setAttribute(BATCH_ITEM_MARK, '')
         const iconSpan = b.querySelector('span:first-child')
         if (iconSpan) { iconSpan.textContent = icon; iconSpan.style.fontSize = '14px' }
-        const labelSpan = b.querySelector('span:last-child')
+        stripMenuItemShortcut(b)
+        const labelSpan = menuItemLabelSpan(b)
         if (labelSpan) labelSpan.textContent = label
         if (danger) b.style.color = 'var(--dsw-alias-danger-strong, #d93026)'
         b.addEventListener('click', (e) => {
