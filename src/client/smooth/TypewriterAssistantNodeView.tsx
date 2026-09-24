@@ -669,6 +669,7 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
   fileMentions,
   turnProcess,
   t,
+  groupPart,
 }: AssistantProps & {
   mode?: StreamMode
   preset?: StreamSmoothingPreset
@@ -748,9 +749,20 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
   const imageLoader: ImageLoader = loadImage ?? (async () => {
     throw new Error(t('image.serviceUnavailable'))
   })
+  // 0.1.7 host contract: an assistant step is projected as TWO seats
+  // (ProcessGroup split). `groupPart === 'reasoning'` renders ONLY reasoning
+  // blocks, `'response'` ONLY non-reasoning blocks; absent = everything
+  // (0.1.5 Desktop behavior). The host's own AssistantMarkdown filters the
+  // same way (dsh-client-ui-chat 0.1.7 AssistantMarkdown). Rendering full
+  // blocks in both seats duplicated the think and reply blocks.
+  const visibleBlocks = data.blocks.filter(block => {
+    if (groupPart === 'reasoning' && block.kind !== 'reasoning') return false
+    if (groupPart === 'response' && block.kind === 'reasoning') return false
+    return true
+  })
   const hasVisible = streaming
     || data.status === 'interrupted'
-    || data.blocks.some(block => block.kind !== 'tool-call')
+    || visibleBlocks.some(block => block.kind !== 'tool-call')
   if (!hasVisible) return null
   const announcementText = data.blocks
     .filter(block => block.kind === 'text')
@@ -758,16 +770,15 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
     .join('\n')
 
   const rendered: ReactNode[] = []
-  const last = data.blocks.length - 1
   let lastFollow = -1
   let lastText = -1
-  for (let index = 0; index < data.blocks.length; index += 1) {
-    const kind = data.blocks[index]?.kind
+  for (let index = 0; index < visibleBlocks.length; index += 1) {
+    const kind = visibleBlocks[index]?.kind
     if (kind === 'text' || kind === 'reasoning') lastFollow = index
     if (kind === 'text') lastText = index
   }
-  for (let index = 0; index < data.blocks.length; index += 1) {
-    const block = data.blocks[index]
+  for (let index = 0; index < visibleBlocks.length; index += 1) {
+    const block = visibleBlocks[index]
     if (block === undefined) continue
     switch (block.kind) {
       case 'text':
@@ -796,14 +807,14 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
           <FoldableReasoning key={index} hidden={reasoningHidden} reveal={revealProcess}>
             <AnimatedReasoning
               text={block.text}
-              running={streaming && index === last}
+              running={streaming && index === visibleBlocks.length - 1}
               preset={preset}
               thinkAutoExpand={thinkAutoExpand}
               logarithmicFade={logarithmicFade && data.status !== 'interrupted'}
               motionReduced={reduced}
               shouldHoldBack={shouldHoldBack}
-              followSpeedCpsRef={reasoningOwnsSpeed && index === last ? rootSpeedRef : undefined}
-              followRevealScaleRef={reasoningOwnsSpeed && index === last ? rootRevealScaleRef : undefined}
+              followSpeedCpsRef={reasoningOwnsSpeed && index === visibleBlocks.length - 1 ? rootSpeedRef : undefined}
+              followRevealScaleRef={reasoningOwnsSpeed && index === visibleBlocks.length - 1 ? rootRevealScaleRef : undefined}
               t={t}
             />
           </FoldableReasoning>,
@@ -812,8 +823,8 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
       case 'image': {
         const start = index
         const group = [block]
-        while (index + 1 < data.blocks.length) {
-          const next = data.blocks[index + 1]
+        while (index + 1 < visibleBlocks.length) {
+          const next = visibleBlocks[index + 1]
           if (next === undefined || next.kind !== 'image') break
           group.push(next)
           index += 1
@@ -854,7 +865,7 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
       >
         <div className={css.body}>
           {rendered}
-          {data.status === 'interrupted' && <span className={css.stopped}>{t('message.stopped')}</span>}
+          {data.status === 'interrupted' && (groupPart === undefined || groupPart === 'response' || visibleBlocks.some(block => block.kind !== 'reasoning' && block.kind !== 'tool-call')) && <span className={css.stopped}>{t('message.stopped')}</span>}
         </div>
       </FollowHost>
     </div>

@@ -1154,13 +1154,19 @@ function ensureRunway(
     restoreRunway(port)
     return
   }
-  const target = status === null
-    ? { element: composer === null ? undefined : surfaces.at(-1), property: 'marginBottom' as const }
-    : { element: status, property: 'marginTop' as const }
-  if (target.element === undefined) {
+  // Local restoration (dropped by 321d078 while aligning upstream HEAD): this
+  // host renders NO turn-status bar — `data-chat-turn-status` is absent from the
+  // harness DOM, and the flow's direct children are seat wrappers without
+  // `role="status"` — so `status` is always null here and nothing below the last
+  // message can consume a runway. Writing it on the last surface's marginBottom
+  // leaves a net FOLLOW_STATUS_RUNWAY_PX gap under the final reply (the blank
+  // line under every reply). Disable the runway in this topology; the spring
+  // follow (scrollTop) still smooths the stream without the gap.
+  if (status === null) {
     restoreRunway(port)
     return
   }
+  const target = { element: status, property: 'marginTop' as const }
   const element = target.element
   const current = followRunways.get(port)
   if (current?.element === element
