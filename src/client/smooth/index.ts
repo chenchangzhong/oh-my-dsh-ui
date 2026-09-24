@@ -30,7 +30,7 @@ import { wrapFollowNodeView, type FollowWrapProps } from './TypewriterToolNodeVi
 import { SmoothStreamCardController } from './SmoothStreamCardController.ts'
 import { DebugPanel } from './DebugPanel.tsx'
 import { debugRuntime } from './debugRuntime.ts'
-import { NS as SETTINGS_NS, en, zh } from './locales.ts'
+import { NS as SETTINGS_NS, CHAT_NS, chatEn, chatZh, en, zh } from './locales.ts'
 import { DEFAULT_STREAM_CONFIG, type StreamConfig } from './config.ts'
 import { DEFAULT_STREAM_SETTINGS, publishMotionPreference, publishLogFade, type StreamSettings } from './settings.ts'
 import { UI_CUSTOM_SETTINGS_NS } from '../../shared.ts'
@@ -295,6 +295,54 @@ export function apply(ctx: ClientContext, config?: { preset?: string; takeover?:
     }
   }, 'smooth: settings card + debug panel registration')
 
+  /**
+   * Layered `t` for the assistant renderer.
+   *
+   * The renderer's keys have no single owner: `conversation` owns the
+   * `image.*` family in every Harness version, `chat` (0.1.5+) owns
+   * `message.think`, and three `message.*` keys MOVED from `conversation` to
+   * `chat` between the version this package pins and the current one. Binding
+   * the slot to either namespace alone degrades a real slice of the UI to raw
+   * keys, which is the defect this replaces.
+   *
+   * The order is deliberate: `conversation` first, so the pinned Harness keeps
+   * resolving the keys it still owns there; then `chat` for what moved or is
+   * new; then this plugin's own namespace for keys no Harness version
+   * provides. A namespace that is not registered returns its key unchanged
+   * (`LocaleRuntime.bind` does not throw), so an older Harness without `chat`
+   * falls straight through.
+   *
+   * The reference is built once and held stable: the seat feeds a memoized
+   * renderer, and a fresh identity per render would defeat that memoization.
+   * Until the locale service arrives the seat's own binding stays in use.
+   *
+   * Locale routing is kept OUT of the Connection-backed settings effect: a
+   * transient disconnect there must not dispose the renderer's fallback
+   * dictionary.
+   */
+  let assistantT: AssistantProps['t'] | undefined
+
+  ctx.effect(() => {
+    if (ctx.locale === undefined) return () => {}
+    const unregisterChat = ctx.locale.register(CHAT_NS, { zh: chatZh, en: chatEn })
+    const conversationT = ctx.locale.bind('conversation')
+    const chatT = ctx.locale.bind('chat') as (key: string, params?: Record<string, unknown>) => string
+    const fallbackT = ctx.locale.bind(CHAT_NS) as (key: string, params?: Record<string, unknown>) => string
+    const merged = (key: string, params?: Record<string, unknown>): string => {
+      const primary = (conversationT as (k: string, p?: unknown) => string)(key, params)
+      if (primary !== key) return primary
+      const secondary = chatT(key, params)
+      if (secondary !== key) return secondary
+      return fallbackT(key, params)
+    }
+    const bound = merged as unknown as AssistantProps['t']
+    assistantT = bound
+    return () => {
+      if (assistantT === bound) assistantT = undefined
+      unregisterChat()
+    }
+  }, 'smooth: layered assistant locale routing')
+
   // Settings face for the renderer's think-block clamp. Bound once here so
   // React renders never re-bind the harness scope.
   const nodeSettingsScope = bindSettingsScope(ctx)
@@ -311,6 +359,11 @@ export function apply(ctx: ClientContext, config?: { preset?: string; takeover?:
       null,
       createElement(TypewriterAssistantNodeView, {
         ...props,
+        // Override the seat's single-namespace binding with the layered lookup
+        // described above. Falls back to the seat's own binding only if the
+        // locale service never arrived (renderer then receives the prop it
+        // already had).
+        ...(assistantT === undefined ? {} : { t: assistantT }),
         mode: streamConfig.mode,
         preset: preferences.preset ?? streamConfig.preset,
         revealCharsPerSec: streamConfig.revealCharsPerSec,
