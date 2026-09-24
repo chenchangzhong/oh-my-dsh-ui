@@ -58,6 +58,16 @@ html[data-dsu-active='1'] body {
   --dsw-alias-scrollbar-hover-l2: color-mix(in srgb, var(--dsu-accent, #4176e6) calc(var(--dsu-scrollbar, 0) * 55%), transparent);
 }
 
+/* Menu / popover fill. The stock token ships translucent (#f8f9fa94 ≈ 58% on
+   plain web; only the macOS desktop preload raises it to .94), so every
+   popover — DSH's own menus and third-party plugins built on this token —
+   becomes a see-through hole once surfaces are transparent. Pin it opaque.
+   The :not() lifts this above the shell's own darwin override, which has the
+   same specificity as the block above and would otherwise win on source order. */
+html[data-dsu-active='1'] body:not([data-ds-dark-theme]) {
+  --dsw-specific-menu: var(--dsw-static-neutral-bluish-50);
+}
+
 /* Dark theme: dark glass hues. Must out-specify the rule above
    (html + attribute + body + dark attribute). */
 html[data-dsu-active='1'] body[data-ds-dark-theme] {
@@ -75,6 +85,9 @@ html[data-dsu-active='1'] body[data-ds-dark-theme] {
   --dsw-alias-markdown-code-block: color-mix(in srgb, var(--dsw-static-neutral-bluish-900) var(--dsu-code-alpha, var(--dsu-dark-alpha, 50%)), transparent);
   --dsw-alias-markdown-code-block-banner: color-mix(in srgb, var(--dsw-static-neutral-bluish-850) calc(var(--dsu-code-alpha, var(--dsu-dark-alpha, 50%)) + 10%), transparent);
   --dsw-alias-markdown-inline-code: color-mix(in srgb, var(--dsw-static-deepseek-900) calc(var(--dsu-code-alpha, var(--dsu-dark-alpha, 50%)) + 15%), transparent);
+
+  /* Menu fill: same rationale as the light rule above; a raised dark hue. */
+  --dsw-specific-menu: var(--dsw-static-neutral-bluish-800);
 }
 
 /* Frosted glass + optional inset vignette on the app root. */
