@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from 'react'
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type ReactNode, type RefObject } from 'react'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ImageGallery, type ImageLoader, type MessageImageLabels } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { ChatNodeViewProps, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -10,6 +10,7 @@ import { useFpsGuard } from './useFpsGuard.ts'
 import { useLogarithmicFade } from './useLogarithmicFade.ts'
 import { useDecoupledMarkdown } from './useDecoupledMarkdown.ts'
 import { FollowHost } from './FollowHost.tsx'
+import { isReasoningDraining, setReasoningDraining, subscribeReasoningDraining } from './reasoningGate.ts'
 import { DEFAULT_STREAM_CONFIG, type StreamMode } from './config.ts'
 import { DEFAULT_STREAM_SETTINGS, type StreamMotionPreference } from './settings.ts'
 import css from './TypewriterAssistantNodeView.module.css'
@@ -441,12 +442,13 @@ function latestLine(text: string): string {
  * Built-in Think disclosure with a smoothed `text` feed. Chevron and row
  * click stay on the disclosure chrome, which the plugin's AnimatedDisclosure
  * renders with a height-animated body (the harness primitive would mount and
- * unmount it, which cannot glide). The row opens only while this block is
- * the streaming tail and closes as soon as thinking ends — a later block,
- * or the assistant node settling — not when the rest of the reply is
- * still streaming.
+ * unmount it, which cannot glide). The row opens while this block is the
+ * streaming tail and stays open until its OWN reveal has drained, then closes
+ * as soon as thinking ends — a later block, or the assistant node settling —
+ * not when the rest of the reply is still streaming.
  */
 function AnimatedReasoning({
+  gateKey,
   text,
   running,
   preset,
@@ -458,6 +460,8 @@ function AnimatedReasoning({
   followRevealScaleRef,
   t,
 }: {
+  /** Assistant Node key shared with the response seat of the same step. */
+  gateKey: string
   text: string
   running: boolean
   preset: StreamSmoothingPreset
@@ -482,56 +486,103 @@ function AnimatedReasoning({
   const fadeSpeedRef = followSpeedCpsRef ?? localFadeSpeedRef
   const userScrolledRef = useRef(false)
   const rafIdRef = useRef(0)
-  // Latest "the live stream still owns this scroller" state. Tracked on every
-  // render so the queued frame can re-read it: a stop or a collapse landing
-  // between scheduling and the frame must not move the viewport.
+  // Latest "this body is still expanded" state. Tracked on every render so the
+  // queued frame can re-read it: a collapse landing between scheduling and the
+  // frame must not move the viewport. Whether a frame may follow AT ALL is
+  // decided where it is scheduled (a changed `shown`, or `live`) — see below;
+  // `expanded` alone must never authorize a scroll, or expanding a finished
+  // reasoning card would jump to its last line.
   const followActiveRef = useRef(false)
-  followActiveRef.current = running && expanded
+  followActiveRef.current = expanded
   const commitAnchorRef = useRef<HTMLDivElement>(null)
-  // The running→false flip is the AUTO-close: it collapses instantly and the
+  // The live→false flip is the AUTO-close: it collapses instantly and the
   // follower's settle spring absorbs the height step. A later manual toggle
   // keeps the CSS glide.
+  //
+  // Previous frame's revealed slice. `running` flips false the moment the host
+  // opens the answer block — and the host opens it with an EMPTY `block-start`
+  // placeholder (host `emptyAssistantBlock`), long before the smoothed think
+  // reveal has drained. Without carrying the reveal past that flip the hook
+  // sees `enabled: false` and jumps straight to the full text
+  // (useSmoothStreamContent syncImmediate), so the think block would collapse
+  // with most of its text never shown.
+  const revealedRef = useRef(text)
+  const keepRevealing = revealedRef.current !== text
   const displayed = useSmoothStreamContent(text, {
-    enabled: running && !reduced,
+    enabled: !reduced && (running || keepRevealing),
     preset,
     shouldHoldBack,
     speedCpsRef: fadeSpeedRef,
     revealScaleRef: followRevealScaleRef,
     onRevealCommit: () => { notifyFollowCommit(commitAnchorRef.current) },
   })
-  const shown = running && !reduced ? displayed : text
-  const summary = running ? latestLine(shown) : firstLine(text)
-  useLogarithmicFade(fadeRootRef, logarithmicFade && !reduced && expanded, running, fadeSpeedRef)
+  useLayoutEffect(() => {
+    revealedRef.current = displayed
+  }, [displayed])
+  // The block is "live" until its own text has been fully revealed, no matter
+  // what the host status says: that is what keeps it open, keeps the summary
+  // following, and keeps the sweep on while the last lines type out.
+  const revealing = !reduced && displayed !== text
+  const live = running || revealing
+  const shown = live ? displayed : text
+  const summary = live ? latestLine(shown) : firstLine(text)
+  useLogarithmicFade(fadeRootRef, logarithmicFade && !reduced && expanded, live, fadeSpeedRef)
 
   useLayoutEffect(() => {
-    // Only the running state owns disclosure while auto-expand is on; with it
-    // off, a manual toggle is never wrestled back by the stream.
+    // Auto-expand owns the disclosure while the block is live; with it off, a
+    // manual toggle is never wrestled back by the stream. A reply arriving
+    // mid-reveal must not snap the think text away before it has been read, so
+    // the close waits for the reveal to drain (`live`), not for `running`.
     if (thinkAutoExpand) {
-      setExpanded(running)
-      setAutoClosed(!running)
+      setExpanded(live)
+      setAutoClosed(!live)
     }
-    if (running) {
+    if (live) {
       userScrolledRef.current = false
     }
     // A commit that changes this block's height must hand the follower its
     // correction in the SAME task, before the grown-but-uncompensated frame
     // can reach a paint.
     notifyFollowCommit(commitAnchorRef.current)
-  }, [running, thinkAutoExpand])
+  }, [live, running, thinkAutoExpand])
 
+  // Tell the response seat how long to hold the reply back: it renders the
+  // answer only once every think block of this step has stopped typing. The
+  // source id keeps one block's drain from clearing another's.
+  const gateSource = useId()
   useEffect(() => {
-    // Only the live stream owns the reading position. A settled block is
-    // something to read from the top, so expanding a finished reasoning card
-    // must not scroll it — that would make its first lines unreachable.
-    if (!running || !expanded || userScrolledRef.current) return
+    setReasoningDraining(gateKey, gateSource, revealing)
+  }, [gateKey, gateSource, revealing])
+  useEffect(() => () => { setReasoningDraining(gateKey, gateSource, false) }, [gateKey, gateSource])
+
+  // Last slice actually written into the viewport. Follow ownership is keyed
+  // to THIS, not to `expanded`.
+  const followedShownRef = useRef(shown)
+  useEffect(() => {
+    // An open body stays pinned to its newest line only while it is being
+    // written: `shown` grows every frame during the reveal, and the settle
+    // commit — where it flips from the revealed slice to the full text in one
+    // commit — is one more write. Measured with the old `!running` bail-out:
+    // scrollHeight 368 vs clientHeight 248, so the last 120px never surfaced.
+    //
+    // A settled block whose text did NOT change owns nothing: expanding a
+    // finished reasoning card must leave its scroll position alone, or its
+    // first lines become unreachable — the reason the old guard bailed out on
+    // `!running`. `live` covers the frame where the stream is still running but
+    // this frame's slice happens to be unchanged. A reader who scrolled up
+    // keeps the position (userScrolledRef re-arms on the way back down).
+    const shownChanged = followedShownRef.current !== shown
+    followedShownRef.current = shown
+    if (!expanded || userScrolledRef.current) return
+    if (!shownChanged && !live) return
     const el = thinkBodyRef.current
     if (el === null) return
     if (rafIdRef.current === 0) {
       rafIdRef.current = requestAnimationFrame(() => {
         rafIdRef.current = 0
-        // Re-checked at frame time: the stream may have stopped, the block may
-        // have collapsed, or the user may have scrolled since scheduling. A
-        // queued frame never steals the position back.
+        // Re-checked at frame time: the block may have collapsed, or the user
+        // may have scrolled since scheduling. A queued frame never steals the
+        // position back.
         if (!followActiveRef.current || userScrolledRef.current || el === null) return
         const delta = el.scrollHeight - el.scrollTop - el.clientHeight
         if (delta > 2) {
@@ -539,7 +590,7 @@ function AnimatedReasoning({
         }
       })
     }
-  }, [running, expanded, shown])
+  }, [running, expanded, shown, live])
 
   useEffect(() => {
     return () => {
@@ -594,14 +645,14 @@ function AnimatedReasoning({
   useEffect(() => {
     const element = summaryRef.current
     if (element === null) return
-    element.scrollLeft = running ? element.scrollWidth - element.clientWidth : 0
-  }, [running, summary])
+    element.scrollLeft = live ? element.scrollWidth - element.clientWidth : 0
+  }, [live, summary])
 
   // Preserve FollowHost's layout wrapper without mounting a second scroll owner.
   return (
     <div className={css.follow} ref={commitAnchorRef}>
-      <div className={css.think} data-variant="think" data-state={running ? 'running' : 'ok'}>
-        {running && <span className={css.visuallyHidden}>{t('row.running')}</span>}
+      <div className={css.think} data-variant="think" data-state={live ? 'running' : 'ok'}>
+        {live && <span className={css.visuallyHidden}>{t('row.running')}</span>}
         <AnimatedDisclosure
           rowClassName={css.thinkRow}
           leadingClassName={css.thinkLeading}
@@ -630,7 +681,7 @@ function AnimatedReasoning({
           collapsedContent={(
             <>
               <span className={css.thinkSeparator} aria-hidden />
-              <span ref={summaryRef} className={css.thinkSummary} data-follow-end={running || undefined}>{summary}</span>
+              <span ref={summaryRef} className={css.thinkSummary} data-follow-end={live || undefined}>{summary}</span>
             </>
           )}
         >
@@ -684,6 +735,20 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
   const data = node.data
   const streaming = data.status === 'running'
   const reduced = useMotionReduced(motionPreference)
+  // The reasoning seat of this same Node reveals the think text at its own
+  // pace; the host hands the answer over as soon as thinking ends (an empty
+  // `block-start`), so the reply must wait for that reveal to drain before it
+  // starts typing underneath.
+  const nodeKey = node.key
+  const readReasoningDraining = useCallback(
+    () => isReasoningDraining(nodeKey),
+    [nodeKey],
+  )
+  const reasoningDraining = useSyncExternalStore(
+    subscribeReasoningDraining,
+    readReasoningDraining,
+    readReasoningDraining,
+  )
   // The Host's completion-fold decision for THIS node's inline reasoning:
   // only the answer step folds, only in compact-transcript mode, and only
   // once the turn has closed (foldable implies it). Mirrors the built-in
@@ -755,11 +820,24 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
   // (0.1.5 Desktop behavior). The host's own AssistantMarkdown filters the
   // same way (dsh-client-ui-chat 0.1.7 AssistantMarkdown). Rendering full
   // blocks in both seats duplicated the think and reply blocks.
-  const visibleBlocks = data.blocks.filter(block => {
-    if (groupPart === 'reasoning' && block.kind !== 'reasoning') return false
-    if (groupPart === 'response' && block.kind === 'reasoning') return false
-    return true
-  })
+  //
+  // The filter keeps every kept block's ORIGINAL index, exactly like the host
+  // ("Render only the requested business portion, preserving original block
+  // indexes" — AssistantMarkdownProps.groupPart): the stream-tail test below
+  // must run against the FULL block list. Judging the tail from the seat-local
+  // index made the reasoning block look like the tail for the whole step, so
+  // the think block kept revealing at its own pace while the reply seat was
+  // already typing the answer below it.
+  const visibleBlocks: Array<(typeof data.blocks)[number]> = []
+  const visibleOriginalIndexes: number[] = []
+  for (let index = 0; index < data.blocks.length; index += 1) {
+    const block = data.blocks[index]
+    if (block === undefined) continue
+    if (groupPart === 'reasoning' && block.kind !== 'reasoning') continue
+    if (groupPart === 'response' && block.kind === 'reasoning') continue
+    visibleBlocks.push(block)
+    visibleOriginalIndexes.push(index)
+  }
   const hasVisible = streaming
     || data.status === 'interrupted'
     || visibleBlocks.some(block => block.kind !== 'tool-call')
@@ -780,9 +858,18 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
   for (let index = 0; index < visibleBlocks.length; index += 1) {
     const block = visibleBlocks[index]
     if (block === undefined) continue
+    // Host-equivalent stream-tail test (`streaming && i === last` in the host's
+    // AssistantMarkdown), taken against the FULL block list rather than this
+    // seat's slice: a reasoning block stops being the tail as soon as any later
+    // block exists, which is what settles its reveal when the reply arrives.
+    const isStreamTail = (visibleOriginalIndexes[index] ?? index) === data.blocks.length - 1
     switch (block.kind) {
       case 'text':
         if (!streaming && block.text.trim() === '') break
+        // The answer waits for the think block to finish typing (see
+        // reasoningGate): mounting it early would race the reveal and land the
+        // reply under a think block that is still mid-sentence.
+        if (reasoningDraining) break
         rendered.push(
           <AnimatedMarkdownText
             key={index}
@@ -806,15 +893,16 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
         rendered.push(
           <FoldableReasoning key={index} hidden={reasoningHidden} reveal={revealProcess}>
             <AnimatedReasoning
+              gateKey={nodeKey}
               text={block.text}
-              running={streaming && index === visibleBlocks.length - 1}
+              running={streaming && isStreamTail}
               preset={preset}
               thinkAutoExpand={thinkAutoExpand}
               logarithmicFade={logarithmicFade && data.status !== 'interrupted'}
               motionReduced={reduced}
               shouldHoldBack={shouldHoldBack}
-              followSpeedCpsRef={reasoningOwnsSpeed && index === visibleBlocks.length - 1 ? rootSpeedRef : undefined}
-              followRevealScaleRef={reasoningOwnsSpeed && index === visibleBlocks.length - 1 ? rootRevealScaleRef : undefined}
+              followSpeedCpsRef={reasoningOwnsSpeed && isStreamTail ? rootSpeedRef : undefined}
+              followRevealScaleRef={reasoningOwnsSpeed && isStreamTail ? rootRevealScaleRef : undefined}
               t={t}
             />
           </FoldableReasoning>,
