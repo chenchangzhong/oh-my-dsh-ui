@@ -59,14 +59,14 @@ const s = {
   inputNum: {
     width: 72, padding: '4px 8px', borderRadius: 8,
     border: '1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.35))',
-    background: 'var(--dsw-specific-input-minor, transparent)',
+    background: 'var(--dsw-specific-input-major)',
     color: 'var(--dsw-alias-label-primary, inherit)',
     fontSize: 14, lineHeight: '20px', textAlign: 'center' as const,
   },
   select: {
     flex: 'none', padding: '4px 8px', borderRadius: 8,
     border: '1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.35))',
-    background: 'var(--dsw-specific-input-minor, transparent)',
+    background: 'var(--dsw-specific-input-major)',
     color: 'var(--dsw-alias-label-primary, inherit)',
     fontSize: 13, lineHeight: '20px',
   },
@@ -337,7 +337,7 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
   const svcTextNameStyle: React.CSSProperties = {
     flex: '0 1 120px', minWidth: 0, boxSizing: 'border-box',
     border: '1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.35))',
-    background: 'var(--dsw-specific-input-minor, transparent)',
+    background: 'var(--dsw-specific-input-major)',
     color: 'var(--dsw-alias-label-primary, inherit)',
     fontSize: 13, lineHeight: '20px',
   }
