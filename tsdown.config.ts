@@ -13,6 +13,27 @@ import { resolve } from 'node:path'
  */
 
 /**
+ * 修回被 Lightning CSS 合并掉的 `backdrop-filter`。
+ *
+ * Lightning CSS 把 `-webkit-backdrop-filter` 与标准 `backdrop-filter` 当作同一个属性，
+ * 同一条规则里**只保留最后一条**（源码习惯写「标准在前、前缀在后」，于是产物里标准属性
+ * 永远被丢掉，只剩 `-webkit-`）。在不把 `-webkit-` 当别名的引擎（Firefox、以及把两者
+ * 当独立属性的 WebKit）里，这会让磨砂静默失效——实测 @tsdown/css 加 targets 也不会补回来。
+ * 因此在这里把缺失的一半补上：先摘掉侥幸存活的标准声明，再在每条前缀声明后面补一条标准声明。
+ * @param css - Lightning CSS 处理后的样式文本。
+ * @returns 同时含前缀与标准两种写法的样式文本。
+ */
+function withBothBackdropFilters(css: string): string {
+  // 单次扫描、两种形态都收（Lightning CSS 只保留最后一条，故留下的可能是任意一条）：
+  // 每命中一条声明就重写成「前缀 + 标准」成对写法。替换结果不再参与本轮匹配，不会重复插入。
+  return css.replace(
+    /[ \t]*(-webkit-)?backdrop-filter:([^;]+);/g,
+    (_match, _prefix: string | undefined, value: string) =>
+      `-webkit-backdrop-filter:${value};\n  backdrop-filter: ${value.trim()};`,
+  )
+}
+
+/**
  * 内联 CSS 的关键步骤。
  * @tsdown/css 0.22.14 只支持 css.inject 为 boolean：
  *   - false → 拆出外部 lib/style.css（运行时从不被加载，UI 无样式）
@@ -27,8 +48,17 @@ function inlineStyleCss() {
   const cssPath = resolve('lib/style.css')
   const outPath = resolve('lib/client.js')
   if (!existsSync(cssPath) || !existsSync(outPath)) return
-  const css = readFileSync(cssPath, 'utf8')
-  if (!css.trim()) return
+  const raw = readFileSync(cssPath, 'utf8')
+  if (!raw.trim()) return
+  const css = withBothBackdropFilters(raw)
+  // 源码里只要有声明，产物就必须是「前缀/标准」数量相等且都非零——否则说明补丁失效了
+  // （例如源码顺序反过来时，旧版补丁会把属性删光，而简单比对计数查不出来）。
+  const declared = (raw.match(/backdrop-filter:/g) ?? []).length
+  const prefixed = (css.match(/-webkit-backdrop-filter:/g) ?? []).length
+  const standard = (css.match(/(?<!-webkit-)backdrop-filter:/g) ?? []).length
+  if (declared > 0 && (prefixed !== standard || prefixed === 0)) {
+    console.warn(`[tsdown] backdrop-filter 修复异常: 源码 ${declared} 条 / 产物 前缀 ${prefixed} 标准 ${standard}`)
+  }
   let code = readFileSync(outPath, 'utf8')
   // 注入点：banner 末尾 `Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });` 之后。
   const marker = 'Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });'
