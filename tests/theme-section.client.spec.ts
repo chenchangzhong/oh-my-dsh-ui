@@ -27,8 +27,6 @@ describe('configFromThemeSection', () => {
       codeFontFamily: 'JetBrains Mono',
       fontScale: 1.05,
       scrollbarAccent: true,
-      cornerRadius: 'lg',
-      surfaceShadow: 'soft',
       darkAccent: '#223355',
     })
     expect(config.accent).toBe('#ff7fb2')
@@ -39,8 +37,6 @@ describe('configFromThemeSection', () => {
     expect(config.codeFontFamily).toBe('JetBrains Mono')
     expect(config.fontScale).toBe(1.05)
     expect(config.scrollbarAccent).toBe(true)
-    expect(config.cornerRadius).toBe('lg')
-    expect(config.surfaceShadow).toBe('soft')
     expect(config.darkAccent).toBe('#223355')
     // Untouched fields keep loader defaults.
     expect(config.preset).toBe(normalized.preset)
@@ -60,25 +56,9 @@ describe('configFromThemeSection', () => {
       codeFontFamily: undefined,
       fontScale: undefined,
       scrollbarAccent: undefined,
-      cornerRadius: undefined,
-      surfaceShadow: undefined,
       darkAccent: undefined,
     })
     expect(config).toEqual(normalized)
-  })
-
-  it('rejects an invalid refinement knob (falls back to the loader)', () => {
-    const config = configFromThemeSection(normalized, {
-      accent: '#123456', cornerRadius: 'banana' as string,
-      autoAccent: undefined, surfaceOpacity: undefined, sidebarOpacity: undefined,
-      chatSurfaceOpacity: undefined, inputOpacity: undefined, codeBlockOpacity: undefined,
-      darkSurfaceOpacity: undefined, fontFamily: undefined, codeFontFamily: undefined,
-      fontScale: undefined, scrollbarAccent: undefined, surfaceShadow: undefined,
-      darkAccent: undefined,
-    })
-    expect(config.accent).toBe('#123456')
-    expect(config.cornerRadius).toBe(normalized.cornerRadius)
-    expect(config.surfaceShadow).toBe(normalized.surfaceShadow)
   })
 
   it('never lands an explicit undefined on the optional darkSurfaceOpacity', () => {
@@ -87,8 +67,7 @@ describe('configFromThemeSection', () => {
       surfaceOpacity: undefined, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
       fontFamily: undefined, codeFontFamily: undefined,
-      fontScale: undefined, scrollbarAccent: undefined, cornerRadius: undefined,
-      surfaceShadow: undefined, darkAccent: undefined,
+      fontScale: undefined, scrollbarAccent: undefined, darkAccent: undefined,
     })
     expect(typeof config.darkSurfaceOpacity).toBe('number')
   })
@@ -103,8 +82,7 @@ describe('configFromThemeSection', () => {
       surfaceOpacity: undefined, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
       fontFamily: '', codeFontFamily: '', darkAccent: '',
-      fontScale: undefined, scrollbarAccent: undefined, cornerRadius: undefined,
-      surfaceShadow: undefined,
+      fontScale: undefined, scrollbarAccent: undefined,
     })
     expect(config.accent).toBe('')
     expect(config.fontFamily).toBe('')
@@ -120,8 +98,7 @@ describe('configFromThemeSection', () => {
       surfaceOpacity: 72, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
       fontFamily: undefined, codeFontFamily: undefined, fontScale: undefined,
-      scrollbarAccent: undefined, cornerRadius: undefined, surfaceShadow: undefined,
-      darkAccent: undefined,
+      scrollbarAccent: undefined, darkAccent: undefined,
     })
     expect(config.darkSurfaceOpacity).toBe(72)
     // An explicit dark override still wins.
@@ -130,8 +107,7 @@ describe('configFromThemeSection', () => {
       surfaceOpacity: 72, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: 41,
       fontFamily: undefined, codeFontFamily: undefined, fontScale: undefined,
-      scrollbarAccent: undefined, cornerRadius: undefined, surfaceShadow: undefined,
-      darkAccent: undefined,
+      scrollbarAccent: undefined, darkAccent: undefined,
     })
     expect(overridden.darkSurfaceOpacity).toBe(41)
   })

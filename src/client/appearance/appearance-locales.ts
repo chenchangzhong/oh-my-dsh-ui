@@ -10,8 +10,7 @@ export type AppearanceKey =
   | 'accent' | 'accentPalette' | 'accentPaletteHint' | 'autoAccent'
   | 'surfaceOpacity' | 'sidebarOpacity' | 'chatSurfaceOpacity' | 'inputOpacity' | 'codeBlockOpacity' | 'darkSurfaceOpacity'
   | 'fontFamily' | 'codeFontFamily' | 'fontScale' | 'fontScaleHint' | 'scrollbarAccent'
-  | 'refineTitle' | 'cornerRadius' | 'radius.inherit' | 'radius.sm' | 'radius.md' | 'radius.lg' | 'radius.xl'
-  | 'surfaceShadow' | 'shadow.inherit' | 'shadow.none' | 'shadow.soft' | 'shadow.medium' | 'shadow.strong'
+  | 'refineTitle'
   | 'darkAccent' | 'darkAccentHint' | 'darkAccentPlaceholder'
   | 'presetTitle' | 'presetHint' | 'myPresetName' | 'saveMyPreset' | 'removeMyPreset'
   | 'activePreset'
@@ -48,18 +47,6 @@ export const zh: Record<AppearanceKey, string> = {
   previewing: '预览中——满意后点「保存」，不满意点「取消预览」',
   cancelPreview: '取消预览',
   refineTitle: '质感',
-  cornerRadius: '圆角',
-  'radius.inherit': '跟随默认',
-  'radius.sm': '小 (6px)',
-  'radius.md': '中 (10px)',
-  'radius.lg': '大 (14px)',
-  'radius.xl': '超大 (18px)',
-  surfaceShadow: '表面阴影',
-  'shadow.inherit': '跟随默认',
-  'shadow.none': '无阴影',
-  'shadow.soft': '轻盈',
-  'shadow.medium': '适中',
-  'shadow.strong': '深邃',
   darkAccent: '暗色强调色',
   darkAccentHint: '留空 = 暗色模式跟随主强调色；设置后仅暗色模式使用该颜色。',
   darkAccentPlaceholder: '留空 = 跟随主强调色',
@@ -112,18 +99,6 @@ export const en: Record<AppearanceKey, string> = {
   previewing: 'Previewing — click Save to keep, or Cancel preview to revert',
   cancelPreview: 'Cancel preview',
   refineTitle: 'Refinement (optional — nothing changes by default)',
-  cornerRadius: 'Corner radius',
-  'radius.inherit': 'Follow default',
-  'radius.sm': 'Small (6px)',
-  'radius.md': 'Medium (10px)',
-  'radius.lg': 'Large (14px)',
-  'radius.xl': 'Extra large (18px)',
-  surfaceShadow: 'Surface shadow',
-  'shadow.inherit': 'Follow default',
-  'shadow.none': 'None',
-  'shadow.soft': 'Soft',
-  'shadow.medium': 'Medium',
-  'shadow.strong': 'Strong',
   darkAccent: 'Dark-mode accent',
   darkAccentHint: 'Empty inherits the main accent in dark mode; set to override it there only.',
   darkAccentPlaceholder: 'Empty = follow main accent',

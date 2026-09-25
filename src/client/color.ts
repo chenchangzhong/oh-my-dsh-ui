@@ -150,8 +150,6 @@ export function randomInspirationConfig(rng: () => number = Math.random): Partia
   const dark = rng() < 0.35 // roughly a third of the time: a night scheme
   const accent = hslToHex(hue / 360, sat, light)
   const surface = Math.round(between(rng, 30, 46))
-  const radius = pick(rng, ['md', 'lg'] as const)
-  const shadow = pick(rng, ['soft', 'medium'] as const)
   return {
     accent,
     autoAccent: false,
@@ -165,8 +163,6 @@ export function randomInspirationConfig(rng: () => number = Math.random): Partia
     codeFontFamily: '',
     fontScale: 1,
     scrollbarAccent: rng() < 0.7,
-    cornerRadius: radius,
-    surfaceShadow: shadow,
     darkAccent: dark ? accent : '',
   }
 }

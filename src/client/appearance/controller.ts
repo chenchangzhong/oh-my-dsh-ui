@@ -24,13 +24,13 @@ export type ThemeField =
   | 'accent' | 'autoAccent'
   | 'surfaceOpacity' | 'sidebarOpacity' | 'chatSurfaceOpacity' | 'inputOpacity' | 'codeBlockOpacity' | 'darkSurfaceOpacity'
   | 'fontFamily' | 'codeFontFamily' | 'fontScale' | 'scrollbarAccent'
-  | 'cornerRadius' | 'surfaceShadow' | 'darkAccent'
+  | 'darkAccent'
 
 const THEME_FIELDS: readonly ThemeField[] = [
   'accent', 'autoAccent',
   'surfaceOpacity', 'sidebarOpacity', 'chatSurfaceOpacity', 'inputOpacity', 'codeBlockOpacity', 'darkSurfaceOpacity',
   'fontFamily', 'codeFontFamily', 'fontScale', 'scrollbarAccent',
-  'cornerRadius', 'surfaceShadow', 'darkAccent',
+  'darkAccent',
 ]
 
 /** The parameter groups the appearance page shows as cards (each has a
@@ -42,7 +42,7 @@ const GROUP_FIELDS: Readonly<Record<ParamGroup, readonly ThemeField[]>> = {
   color: ['accent', 'autoAccent', 'darkAccent'],
   surface: ['surfaceOpacity', 'sidebarOpacity', 'chatSurfaceOpacity', 'inputOpacity', 'codeBlockOpacity', 'darkSurfaceOpacity'],
   typography: ['fontFamily', 'codeFontFamily', 'fontScale'],
-  refine: ['cornerRadius', 'surfaceShadow', 'scrollbarAccent'],
+  refine: ['scrollbarAccent'],
 }
 
 /** Neutral (stock-look) value per group field — what 恢复本组默认 writes. */
@@ -55,7 +55,6 @@ const GROUP_NEUTRALS: Readonly<Record<ParamGroup, Partial<ThemeSection>>> = {
   },
   typography: { fontFamily: DEFAULTS.fontFamily, codeFontFamily: DEFAULTS.codeFontFamily, fontScale: DEFAULTS.fontScale },
   refine: {
-    cornerRadius: DEFAULTS.cornerRadius, surfaceShadow: DEFAULTS.surfaceShadow,
     scrollbarAccent: DEFAULTS.scrollbarAccent,
   },
 }
@@ -164,8 +163,6 @@ const themeOf = (config: CustomThemeConfig): ThemeSection => ({
   codeFontFamily: config.codeFontFamily,
   fontScale: config.fontScale,
   scrollbarAccent: config.scrollbarAccent,
-  cornerRadius: config.cornerRadius,
-  surfaceShadow: config.surfaceShadow,
   darkAccent: config.darkAccent,
 })
 

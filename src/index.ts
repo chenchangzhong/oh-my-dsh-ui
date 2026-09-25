@@ -28,9 +28,6 @@ const SECTION_FIELDS = {
   codeFontFamily: z.string().default(''),
   fontScale: z.number().default(1),
   scrollbarAccent: z.boolean().default(false),
-  // opt-in refinement knobs (neutral defaults: the plugin changes nothing)
-  cornerRadius: z.string().default('inherit'),
-  surfaceShadow: z.string().default('inherit'),
   darkAccent: z.string().default(''),
   // user's own presets: id → JSON string of { name, config }
   myPresets: z.dict(z.string()).default({}),
@@ -214,8 +211,6 @@ function legacyBase(config?: UiCustomConfig): Record<string, unknown> {
     codeFontFamily: config?.codeFontFamily ?? '',
     fontScale: config?.fontScale ?? 1,
     scrollbarAccent: config?.scrollbarAccent ?? false,
-    cornerRadius: config?.cornerRadius ?? 'inherit',
-    surfaceShadow: config?.surfaceShadow ?? 'inherit',
     darkAccent: config?.darkAccent ?? '',
     myPresets: config?.myPresets ?? {},
     renderUserMarkdown: config?.renderUserMarkdown ?? false,

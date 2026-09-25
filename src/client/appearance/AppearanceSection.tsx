@@ -31,26 +31,6 @@ type AppearanceSliderKey =
   | 'surfaceOpacity' | 'sidebarOpacity' | 'chatSurfaceOpacity'
   | 'inputOpacity' | 'codeBlockOpacity' | 'darkSurfaceOpacity'
 
-type RefineLabel =
-  | 'radius.inherit' | 'radius.sm' | 'radius.md' | 'radius.lg' | 'radius.xl'
-  | 'shadow.inherit' | 'shadow.none' | 'shadow.soft' | 'shadow.medium' | 'shadow.strong'
-
-const CORNER_RADIUS_OPTIONS: readonly { id: string; label: RefineLabel }[] = [
-  { id: 'inherit', label: 'radius.inherit' },
-  { id: 'sm', label: 'radius.sm' },
-  { id: 'md', label: 'radius.md' },
-  { id: 'lg', label: 'radius.lg' },
-  { id: 'xl', label: 'radius.xl' },
-]
-
-const SHADOW_OPTIONS: readonly { id: string; label: RefineLabel }[] = [
-  { id: 'inherit', label: 'shadow.inherit' },
-  { id: 'none', label: 'shadow.none' },
-  { id: 'soft', label: 'shadow.soft' },
-  { id: 'medium', label: 'shadow.medium' },
-  { id: 'strong', label: 'shadow.strong' },
-]
-
 /** Mini color preview for a preset (accent-graded wash). */
 const presetPreviewBackground = (config: Partial<CustomThemeConfig>): string => {
   const accent = typeof config.accent === 'string' && config.accent !== ''
@@ -415,36 +395,6 @@ export function AppearanceSection({
 
       {/* 质感: the opt-in refinement knobs. */}
       <GroupCard title={translator('refineTitle')} resetLabel={translator('groupReset')} group="refine" writable={state.writable} onReset={resetGroup}>
-        <div className={css.row}>
-          <label className={css.label} htmlFor="appearance-cornerRadius">{translator('cornerRadius')}</label>
-          <select
-            id="appearance-cornerRadius"
-            className={css.select}
-            value={str('cornerRadius', 'inherit')}
-            disabled={!state.writable}
-            onChange={(event) => setField('cornerRadius', event.target.value)}
-          >
-            {CORNER_RADIUS_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>{translator(option.label)}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className={css.row}>
-          <label className={css.label} htmlFor="appearance-surfaceShadow">{translator('surfaceShadow')}</label>
-          <select
-            id="appearance-surfaceShadow"
-            className={css.select}
-            value={str('surfaceShadow', 'inherit')}
-            disabled={!state.writable}
-            onChange={(event) => setField('surfaceShadow', event.target.value)}
-          >
-            {SHADOW_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>{translator(option.label)}</option>
-            ))}
-          </select>
-        </div>
-
         <div className={css.row}>
           <label className={css.label} htmlFor="appearance-scrollbarAccent">{translator('scrollbarAccent')}</label>
           <span className={css.check}>

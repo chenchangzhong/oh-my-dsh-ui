@@ -17,17 +17,6 @@ import { clampNumber, cleanString, DEFAULTS } from './config.ts'
 
 const CUSTOM_STYLE_ID = 'dsh-ui-custom-css'
 
-/** Corner radius px per level ('inherit' is handled by the caller). */
-const CORNER_RADIUS_PX: Readonly<Record<string, number>> = { sm: 6, md: 10, lg: 14, xl: 18 }
-
-/** Box-shadow string per surface-shadow level ('inherit' is handled by the caller). */
-const SURFACE_SHADOW_CSS: Readonly<Record<string, string>> = {
-  none: 'none',
-  soft: '0 8px 24px rgb(0 0 0 / 0.10)',
-  medium: '0 14px 36px rgb(0 0 0 / 0.16)',
-  strong: '0 24px 56px rgb(0 0 0 / 0.26)',
-}
-
 /**
  * True when the normalized config overrides nothing — the exact stock look.
  * The applier drops the theme gate then, so an unconfigured profile is
@@ -50,8 +39,6 @@ const isNeutralConfig = (config: CustomThemeConfig): boolean =>
   && config.codeFontFamily === DEFAULTS.codeFontFamily
   && config.fontScale === DEFAULTS.fontScale
   && config.scrollbarAccent === DEFAULTS.scrollbarAccent
-  && config.cornerRadius === DEFAULTS.cornerRadius
-  && config.surfaceShadow === DEFAULTS.surfaceShadow
   && config.darkAccent === DEFAULTS.darkAccent
   && config.customCss === DEFAULTS.customCss
   && Object.keys(config.customVars).length === 0
@@ -89,14 +76,6 @@ export function applyConfig(config: CustomThemeConfig): void {
   if (config.fontScale !== 1) set('--dsu-font-scale', `${clampNumber(config.fontScale, 0.9, 1.1, 1)}`)
   else root.style.removeProperty('--dsu-font-scale')
   set('--dsu-scrollbar', config.scrollbarAccent ? '1' : '0')
-
-  // Opt-in refinement knobs: only written when the user picks a non-neutral
-  // value; 'inherit' / '' removes the property so the stylesheet falls back to
-  // the stock look (the plugin changes nothing out of the box).
-  if (config.cornerRadius !== 'inherit') set('--dsu-radius', `${CORNER_RADIUS_PX[config.cornerRadius] ?? 10}px`)
-  else root.style.removeProperty('--dsu-radius')
-  if (config.surfaceShadow !== 'inherit') set('--dsu-shadow', SURFACE_SHADOW_CSS[config.surfaceShadow] ?? 'none')
-  else root.style.removeProperty('--dsu-shadow')
 
   const darkAccent = cleanString(config.darkAccent, '')
   if (darkAccent !== '') set('--dsu-dark-accent', darkAccent)

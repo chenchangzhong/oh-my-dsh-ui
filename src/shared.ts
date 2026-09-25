@@ -38,16 +38,6 @@ export interface ThemeSection {
   /** Whole-UI font scale, 0.9–1.1 (1 = stock size, step 0.05). */
   fontScale: number | undefined
   scrollbarAccent: boolean | undefined
-  /**
-   * Opt-in refinement knobs. Every knob defaults to its neutral value
-   * ('inherit' / ''), so installing the plugin changes nothing: each maps to a
-   * --dsu-* variable that is only written when the user picks a non-neutral
-   * value (and 'inherit' keeps the stock look).
-   */
-  /** Corner radius: 'inherit' | 'sm' | 'md' | 'lg' | 'xl'. */
-  cornerRadius: string | undefined
-  /** Surface shadow: 'inherit' | 'none' | 'soft' | 'medium' | 'strong'. */
-  surfaceShadow: string | undefined
   /** Dark-mode accent override ('' = inherit the main accent). */
   darkAccent: string | undefined
   /**

@@ -8,8 +8,7 @@
  * overrides the preset (DEFAULTS ← preset ← explicit config).
  *
  * Each preset is a complete art direction: accent color, surface opacity
- * recipe, and the refinement knobs (cornerRadius / surfaceShadow /
- * darkAccent).
+ * recipe, the refinement knobs (scrollbarAccent) and the dark-mode accent.
  *
  * The six schemes use muted, low-saturation "高级" tones and are named after
  * their dominant color with a minimal two-character name.
@@ -44,8 +43,6 @@ const INK_TEAL: ThemePreset = {
     darkSurfaceOpacity: 40,
     fontFamily: '',
     scrollbarAccent: true,
-    cornerRadius: 'lg',
-    surfaceShadow: 'soft',
     darkAccent: '',
   },
 }
@@ -66,8 +63,6 @@ const INK_BLUE: ThemePreset = {
     darkSurfaceOpacity: 38,
     fontFamily: '',
     scrollbarAccent: true,
-    cornerRadius: 'md',
-    surfaceShadow: 'soft',
     darkAccent: '',
   },
 }
@@ -88,8 +83,6 @@ const DUSTY_ROSE: ThemePreset = {
     darkSurfaceOpacity: 42,
     fontFamily: '',
     scrollbarAccent: true,
-    cornerRadius: 'md',
-    surfaceShadow: 'soft',
     darkAccent: '',
   },
 }
@@ -110,8 +103,6 @@ const APRICOT_GOLD: ThemePreset = {
     darkSurfaceOpacity: 42,
     fontFamily: '',
     scrollbarAccent: true,
-    cornerRadius: 'md',
-    surfaceShadow: 'soft',
     darkAccent: '',
   },
 }
@@ -132,8 +123,6 @@ const MIST_GRAY: ThemePreset = {
     darkSurfaceOpacity: 30,
     fontFamily: '',
     scrollbarAccent: false,
-    cornerRadius: 'md',
-    surfaceShadow: 'medium',
     darkAccent: '',
   },
 }
@@ -154,8 +143,6 @@ const INK_VIOLET: ThemePreset = {
     darkSurfaceOpacity: 28,
     fontFamily: '',
     scrollbarAccent: true,
-    cornerRadius: 'lg',
-    surfaceShadow: 'medium',
     darkAccent: '#8268c4',
   },
 }

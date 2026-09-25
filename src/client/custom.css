@@ -58,14 +58,20 @@ html[data-dsu-active='1'] body {
   --dsw-alias-scrollbar-hover-l2: color-mix(in srgb, var(--dsu-accent, #4176e6) calc(var(--dsu-scrollbar, 0) * 55%), transparent);
 }
 
-/* Menu / popover fill. The stock token ships translucent (#f8f9fa94 ≈ 58% on
-   plain web; only the macOS desktop preload raises it to .94), so every
-   popover — DSH's own menus and third-party plugins built on this token —
-   becomes a see-through hole once surfaces are transparent. Pin it opaque.
-   The :not() lifts this above the shell's own darwin override, which has the
-   same specificity as the block above and would otherwise win on source order. */
+/* Menu / popover fill. 0.1.7 renders the shared Menu card through
+   MenuSurface's `.material` layer, which reads --dsw-menu-surface-fill
+   (#f8f9fa94 ≈ 58% light / #43454a73 ≈ 45% dark) plus a backdrop blur; the
+   darwin backing that lets that blur read as a solid plate is filled with
+   --dsw-alias-bg-base, which this plugin zeroes along with every other
+   surface — so the card shows the wallpaper through instead. 0.1.5 — the
+   reference design, still what a stock desktop install shows — fills the card
+   with --dsw-alias-bg-layer-3 instead. Mirror that official expression on both
+   tokens: no invented colour, the host's own plate. The :not() lifts this above
+   the shell's darwin alias override, which has the same specificity as the
+   block above and would otherwise win on source order. */
 html[data-dsu-active='1'] body:not([data-ds-dark-theme]) {
-  --dsw-specific-menu: var(--dsw-static-neutral-bluish-50);
+  --dsw-specific-menu: var(--dsw-alias-bg-layer-3);
+  --dsw-menu-surface-fill: var(--dsw-alias-bg-layer-3);
 }
 
 /* Dark theme: dark glass hues. Must out-specify the rule above
@@ -86,38 +92,23 @@ html[data-dsu-active='1'] body[data-ds-dark-theme] {
   --dsw-alias-markdown-code-block-banner: color-mix(in srgb, var(--dsw-static-neutral-bluish-850) calc(var(--dsu-code-alpha, var(--dsu-dark-alpha, 50%)) + 10%), transparent);
   --dsw-alias-markdown-inline-code: color-mix(in srgb, var(--dsw-static-deepseek-900) calc(var(--dsu-code-alpha, var(--dsu-dark-alpha, 50%)) + 15%), transparent);
 
-  /* Menu fill: same rationale as the light rule above; a raised dark hue. */
-  --dsw-specific-menu: var(--dsw-static-neutral-bluish-800);
+  /* Menu fill: the same official expression as the light rule above; bg-layer-3
+     already carries the dark hue. */
+  --dsw-specific-menu: var(--dsw-alias-bg-layer-3);
+  --dsw-menu-surface-fill: var(--dsw-alias-bg-layer-3);
 }
 
-/* Optional inset vignette on the app root. Deliberately no backdrop-filter:
-   --dsu-blur / --dsu-saturate are never written by the plugin, and a bare
-   `blur(0px)` is still *not* `none` — it would make #root a stacking context
-   and a backdrop root for no visual gain, trapping the modal overlay's
-   z-index:1000 one level down and cutting every descendant backdrop-filter
-   off from the page behind it. */
-html[data-dsu-active='1'] #root {
-  box-shadow: inset 0 0 40px rgb(15 17 21 / calc(var(--dsu-vignette, 0) * 0.10));
-}
+/* No #root rule: an inset vignette would need --dsu-vignette, which nothing
+   writes any more — bring one back with customCss if wanted. Deliberately no
+   backdrop-filter there either — a bare `blur(0px)` is still *not* `none`, and
+   it would make #root a stacking context and a backdrop root for no visual
+   gain, trapping the modal overlay's z-index:1000 one level down and cutting
+   every descendant backdrop-filter off from the page behind it. */
 
-/* ── Opt-in refinement knobs ────────────────────────────────────────────────
-   Each rule only takes effect when the plugin writes the corresponding
-   --dsu-* property; an unset var invalidates the declaration and the stock
-   class style wins, so the plugin changes nothing out of the box. */
-
-/* Corner radius: chat rows, inputs, dialogs and menus. */
-html[data-dsu-active='1'] [data-chat-anchor-key],
-html[data-dsu-active='1'] input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
-html[data-dsu-active='1'] textarea,
-html[data-dsu-active='1'] [role='dialog'],
-html[data-dsu-active='1'] [role='menu'] {
-  border-radius: var(--dsu-radius);
-}
-
-/* Surface shadow: dialogs and menus. */
-html[data-dsu-active='1'] [role='dialog'],
-html[data-dsu-active='1'] [role='menu'] {
-  box-shadow: var(--dsu-shadow);
-}
+/* Element-level corner radius and surface shadow are deliberately NOT
+   overridden: the host's own radius (--dsw-radius-*) and elevation
+   (--dsw-elevation-*) tokens are the official look on dialogs, menus, inputs
+   and chat rows. The retired --dsu-radius / --dsu-shadow rules were fighting
+   them on whichever elements their selectors happened to catch. */
 
 

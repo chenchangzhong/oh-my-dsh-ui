@@ -5,7 +5,6 @@
  * fields absent while loading/unavailable fall back to the loader config.
  */
 import {
-  isCornerRadius, isSurfaceShadow,
   type CustomThemeConfig,
 } from './config.ts'
 import type { ThemeSection } from '../shared.ts'
@@ -49,10 +48,6 @@ export function configFromThemeSection(
     codeFontFamily: stringField(section.codeFontFamily, normalized.codeFontFamily),
     fontScale: section.fontScale ?? normalized.fontScale,
     scrollbarAccent: section.scrollbarAccent ?? normalized.scrollbarAccent,
-    // Opt-in refinement knobs: invalid/absent section values fall back to the
-    // loader layer (whose neutral 'inherit' keeps the stock look).
-    cornerRadius: isCornerRadius(section.cornerRadius) ? section.cornerRadius : normalized.cornerRadius,
-    surfaceShadow: isSurfaceShadow(section.surfaceShadow) ? section.surfaceShadow : normalized.surfaceShadow,
     darkAccent: stringField(section.darkAccent, normalized.darkAccent),
   }
 }
