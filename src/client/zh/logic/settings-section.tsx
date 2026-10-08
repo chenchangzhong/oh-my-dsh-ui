@@ -93,7 +93,13 @@ function switchTrack(on: boolean): React.CSSProperties {
 function switchKnob(on: boolean): React.CSSProperties {
   return {
     position: 'absolute' as const, top: 2, left: 2, width: 12, height: 12, borderRadius: '50%',
-    background: 'var(--dsw-alias-bg-layer-1, #ffffff)',
+    // 旋钮必须与轨道成对比（对齐官方 ui-primitives/Switch.module.css）：开态用
+    // label-primary-foreground（浅色主题白、深色主题近黑），关态用 switch-thumb
+    // （深色主题中灰）。原先的 bg-layer-1 在深色主题是 rgb(35,35,36)，压在同为
+    // 深色的轨道上对比度约 1.2:1，旋钮几乎看不见。
+    background: on
+      ? 'var(--dsw-alias-label-primary-foreground, #ffffff)'
+      : 'var(--dsw-alias-switch-thumb, #ffffff)',
     transition: 'transform 120ms',
     transform: on ? 'translateX(12px)' : 'translateX(0px)',
   }
@@ -351,7 +357,10 @@ export function ZhSettingsSectionComponent(props: ZhSettingsSectionProps): React
   const svcAddButtonStyle: React.CSSProperties = {
     flex: 'none', padding: '4px 14px', borderRadius: 8, border: 0,
     background: 'var(--dsw-alias-state-business-primary, #4D6BFE)',
-    color: 'var(--dsw-alias-label-primary-inverted, #fff)',
+    // 主按钮前景用 label-primary-foreground（官方 ui-primitives/Button.module.css
+    // .primary 的写法）。不要用 label-primary-inverted：它在深色主题是深色、
+    // 浅色主题是白色，语义是「反转」而非「前景」。
+    color: 'var(--dsw-alias-label-primary-foreground, #fff)',
     cursor: 'pointer', font: 'inherit', fontSize: 13, lineHeight: '20px',
   }
   const svcErrorStyle: React.CSSProperties = {

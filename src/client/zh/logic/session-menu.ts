@@ -43,6 +43,7 @@ const CONFIRM_TEXTS = {
 }
 
 const SESSION_MENU_MARKS = ['归档会话', 'Archive session']
+const SESSION_MENU_UNARCHIVE_MARKS = ['取消归档', 'Unarchive session']
 const INJECTED_MARK = 'data-dsh-zh-delete-session'
 const BATCH_ITEM_MARK = 'data-dsh-zh-batch-item'
 
@@ -89,6 +90,230 @@ function applyDeletedSessionIds(ids: unknown): void {
   if (!Array.isArray(ids)) return
   deletedSessionIds.clear()
   for (const id of ids) deletedSessionIds.add(String(id))
+  deletedSetVersion += 1
+  for (const listener of deletedSetListeners) {
+    try { listener() } catch { /* 单个订阅失败不影响其余 */ }
+  }
+}
+
+// ─── 官方列表/搜索里的已删除会话行隐藏 ────────────────────────────────────────
+/**
+ * 删除驻留内存的会话只能靠官方归档集合隐藏，而归档集合只作用于「隐藏已归档」
+ * 视图。用户把视图切到「全部对话（显示已归档）」或「仅显示已归档」时，被删
+ * 会话会作为灰色归档行重新出现；官方内容搜索同样会列出它。这里补上官方列表行
+ * 与搜索结果行的同一层过滤。
+ *
+ * 手段是**打标记 + 样式隐藏**，绝不摘除节点：这些行由 React 托管，外部移除会
+ * 让下一次渲染（reconcile）找不到节点而报错；display:none 之后行的父级 span
+ * 自然塌陷为 0 高，列表不留空位。样式挂在属性选择器上而不是内联 style，因为
+ * archive-view 的视图切换也会读写同一批行的 inline display。
+ */
+const DELETED_ROW_SELECTOR = 'div[class*="sessionRow"][role="treeitem"],div[class*="searchResultRow"][role="treeitem"]'
+/** 命中已删除集合的行（样式隐藏）。 */
+const DELETED_ROW_MARK = 'data-dsh-zh-deleted-row'
+/** 「已按集合版本判定过」的行：值为 `<版本>|<会话 id>`，版本或 id 变化时重判。 */
+const DELETED_ROW_CHECKED = 'data-dsh-zh-deleted-checked'
+/** 因已删除行被隐藏而整体变空的分组容器（官方「仅显示已归档」视图里，一个
+ *  分组只剩被删会话时，官方不会替我们丢掉这个分组）。 */
+const DELETED_GROUP_MARK = 'data-dsh-zh-deleted-group'
+/** 是否还有存活标记：集合清空时用它短路，避免每次 observer 批次都做一遍
+ *  「撤销标记」的 DOM 全量查询（绝大多数会话未删除时集合恒为空）。 */
+let deletedRowMarksActive = false
+let deletedRowStyleEl: HTMLStyleElement | null = null
+/** 集合版本：每次写入自增，供「已按当前集合判定过」的行做增量跳过。 */
+let deletedSetVersion = 0
+/** 集合变化订阅（官方列表/搜索行的隐藏 pass 挂在上面）。 */
+const deletedSetListeners: Array<() => void> = []
+
+function ensureDeletedRowStyle(): void {
+  try {
+    if (typeof document === 'undefined' || document.head === undefined || document.head === null) return
+    if (deletedRowStyleEl !== null && document.head.contains(deletedRowStyleEl)) return
+    if (typeof document.createElement !== 'function') return
+    deletedRowStyleEl = document.createElement('style')
+    deletedRowStyleEl.setAttribute('data-dsh-zh', 'deleted-rows')
+    deletedRowStyleEl.textContent = [
+      '[' + DELETED_ROW_MARK + ']{display:none!important}',
+      '[' + DELETED_GROUP_MARK + ']{display:none!important}',
+    ].join('')
+    document.head.appendChild(deletedRowStyleEl)
+    // 样式本身也是副作用：即使一行都没命中（例如删除过的会话已不在当前视图里），
+    // 集合清空时也必须把它移除，否则「没删过任何会话」的界面会残留一个空样式标签。
+    deletedRowMarksActive = true
+  } catch { /* 样式失败不影响删除语义（标记仍在，可诊断） */ }
+}
+
+function removeDeletedRowStyle(): void {
+  try {
+    if (deletedRowStyleEl !== null && deletedRowStyleEl.parentNode !== null) {
+      deletedRowStyleEl.parentNode.removeChild(deletedRowStyleEl)
+    }
+  } catch { /* 忽略 */ }
+  deletedRowStyleEl = null
+}
+
+/**
+ * 从行读会话 id：`data-row-key="session:<id>"`（官方 Rows.tsx 稳定输出）优先，
+ * 其次 fiber 链上的 `node.id`（会话行）与 `result.id`（搜索结果行）。
+ */
+function deletedRowIdOf(row: HTMLElement): string | null {
+  try {
+    const key = row.getAttribute('data-row-key')
+    if (typeof key === 'string' && key.indexOf('session:') === 0 && key.length > 'session:'.length) {
+      return key.slice('session:'.length)
+    }
+  } catch { /* 退到 fiber */ }
+  try {
+    const fiberKeys = Object.keys(row).filter(k => k.startsWith('__reactFiber$'))
+    for (const key of fiberKeys) {
+      let fiber = (row as unknown as Record<string, { memoizedProps?: unknown; return?: unknown } | null>)[key]
+      let depth = 0
+      while (fiber !== null && fiber !== undefined && depth < 40) {
+        const props = fiber.memoizedProps
+        if (props !== null && props !== undefined && typeof props === 'object') {
+          const node = (props as { node?: { id?: unknown } }).node
+          if (node !== null && typeof node === 'object' && typeof node.id === 'string') return node.id
+          const result = (props as { result?: { id?: unknown } }).result
+          if (result !== null && typeof result === 'object' && typeof result.id === 'string') return result.id
+        }
+        fiber = fiber.return as typeof fiber
+        depth += 1
+      }
+    }
+  } catch { /* 忽略 */ }
+  return null
+}
+
+/**
+ * 分组容器：行的祖先中、其父级正是官方滚动容器（role=tree）的那一层。
+ * 只对**官方会话行**有意义——搜索结果行挂在另一个 role=tree 容器里，没有
+ * 「分组」概念，不能参与分组收拾（否则会把搜索结果区整体隐藏）。
+ */
+function deletedGroupHostOf(row: HTMLElement): HTMLElement | null {
+  try {
+    if ((row.getAttribute('class') ?? '').indexOf('sessionRow') === -1) return null
+    const tree = document.body.querySelector<HTMLElement>('div[data-slot="sidebar.workspaces"] [role="tree"]')
+    if (tree === null || tree === undefined) return null
+    let el = row.parentElement
+    while (el !== null && el !== undefined && (el as HTMLElement) !== document.body) {
+      if (el.parentElement === tree) return el
+      el = el.parentElement
+    }
+  } catch { /* 忽略 */ }
+  return null
+}
+
+/** 分组内是否还有「可见的会话行」（未被本模块隐藏、也不是 archive-view 的视图
+ *  切换隐藏）。有任何一行即视为分组非空。 */
+function groupHasVisibleRow(host: HTMLElement): boolean {
+  try {
+    const rows = host.querySelectorAll<HTMLElement>(DELETED_ROW_SELECTOR)
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i]
+      if (row.getAttribute(DELETED_ROW_MARK) !== null) continue
+      const style = row.style
+      if (style !== null && style !== undefined && style.display === 'none') continue
+      return true
+    }
+  } catch { /* 忽略 */ }
+  return false
+}
+
+/** 移除全部标记（开关/卸载时）：样式与标记一起清，界面回到官方原生形态。 */
+function clearDeletedRowMarks(): void {
+  try {
+    const marked = document.body.querySelectorAll<HTMLElement>(
+      '[' + DELETED_ROW_MARK + '],[' + DELETED_ROW_CHECKED + '],[' + DELETED_GROUP_MARK + ']',
+    )
+    for (let i = 0; i < marked.length; i += 1) {
+      marked[i].removeAttribute(DELETED_ROW_MARK)
+      marked[i].removeAttribute(DELETED_ROW_CHECKED)
+      marked[i].removeAttribute(DELETED_GROUP_MARK)
+    }
+  } catch { /* 忽略 */ }
+  removeDeletedRowStyle()
+  deletedRowMarksActive = false
+}
+
+/**
+ * 全量（或子树）重放：给命中已删除集合的官方行打标记，并收拾因此变空的分组。
+ * 集合为空（从未删除 / 已全部恢复）时反向清理：撤销全部标记并移除样式，界面
+ * 回到与官方完全一致的形态——没删过任何会话时不留任何副作用。
+ */
+function runDeletedRowPass(root: HTMLElement | Document | null): void {
+  if (typeof document === 'undefined' || document.body === null || document.body === undefined) return
+  if (deletedSessionIds.size === 0) {
+    if (deletedRowMarksActive) clearDeletedRowMarks()
+    return
+  }
+  ensureDeletedRowStyle()
+  const scope = (root === null || root === undefined || root === document.body
+    || root === document.documentElement || typeof (root as HTMLElement).querySelectorAll !== 'function')
+    ? document.body
+    : root
+  // 快速短路：本次子树里没有任何官方会话行/搜索结果行（绝大多数 observer 批次
+  // ——聊天流、菜单、提示条都不含行）时，不做任何 DOM 查询。这一步是流式输出
+  // 期间不拖慢页面的关键。
+  let hasRow = false
+  try {
+    if (typeof (scope as HTMLElement).matches === 'function' && (scope as HTMLElement).matches(DELETED_ROW_SELECTOR)) hasRow = true
+  } catch { /* 忽略 */ }
+  if (!hasRow) {
+    try { hasRow = scope.querySelector(DELETED_ROW_SELECTOR) !== null } catch { hasRow = false }
+  }
+  if (!hasRow) return
+  const candidates: HTMLElement[] = []
+  try {
+    if (typeof (scope as HTMLElement).matches === 'function' && (scope as HTMLElement).matches(DELETED_ROW_SELECTOR)) {
+      candidates.push(scope as HTMLElement)
+    }
+  } catch { /* 忽略 */ }
+  try {
+    const found = scope.querySelectorAll<HTMLElement>(DELETED_ROW_SELECTOR)
+    for (let i = 0; i < found.length; i += 1) candidates.push(found[i])
+  } catch { /* 忽略 */ }
+  const token = String(deletedSetVersion)
+  for (const row of candidates) {
+    try {
+      const id = deletedRowIdOf(row)
+      // 版本 + id 都没变 → 该行的判定仍然有效，跳过（避免每次 observer 批次都
+      // 做一遍 fiber 遍历）。
+      if (row.getAttribute(DELETED_ROW_CHECKED) === token + '|' + String(id ?? '')) continue
+      if (id !== null && deletedSessionIds.has(id)) {
+        row.setAttribute(DELETED_ROW_MARK, '')
+        deletedRowMarksActive = true
+      } else {
+        row.removeAttribute(DELETED_ROW_MARK)
+      }
+      row.setAttribute(DELETED_ROW_CHECKED, token + '|' + String(id ?? ''))
+    } catch { /* 单行失败不影响其余行 */ }
+  }
+  // 分组收拾：只看本次（或此前）被标记的行所在的分组。
+  try {
+    const marked = document.body.querySelectorAll<HTMLElement>('[' + DELETED_ROW_MARK + ']')
+    if (marked.length > 0) {
+      const hosts: HTMLElement[] = []
+      for (let i = 0; i < marked.length; i += 1) {
+        const host = deletedGroupHostOf(marked[i])
+        if (host !== null && hosts.indexOf(host) === -1) hosts.push(host)
+      }
+      for (const host of hosts) {
+        // 插件自建的归档行容器挂进同一分组时（查看已归档视图），分组不是
+        // 「空的」，绝不能整体隐藏。
+        let hasOwnSection = false
+        try { hasOwnSection = host.querySelector('[data-dsh-zh-archive-section]') !== null } catch { /* 忽略 */ }
+        if (hasOwnSection || groupHasVisibleRow(host)) host.removeAttribute(DELETED_GROUP_MARK)
+        else host.setAttribute(DELETED_GROUP_MARK, '')
+      }
+    }
+    // 不再含已删除行的分组：撤销标记（用户切回隐藏已归档视图后分组要复原）。
+    const groups = document.body.querySelectorAll<HTMLElement>('[' + DELETED_GROUP_MARK + ']')
+    for (let i = 0; i < groups.length; i += 1) {
+      let stillSuppressed = false
+      try { stillSuppressed = groups[i].querySelector('[' + DELETED_ROW_MARK + ']') !== null } catch { /* 忽略 */ }
+      if (!stillSuppressed) groups[i].removeAttribute(DELETED_GROUP_MARK)
+    }
+  } catch { /* 忽略 */ }
 }
 
 /** Pull the deleted-session set from the host. */
@@ -411,11 +636,11 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
   const showConfirm = (title: string, desc: string, onOk: () => void): void => {
     removeConfirm()
     const overlay = document.createElement('div')
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.35)'
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,0.35))'
     const card = document.createElement('div')
     // 适配明暗主题：--dsw-alias-surface-primary 在当前 DSH 未定义，深色下会
     // fallback 成白卡片；改用实际的卡片层级 token（bg-layer-2）。
-    card.style.cssText = 'width:min(440px,calc(100vw - 48px));border-radius:16px;padding:20px;background:var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, #fff));color:var(--dsw-alias-label-primary,#1f2329);box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,0.18))'
+    card.style.cssText = 'width:min(440px,calc(100vw - 48px));border-radius:16px;padding:20px;background:var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, #fff));color:var(--dsw-alias-label-primary,#1f2329);box-shadow:var(--dsw-elevation-prominent,0 8px 24px rgba(0,0,0,0.18))'
     const titleEl = document.createElement('div')
     titleEl.textContent = title
     titleEl.style.cssText = 'font-size:16px;line-height:24px;font-weight:600;margin-bottom:10px'
@@ -431,7 +656,7 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
     const ok = document.createElement('button')
     ok.type = 'button'
     ok.textContent = currentCopy.ok || '删除'
-    ok.style.cssText = 'padding:6px 16px;border-radius:10px;border:none;background:var(--dsw-alias-danger-strong, #d93026);color:#fff;cursor:pointer;font:inherit;font-size:14px'
+    ok.style.cssText = 'padding:6px 16px;border-radius:10px;border:none;background:var(--dsw-alias-state-error-primary, #d93026);color:var(--dsw-alias-label-primary-foreground,#fff);cursor:pointer;font:inherit;font-size:14px'
     cancel.addEventListener('click', removeConfirm, false)
     ok.addEventListener('click', () => { removeConfirm(); onOk() }, false)
     actions.appendChild(cancel)
@@ -448,6 +673,11 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
   const injectIntoMenu = (menu: HTMLElement): void => {
     if (settingsStore.getSnapshot().deleteSessionEnabled !== true) return
     if (menu.getAttribute(INJECTED_MARK) !== null) return
+    // 跳过**本插件自建**的菜单：归档视图的行菜单也是 div[role="menu"]
+    // （data-dsh-zh-archive-menu），它自带「取消归档」文案与自己的删除项，
+    // 若在这里再注入一遍会出现重复的「删除会话」。自建菜单的删除项由
+    // archive-view 自己维护。
+    if (menu.getAttribute('data-dsh-zh-archive-menu') !== null) return
 
     // Clean orphans
     try {
@@ -459,11 +689,19 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
       }
     } catch { /* ignore */ }
 
-    // Find anchor: menuitem labelled "归档会话" / "Archive session"
+    // Find anchor: menuitem labelled "归档会话" / "Archive session"，兜底
+    // 「取消归档」/「Unarchive session」——官方「显示已归档」视图里的归档行
+    // 菜单只有重命名 / 分叉会话 / 取消归档，用归档文案匹配会落空，已归档会话
+    // 因此拿不到删除入口（官方明确不做删除，这是唯一盲区）。
     let anchor: HTMLElement | null = null
     const items = menu.querySelectorAll<HTMLElement>('[role="menuitem"]')
     for (const item of Array.from(items)) {
       if (SESSION_MENU_MARKS.includes(menuItemLabel(item))) { anchor = item; break }
+    }
+    if (!anchor) {
+      for (const item of Array.from(items)) {
+        if (SESSION_MENU_UNARCHIVE_MARKS.includes(menuItemLabel(item))) { anchor = item; break }
+      }
     }
     if (!anchor) return
 
@@ -486,7 +724,7 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
     stripMenuItemShortcut(btn)
     const labelSpan = menuItemLabelSpan(btn)
     if (labelSpan) { labelSpan.textContent = copy.deleteLabel; labelSpan.title = copy.deleteHint }
-    btn.style.color = 'var(--dsw-alias-danger-strong, #d93026)'
+    btn.style.color = 'var(--dsw-alias-state-error-primary, #d93026)'
     btn.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
@@ -516,7 +754,7 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
         stripMenuItemShortcut(b)
         const labelSpan = menuItemLabelSpan(b)
         if (labelSpan) labelSpan.textContent = label
-        if (danger) b.style.color = 'var(--dsw-alias-danger-strong, #d93026)'
+        if (danger) b.style.color = 'var(--dsw-alias-state-error-primary, #d93026)'
         b.addEventListener('click', (e) => {
           e.preventDefault()
           e.stopPropagation()
@@ -571,7 +809,7 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
   }
 
   observer = new MutationObserver((records) => {
-    if (!Array.isArray(records)) { runPass(document); return }
+    if (!Array.isArray(records)) { runPass(document); runDeletedRowPass(null); return }
     for (const rec of records) {
       const added = rec.addedNodes
       if (!added?.length) continue
@@ -579,16 +817,42 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
         if (n.nodeType !== Node.ELEMENT_NODE) continue
         const el = n as HTMLElement
         if (el.getAttribute?.('role') === 'menu') { injectIntoMenu(el); continue }
-        if (typeof el.querySelectorAll === 'function') runPass(el)
+        if (typeof el.querySelectorAll === 'function') { runPass(el); runDeletedRowPass(el) }
       }
     }
   })
   observer.observe(document.documentElement, { childList: true, subtree: true })
   runPass(document)
 
+  // ─── 官方列表/搜索里的已删除会话行：隐藏 pass 的触发源 ───
+  // 集合变化（删除成功回包 / 安装时兜底拉取）→ 重跑。
+  const onDeletedSetChanged = (): void => { runDeletedRowPass(null) }
+  deletedSetListeners.push(onDeletedSetChanged)
+  // 会话/工作区快照变化（视图筛选切换、列表刷新）→ 重跑。
+  const deletedRowUnsubs: Array<() => void> = []
+  try {
+    if (typeof ctx.sessions.list.subscribe === 'function') {
+      deletedRowUnsubs.push(ctx.sessions.list.subscribe(() => { runDeletedRowPass(null) }))
+    }
+  } catch { /* 订阅失败时只靠 observer */ }
+  try {
+    if (typeof ctx.workspaces.list.subscribe === 'function') {
+      deletedRowUnsubs.push(ctx.workspaces.list.subscribe(() => { runDeletedRowPass(null) }))
+    }
+  } catch { /* 订阅失败时只靠 observer */ }
+  // 安装时先向主机拉一次集合（覆盖本页加载前或其它入口的删除）。
+  void fetchDeletedSessionIds()
+  runDeletedRowPass(null)
+
   return function () {
     if (observer) { observer.disconnect(); observer = undefined }
     document.removeEventListener('pointerdown', onPointerDown, true)
+    const listenerIndex = deletedSetListeners.indexOf(onDeletedSetChanged)
+    if (listenerIndex !== -1) deletedSetListeners.splice(listenerIndex, 1)
+    for (const unsub of deletedRowUnsubs) {
+      try { unsub() } catch { /* 忽略 */ }
+    }
+    clearDeletedRowMarks()
     if (toastTimer !== null) { clearTimeout(toastTimer); toastTimer = null }
     if (toastEl?.parentNode) toastEl.parentNode.removeChild(toastEl)
     if (toastStyleEl?.parentNode) toastStyleEl.parentNode.removeChild(toastStyleEl)

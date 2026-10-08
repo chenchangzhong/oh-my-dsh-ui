@@ -147,11 +147,23 @@ interface DeleteDeps {
     }>
     archivedSessionIds?: readonly string[]
     archiveSession?(id: string): Promise<void>
+    /**
+     * 上游 2026-09-12 起公开：registry 串行链上的官方取消归档（全量状态写入 +
+     * 内存缓存同步）。存在时必须优先于 storageDomain 直写——后者绕过 registry
+     * 串行器，仅作旧版回退。
+     */
+    unarchiveSession?(id: string): Promise<void>
   }
   storageDomain?: {
     get?(name: string): {
       global?: {
         get(): { archivedSessionIds?: readonly string[] } | undefined
+        /**
+         * 整体替换写入（DSH DomainGlobal.set 无合并）：value 必须是回读到的
+         * 全量 state 加字段覆盖——只写单字段会丢掉 workspace 域 schema 必填的
+         * initialized/workspaceIds，下次启动 domain 打开时校验失败，
+         * workspaceRegistry 整体挂载失败、dsh 无法启动。
+         */
         set(value: { archivedSessionIds: readonly string[] }): Promise<void>
       }
     } | undefined
@@ -200,29 +212,48 @@ async function pruneDeletedSessionIds(deps: DeleteDeps): Promise<void> {
   }
 }
 
-let unarchiveWarningIssued = false
+let unarchiveFallbackWarned = false
 
 /**
  * 把会话从工作区归档集合移除（取消归档）。
- * workspaceRegistry 当前只公开 archiveSession，没有 unarchive / 事务写 API；
- * 因而只通过 storageDomain 做归档集合持久化，不写 registry 私有 state，避免
- * 绕过 registry 的串行器（等上游公开 API 后再恢复内存缓存同步）。
  *
- * 写入无事务保障，但 global.set 排队在域的单一 FIFO 写链上：set resolve 时
- * 所有先前写入均已完成，随后的同步 get 读到的是链上权威真值。因此写后重读
- * 一次，目标 id 仍在则基于真值重放一次过滤；无法覆盖的仅剩「排队更晚的官方
- * archiveSession 落地并覆盖本写」——那属于归档请求后到、归档生效，语义本应如此。
+ * 优先走上游公开 API：workspaceRegistry.unarchiveSession（上游 2026-09-12 起
+ * 公开）在 registry 串行链上做全量状态写入并同步内存缓存，即官方取消归档语义。
+ * 该 API 缺席（旧版 dsh）才回退 storageDomain 直写——此时 registry 没有公开
+ * unarchive/事务写 API，只能绕过串行器直写持久层；且 global.set 是整体替换
+ * （无合并）：必须回写「回读到的全量 state + archivedSessionIds 覆盖」，只写
+ * 单字段会把 workspace 域 schema 必填的 initialized/workspaceIds 冲掉，下次
+ * 启动 domain 打开校验失败、整个 workspaceRegistry 挂载失败、dsh 无法启动。
+ *
+ * 回退路径的写入无事务保障，但 global.set 排队在域的单一 FIFO 写链上：set
+ * resolve 时所有先前写入均已完成，随后的同步 get 读到的是链上权威真值。因此
+ * 写后重读一次，目标 id 仍在则基于当时的全量真值重放一次覆盖写；无法覆盖的
+ * 仅剩「排队更晚的官方 archiveSession 落地覆盖本写」——那属于归档请求后到、
+ * 归档生效，语义本应如此。
  */
 export async function unarchiveSession(
   deps: DeleteDeps,
   sessionId: string,
 ): Promise<{ ok: boolean; changed: boolean }> {
-  if (!unarchiveWarningIssued) {
-    unarchiveWarningIssued = true
-    warn('workspaceRegistry 当前没有公开 unarchive 或事务写 API，仅执行归档集合持久化；等待上游公开 API')
+  const registry = deps.workspaceRegistry
+  if (registry !== undefined && typeof registry.unarchiveSession === 'function') {
+    try {
+      const wasArchived = Array.isArray(registry.archivedSessionIds)
+        ? registry.archivedSessionIds.includes(sessionId)
+        : true
+      await registry.unarchiveSession(sessionId)
+      return { ok: true, changed: wasArchived }
+    } catch (error) {
+      warn(`取消归档会话 ${sessionId} 失败: ${error instanceof Error ? error.message : String(error)}`)
+      return { ok: false, changed: false }
+    }
   }
   const storage = deps.storageDomain
   if (storage === undefined || typeof storage.get !== 'function') return { ok: false, changed: false }
+  if (!unarchiveFallbackWarned) {
+    unarchiveFallbackWarned = true
+    warn('workspaceRegistry 未公开 unarchive API，回退 storageDomain 直写归档集合（整体替换写入，保全量 state）')
+  }
   let domain: { global?: unknown } | undefined
   try {
     domain = storage.get('workspace') as { global?: unknown } | undefined
@@ -249,13 +280,14 @@ export async function unarchiveSession(
   const first = removeFrom(archived)
   if (first === null) return { ok: true, changed: false }
   try {
-    await global.set({ archivedSessionIds: first })
+    await global.set({ ...state, archivedSessionIds: first })
     // 域 FIFO 写链上串行：resolve 后重读即权威真值。目标 id 仍在（先前并发
-    // 的 archiveSession 已落地、被本写覆盖）则基于真值重放一次过滤。
-    const reread = global.get()?.archivedSessionIds
-    if (reread !== undefined && reread.some(id => String(id) === sessionId)) {
+    // 的 archiveSession 已落地、被本写覆盖）则基于当时的全量真值重放一次覆盖写。
+    const rereadState = global.get()
+    const reread = rereadState?.archivedSessionIds
+    if (rereadState !== undefined && reread !== undefined && reread.some(id => String(id) === sessionId)) {
       const retry = removeFrom(reread)
-      if (retry !== null) await global.set({ archivedSessionIds: retry })
+      if (retry !== null) await global.set({ ...rereadState, archivedSessionIds: retry })
     }
   } catch (error) {
     warn(`取消归档会话 ${sessionId} 失败: ${error instanceof Error ? error.message : String(error)}`)
@@ -400,7 +432,7 @@ export async function deleteSession(
   deps: DeleteDeps,
   sessionId: string,
   options: { trash: boolean; title?: string; currentSessionId?: string },
-): Promise<{ ok: true; trashed: boolean } | { ok: false; code: string; message: string }> {
+): Promise<{ ok: true; trashed: boolean; hint?: string } | { ok: false; code: string; message: string }> {
   const agent = deps.agents?.get(sessionId) as
     | { status?: string; cancel?: (cause: unknown, options?: unknown) => void; whenIdle?: () => Promise<unknown> }
     | undefined
@@ -430,20 +462,42 @@ export async function deleteSession(
   // its log stays in place (measured on DSH 0.1.3-alpha.1, where the
   // handle-based sessionPersistence face dropped locate/readRaw).
   const target = await resolveSessionTarget(deps, sessionId)
-  if (target === null) {
-    warn(`删除会话 ${sessionId} 中止：无法定位会话日志目录`)
-    return {
-      ok: false,
-      code: 'locate-failed',
-      message: '无法定位会话日志目录，已中止删除（未改动任何数据）。',
+  if (target === null || target.dir === null || target.kind === null
+    || !CONFIRMED_JSONL_KINDS.has(target.kind)) {
+    // 幂等完成：会话仍驻留内存而日志目录已不在磁盘 = 此前删除已把日志移入
+    // 回收站（或日志从未落盘），本次属重复删除。重新确保官方归档集合隐藏
+    // （可能被「取消归档」解除过）并记入已删除集合，返回成功——中止会留下
+    // 「查看得到却删不掉」的僵尸行（2026-09-25 实测）。
+    //
+    // 但**确认不可回收的后端**（kind 已知且非 JSONL）不算「日志不在磁盘」：
+    // 它的日志仍在原地，隐藏它等于本函数开头明令禁止的「逻辑删除」，且没有
+    // 回收站恢复通道，会话会永久卡在「看不见也恢复不了」。上游把两者合并进
+    // 同一条件（与本段注释自相矛盾），这里把后端判据单独排除，其余错误码与
+    // 中止语义保持原样。
+    const logAbsent = target === null
+      || target.kind === null
+      || CONFIRMED_JSONL_KINDS.has(target.kind)
+    const liveStill = deps.sessions?.get(sessionId)
+    if (logAbsent && liveStill !== undefined && liveStill !== null) {
+      const registryForHide = deps.workspaceRegistry
+      if (registryForHide !== undefined && typeof registryForHide.archiveSession === 'function') {
+        try {
+          await registryForHide.archiveSession(sessionId)
+        } catch (error) {
+          warn(`重新归档已删除的驻留会话 ${sessionId} 失败: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+      deletedSessionIds.add(sessionId)
+      return { ok: true, trashed: false, hint: '会话日志已在此前删除，已将其从会话列表隐藏。' }
     }
-  }
-  const cwd = target.header.cwd ?? ''
-  const title = options.title !== undefined && options.title !== '' ? options.title : sessionId
-
-  // A missing directory or a non-recyclable backend aborts for the same reason:
-  // only moving the log out of the store counts as a delete.
-  if (target.dir === null || target.kind === null || !CONFIRMED_JSONL_KINDS.has(target.kind)) {
+    if (target === null) {
+      warn(`删除会话 ${sessionId} 中止：无法定位会话日志目录`)
+      return {
+        ok: false,
+        code: 'locate-failed',
+        message: '无法定位会话日志目录，已中止删除（未改动任何数据）。',
+      }
+    }
     warn(`删除会话 ${sessionId} 中止：后端类型不支持移入回收站（kind=${String(target.kind)}）`)
     return {
       ok: false,
@@ -451,6 +505,8 @@ export async function deleteSession(
       message: '该会话的日志后端不支持移入系统回收站，已中止删除（未改动任何数据）。',
     }
   }
+  const cwd = target.header.cwd ?? ''
+  const title = options.title !== undefined && options.title !== '' ? options.title : sessionId
 
   let trashLocation = ''
   try {
@@ -716,7 +772,9 @@ export function installSessionDeleteRoute(ctx: HostContext, deps: () => DeleteDe
           }
           const result = await unarchiveSession(deps(), sessionId)
           if (!result.ok) {
-            writeJson(res, 400, { ok: false, error: { code: 'unarchive-failed', message: 'unarchive failed' } })
+            // 消息由客户端直接显示（「取消归档失败：{message}」），故与本文件
+            // 其余路由一样用面向用户的中文，而非英文内部串。
+            writeJson(res, 400, { ok: false, error: { code: 'unarchive-failed', message: '工作区服务未完成该写入' } })
             return
           }
           writeJson(res, 200, { ok: true, value: { unarchived: true, changed: result.changed } })

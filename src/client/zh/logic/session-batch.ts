@@ -168,6 +168,31 @@ function applyBatchToRow(ctx, row, listSnapshot) {
   injectBatchCheck(ctx, slot, row, id)
 }
 
+/**
+ * 通过行内标题文本匹配 sessions.list 快照中的会话 id。
+ * 标题可能重复：仅当唯一匹配时返回；多个匹配返回 null（提示用户先重命名）。
+ *
+ * 纯函数（只依赖快照），因此就地定义、无需像 readSessionIdFromRow 那样注入
+ * ——后者住在 session-menu.ts，而 session-menu 又导入本模块的选择状态，
+ * 反向 import 会成环。
+ */
+function matchSessionIdByTitle(title: string, listSnapshot: unknown): string | null {
+  if (listSnapshot === null || typeof listSnapshot !== 'object') return null
+  const byId = (listSnapshot as { byId?: unknown }).byId
+  if (byId === null || byId === undefined || typeof byId !== 'object') return null
+  let matched: string | null = null
+  for (const key of Object.keys(byId as Record<string, unknown>)) {
+    const summary = (byId as Record<string, unknown>)[key]
+    if (summary === null || summary === undefined || typeof summary !== 'object') continue
+    const displayTitle = (summary as { displayTitle?: unknown }).displayTitle
+    if (typeof displayTitle === 'string' && displayTitle === title) {
+      if (matched !== null) return null
+      matched = key
+    }
+  }
+  return matched
+}
+
 /** 解析会话 id：fiber 链优先，标题唯一匹配兜底。 */
 function resolveBatchRowId(ctx, row, listSnapshot) {
   let id = readSessionIdFromRow(row)
@@ -272,7 +297,7 @@ function ensureBatchStyle() {
     batchStyleEl.textContent = [
       // 默认透明：悬停 slot 或聚焦/勾选时显示；勾选后常显。
       'input[' + BATCH_CHECK_MARK + ']{opacity:0;flex:none;width:13px;height:13px;margin:0;',
-      'cursor:pointer;accent-color:var(--dsw-alias-brand-strong, #4b7bff)}',
+      'cursor:pointer;accent-color:var(--dsw-alias-brand-primary, #4b7bff)}',
       'span[class*="slot"]:hover > input[' + BATCH_CHECK_MARK + '],',
       'input[' + BATCH_CHECK_MARK + ']:focus-visible,',
       'input[' + BATCH_CHECK_MARK + ']:checked{opacity:1}',

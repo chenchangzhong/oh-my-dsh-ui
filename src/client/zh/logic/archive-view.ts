@@ -95,18 +95,24 @@ const ARCHIVE_VIEW_CSS = [
   'button[data-dsh-zh-archive-menu-item][data-dsh-zh-archive-menu-danger="true"]{color:var(--dsw-alias-state-error-primary);}',
   'button[data-dsh-zh-archive-menu-item][data-dsh-zh-archive-menu-danger="true"] [data-dsh-zh-archive-menu-icon]{color:var(--dsw-alias-state-error-primary);}',
   'button[data-dsh-zh-archive-menu-item][data-dsh-zh-archive-menu-danger="true"]:hover{background:var(--dsw-alias-interactive-bg-hover-danger);}',
+  // 重命名/删除对话框与提示条。底色与投影走官方弹窗令牌
+  // （--dsw-alias-bg-layer-2 + --dsw-elevation-prominent，见
+  // ui-primitives/Modal.module.css .dialog）；原 --dsw-alias-surface-primary
+  // 在 DSH 主题里不存在，深色模式下落到 #fff 造成白底浅字。
   '[data-dsh-zh-archive-dialog-mask]{position:fixed;inset:0;z-index:1200;display:flex;',
-  'align-items:center;justify-content:center;background:rgba(0,0,0,0.35);}',
+  'align-items:center;justify-content:center;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,0.35));}',
   '[data-dsh-zh-archive-dialog]{width:min(440px,calc(100vw - 48px));border-radius:16px;padding:20px;',
   'background:var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, #fff));color:var(--dsw-alias-label-primary, #1f2329);',
-  'box-shadow:var(--dsw-shadow-lv3, 0 8px 24px rgba(0,0,0,0.18));}',
+  'box-shadow:var(--dsw-elevation-prominent, 0 8px 24px rgba(0,0,0,0.18));}',
   '[data-dsh-zh-archive-dialog-title]{font-size:16px;line-height:24px;font-weight:600;margin-bottom:10px;}',
   '[data-dsh-zh-archive-dialog-desc]{font-size:13px;line-height:20px;',
   'color:var(--dsw-alias-label-tertiary,#666);margin-bottom:18px;}',
   'input[data-dsh-zh-archive-rename-input]{width:100%;box-sizing:border-box;height:36px;',
   'padding:0 12px;margin-bottom:18px;border-radius:10px;font:inherit;font-size:14px;',
   'border:1px solid var(--dsw-alias-border-l2,#c9cdd4);outline:none;',
-  'background:var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, #fff));color:var(--dsw-alias-label-primary,#1f2329);}',
+  // 输入框底色用 bg-layer-3（它坐在 bg-layer-2 的弹窗面上，需要拉开一层对比），
+  // 对齐官方 settings-form fields.module.css .input。
+  'background:var(--dsw-alias-bg-layer-3,#fff);color:var(--dsw-alias-label-primary,#1f2329);}',
   '[data-dsh-zh-archive-dialog-actions]{display:flex;justify-content:flex-end;gap:10px;}',
   '.dsh-zh-archive-toast{position:fixed;top:120px;left:50%;z-index:1300;pointer-events:none;',
   'display:flex;align-items:center;gap:10px;max-width:min(560px,calc(100vw - 48px));',
@@ -361,8 +367,25 @@ function runArchiveView(ctx: ClientContext): () => void {
     }
     return memberOf
   }
+  // ------- 本视图内由用户显式「取消归档」的会话 id -------
+  // 主机的取消归档写要经 follow 流回灌到客户端快照，与点击之间存在一段窗口；
+  // 窗口内 archivedSessionIds 仍含该 id，mergedRowsOf 的 archivedRowsOf 分支
+  // 会把它**重新加回**列表——只从 orderedIds 里剔除是不够的，表现为「点了取消
+  // 归档没反应」。这里本地记账，让菜单项/批量取消归档立即、确定地生效，不依赖
+  // 快照回灌时序。
+  //
+  // 记账只在主机确认成功后写入（见 unarchiveOnly），且由 renderSectionContent
+  // 自愈清理：id 一旦从权威归档集合消失即从账本剔除。因此「回灌到达后账本自动
+  // 清空」，「同一 id 之后再被归档」也不会被旧账本错误隐藏。
+  //
+  // 注意：行点击「查看」（unarchiveThen）**不**记账——那条路径的既定语义是已
+  // 打开的行原位保留、列表零扰动。
+  const unarchivedIds = new Set<string>()
+
   // 单行构造：summary 缺失或不可展示（子代理/blank）时返回 null。
   const rowOf = (id: string, byId: Record<string, ArchiveSessionSummary>): ArchiveRow | null => {
+    // 本视图内已被用户取消归档的会话：立刻不再出现（不等主机快照回灌）。
+    if (unarchivedIds.has(String(id))) return null
     const summary = byId[String(id)]
     if (summary === undefined || summary === null || typeof summary !== 'object') return null
     if (summary.origin === 'subagent' || summary.blank === true) return null
@@ -624,11 +647,11 @@ function runArchiveView(ctx: ClientContext): () => void {
       const cancel = document.createElement('button')
       cancel.type = 'button'
       cancel.textContent = archiveT('rename.cancel')
-      cancel.style.cssText = 'padding:6px 16px;border-radius:10px;border:1px solid rgba(127,127,127,0.35);background:transparent;cursor:pointer;font:inherit;font-size:14px'
+      cancel.style.cssText = 'padding:6px 16px;border-radius:10px;border:0.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,0.35));background:transparent;color:var(--dsw-alias-label-primary,inherit);cursor:pointer;font:inherit;font-size:14px'
       const ok = document.createElement('button')
       ok.type = 'button'
       ok.textContent = archiveT('rename.ok')
-      ok.style.cssText = 'padding:6px 16px;border-radius:10px;border:none;background:var(--dsw-alias-state-business-primary,#4f6ef7);color:#fff;cursor:pointer;font:inherit;font-size:14px'
+      ok.style.cssText = 'padding:6px 16px;border-radius:10px;border:none;background:var(--dsw-alias-state-business-primary,#4f6ef7);color:var(--dsw-alias-label-primary-foreground,#fff);cursor:pointer;font:inherit;font-size:14px'
       const submit = (): void => {
         const title = input.value.trim()
         if (title === '') return
@@ -699,13 +722,33 @@ function runArchiveView(ctx: ClientContext): () => void {
   // 取消归档（不打开）：行从归档列表消失，会话回到正常列表（退出归档
   // 视图后可见）。
   const unarchiveOnly = (sessionId: string): void => {
-    dropRow(sessionId)
+    const key = String(sessionId)
+    // 乐观隐藏：立即记账并重渲染，不等主机快照回灌（见 unarchivedIds 注释）。
+    unarchivedIds.add(key)
+    sectionRenderKey = null
+    renderSectionContent()
+    const revert = (message: string): void => {
+      unarchivedIds.delete(key)
+      sectionRenderKey = null
+      renderSectionContent()
+      showToast(archiveT('unarchive.failed', { message }), 5000)
+    }
     void fetch('/dsh-zh/api/session.unarchive', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     }).then((response) => response.json().catch(() => null))
-      .then(() => {
+      .then((parsed) => {
+        const typed = parsed as { ok?: boolean; error?: { message?: string } } | null
+        if (typed?.ok !== true) {
+          // 失败必须撤销记账：否则写入失败会退化成「行消失了、会话却没回来」的
+          // 假成功（与 rename 的失败处理同源）。
+          revert(typed?.error?.message !== undefined ? String(typed.error.message) : 'unknown')
+          return
+        }
+        // 成功：再剔 orderedIds——记账会被自愈清空，之后只有 orderedIds 里没有
+        // 它，行才不会重新出现。
+        dropRow(sessionId)
         try {
           const workspaces = ctx.workspaces as unknown as { refresh?: () => Promise<unknown> }
           if (typeof workspaces.refresh === 'function') void workspaces.refresh()
@@ -715,7 +758,9 @@ function runArchiveView(ctx: ClientContext): () => void {
           if (typeof sessions.refresh === 'function') void sessions.refresh()
         } catch { /* ignore */ }
       })
-      .catch(() => { /* ignore */ })
+      .catch((error) => {
+        revert(error instanceof Error ? error.message : String(error))
+      })
   }
   // 删除会话（回收站）：与会话行菜单同一主机路由与语义。
   const confirmDelete = (row: ArchiveRow): void => {
@@ -731,11 +776,11 @@ function runArchiveView(ctx: ClientContext): () => void {
       const cancel = document.createElement('button')
       cancel.type = 'button'
       cancel.textContent = archiveT('delete.cancel')
-      cancel.style.cssText = 'padding:6px 16px;border-radius:10px;border:1px solid rgba(127,127,127,0.35);background:transparent;cursor:pointer;font:inherit;font-size:14px'
+      cancel.style.cssText = 'padding:6px 16px;border-radius:10px;border:0.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,0.35));background:transparent;color:var(--dsw-alias-label-primary,inherit);cursor:pointer;font:inherit;font-size:14px'
       const ok = document.createElement('button')
       ok.type = 'button'
       ok.textContent = archiveT('delete.ok')
-      ok.style.cssText = 'padding:6px 16px;border-radius:10px;border:none;background:#d93026;color:#fff;cursor:pointer;font:inherit;font-size:14px'
+      ok.style.cssText = 'padding:6px 16px;border-radius:10px;border:none;background:var(--dsw-alias-state-error-primary,#d93026);color:var(--dsw-alias-label-primary-foreground,#fff);cursor:pointer;font:inherit;font-size:14px'
       cancel.addEventListener('click', close, false)
       ok.addEventListener('click', () => {
         close()
@@ -947,6 +992,14 @@ function runArchiveView(ctx: ClientContext): () => void {
       ? snap.workspaces!.archivedSessionIds! : []).filter(id => !isSessionDeleted(String(id)))
     const items = snap.workspaces?.items
     const byId = (snap.sessions?.byId ?? {}) as Record<string, ArchiveSessionSummary>
+    // 自愈：账本里的 id 已从权威归档集合消失（主机写已回灌）即剔除——账本只
+    // 覆盖「写入到回灌」这段窗口，不长期遮蔽后续的重新归档。
+    if (unarchivedIds.size > 0) {
+      const archivedSet = new Set(archivedIds.map(id => String(id)))
+      for (const id of unarchivedIds) {
+        if (!archivedSet.has(id)) unarchivedIds.delete(id)
+      }
+    }
     const rows = mergedRowsOf(archivedIds, items, byId, activeTarget.workspaceId, orderedIds)
     const currentId = snap.sessions?.current
     const now = Date.now()
