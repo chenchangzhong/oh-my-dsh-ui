@@ -414,4 +414,5 @@ export {
   clearBatchSelection,
   createBatchCheck,
   toggleBatchSelection,
+  matchSessionIdByTitle,
 }

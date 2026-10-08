@@ -55,12 +55,13 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 
 ### magian1127/deepseek-harness-zh_pro（`zh` Feature 上游）
 
-- **分支**：`main`，当前 **v0.9.4**（`eb3846d`，2026-09-23；README 最低要求已提到 DSH `≥0.1.7-alpha.2`）
+- **分支**：`main`，当前 **v0.9.6**（`5e796e9`，2026-10-03；README 最低要求已提到 DSH `≥0.1.7-alpha.2`）
 - **本地基线**：约 **v0.7.0**（2026-08-21），此后逐项移植；0.1.7 对齐见下表
+- **最近核对**：2026-10-08（`eb3846d..5e796e9` 共 5 个提交，逐项功能级比对，结论见下表与下方「2026-10 合并轮」）
 - **本地整合位置**：`src/client/zh/`（Client 半边）+ `src/server/`（Host 半边），均为**精简重写版**而非直接拷贝
   （例：上游 `trash.ts` 282 行 → 本地 3 行，改用 `@dsh-community/trash-utils`）
 
-**上游能力整合状态**（2026-09 一轮合并后的实际状态）：
+**上游能力整合状态**（2026-10 一轮合并后的实际状态）：
 
 | 上游提交 | 内容 | 状态 |
 |---------|------|------|
@@ -72,11 +73,36 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 | `5bf3460` | TurnUsagePanel 用量 pill 的 K/M 缩写中文化 | ✅ 已整合 |
 | `b213835` / `d1fa3ec` | 安全加固（按 kind 限物理删除、恢复可重试、取消归档写链语义） | ✅ 已整合 |
 | `b166ffc`+`2d3602b`+`87d5842`+`137694a` | 服务监控（侧栏面板、进程归属、命令行脱敏、负缓存修复） | ✅ 已整合（Host 783 行 + Client 789 行，裁剪了上游 CLI 部分） |
-| `545dc28`+`0446d17`+`8a7c1d3`+`fc4cec2`+`7d0807f` | 会话批量操作 | ⚠️ 部分整合：官方会话列表的多选/批量删除/批量归档、菜单批量项、已删除集合与归档视图过滤均已就位；**归档视图内的行多选未移植**（本地 archive-view 为精简重写版且含自有修复） |
+| `545dc28`+`0446d17`+`8a7c1d3`+`fc4cec2`+`7d0807f` | 会话批量操作 | ✅ 已整合（**2026-10-08 更正**：此前记「归档视图内的行多选未移植」已过时——本地 `archive-view.ts` 的 `createBatchCheck` 与工作区行全选 `ws-selectall` 均在位，见 commit `3548f88`） |
 | `2c15b36` | 上下文注入中文化开关 + 官方特征守卫 | 不适用（本地已移除 prompt 注入，无对应开关） |
 | `543657b` | Open Design 中文化注入 | 不适用（上游改的是 `model-locale.ts`，本地无该模块） |
 | `src/bin/cli/*`、`hot-mount`、`hot-reload` | CLI 与热重载体系 | 不适用（本地无对应体系） |
 | `assemble-patch`、`chinese-prompt` | 提示词注入管线 | 不适用（本地已移除 prompt 注入，仅保留 `zhAutoArchiveDays`） |
+| `37c19ac` | 桌面版 DSH 支持（profile 探测/CLI/19387 端口/locale 元数据）+ client 侧若干对齐（v0.9.5） | ⚠️ **部分整合**（2026-10）：client 侧的「已删除会话在官方列表/搜索复活」「归档行删除入口」「取消归档时序账本」「`batchSelectionArchiveKind`」等见下方「2026-10 合并轮」；**不适用**：`src/bin/cli/*`（桌面 profile 拒改/默认端口）、`model-locale.ts`（本地无该模块）、`schemastery.ts` 死锁修复（本地走静态 ESM import + 外置依赖，路径不同）、`build-client.mts`、`verify-*.cts/mts`、`docs/*` |
+| `931aef1` | 修复提示词注入在 DSH 0.1.7 起每轮失败 | **不适用**：本地无 prompt 注入与 `context-locale`（`src/server/index.ts` 明记已移除），无落点 |
+| `d27b185` | 深色模式下弹窗/输入框等自建界面元素白底浅字 | ✅ **已整合**（2026-10）：根因是**幻影令牌**（CSS 对未定义自定义属性不报错，静默回落硬编码 `#fff`）。已把 `brand-strong`→`brand-primary`、`danger-strong`→`state-error-primary`、主按钮前景→`label-primary-foreground`、遮罩→`bg-mask-1`、投影→`elevation-prominent`、重命名输入框底色→`bg-layer-3` 全部对齐官方同名组件；本地同款缺陷（开关旋钮 `bg-layer-1` 在深色下约 1.2:1）一并修复 |
+| `7247194` | 插件同步（方向随当前 profile 翻转，同名包只取最高版本） | **暂不整合**：本地零插件同步能力；前置条件未满足（它用 `argvProfile()` 决定方向/目标，而本地在 Electron Host 下会判成 `web`，需先并入 `37c19ac` 的 `profileNameFrom`，还依赖本地不存在的 `validateProfileName`）；且属**写入型**功能（调官方 `pluginManager.installBundle`，会改 `package.json`+lock 并需重启），约 780 行且上游是 `createElement` 版设置卡、需改写成本地 JSX 版。要做请**独立立项** |
+| `5e796e9` | 版本徽章 0.9.6 | 不适用（包名/版本体系不同） |
+
+> **2026-10 合并轮（`eb3846d..5e796e9`，commit `51632d0`）**
+>
+> 逐项与上游对齐后落地 6 项，另有 2 处在审核中发现并修掉（含 1 处**有意偏离上游**）：
+>
+> | 项 | 落点 | 要点 |
+> |---|---|---|
+> | 取消归档写坏 workspace 域 | `src/server/session-delete.ts` | 优先官方 `workspaceRegistry.unarchiveSession`（宿主 0.2.0-rc.2 实测存在）；回退分支改**整体替换** `{...state, archivedSessionIds}`。原实现只写单字段，而 `DomainGlobal.set` 无合并、域 schema 必填 `initialized`/`workspaceIds`、重开时 `schema.parse` → 写一次即「下次启动 workspaceRegistry 挂载失败」。**此 bug 已实际发生**（现场：`~/.dsh/storages/workspace.json.bak-broken-global-*`，global 只剩 `archivedSessionIds`；症状：日志 `workspaceRegistry: pending`） |
+> | 删除幂等（僵尸行） | 同上 | 日志已进回收站但会话仍驻留内存 → 重新归档隐藏 + 记入已删除集合，返回成功 |
+> | 已删除会话在官方列表/搜索复活 | `session-menu.ts` | 打标记 + 属性选择器隐藏，**绝不摘除 React 托管节点**；因隐藏而变空的分组收起，但含 `data-dsh-zh-archive-section` 则不收；集合为空时反向清理 |
+> | 官方归档行删除入口 | `session-menu.ts` | 新增「取消归档」锚点兜底；**必须先补 `data-dsh-zh-archive-menu` 跳过守卫**，否则会往本插件归档菜单重复注入 |
+> | 取消归档「点了没反应」 | `archive-view.ts` | `unarchivedIds` 乐观记账 + 校验响应 + 失败回滚 + 渲染自愈清理 |
+> | `matchSessionIdByTitle` 缺失 | `session-batch.ts`、`session-menu.ts` | 本地从未定义也未导入（被 `try/catch` 静默吞掉）→ 标题兜底解析永久失效。纯函数就地定义以免与 `session-menu` 成环，再由后者导入（依赖方向本就是 `session-menu → session-batch`）；同时补上 `session-menu` 侧缺失的同一兜底（上游同款）——此前取不到 id 的行**连批量项也拿不到**，因为批量项虽不依赖当前行 id，却卡在那个提前 `return`。回归测试：`tests/session-batch.client.spec.ts`（8 例，钉住「唯一匹配才返回、重名返回 null」） |
+>
+> **有意偏离上游**：上游把「确认不可回收后端（非 JSONL）」与「日志已不在磁盘」合并进同一幂等条件，
+> 与其自身注释「日志目录已不在磁盘」矛盾——那会让日志仍在磁盘的会话被隐藏并返回假提示，即本文件明令禁止的
+> **逻辑删除**。本地加 `logAbsent` 判据把后端那条排除在外，其余错误码与中止语义保持原样。
+>
+> ⚠️ **运维提醒**：Host 半边改动**必须重启 dsh 进程**才生效（client 才走 HMR）。上述 bug 正是因为
+> 在重启前就点了「取消归档」，旧代码照常执行而触发。
 
 > `dom-labels.ts` / `traj-patterns.ts` 的**精简**（上游在 0.1.5 适配中删除了约 80 条已失效的 DOM 改写表）
 > 本地按保守策略**保留**了：这些条目在 0.1.5 下不命中也无害，删掉则要承担判断失误就丢失中文的风险。
@@ -84,20 +110,54 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 
 ### yoli-mi/dsh-client-ui-custom（主上游）
 
-- **分支**：`main`，最后提交 `3f19e4d`（2026-08-24），**早于本仓库建立时间（08-28）**
-- 因此该上游**没有待合并的新提交**
+- **分支**：`main`，当前 `edf1ef7`（**2026-09-28**，v0.1.0-rc.7；2026-10-08 复核）
 - 该上游 242 个提交中绝大部分是 `motion` 动效的反复增删（`revert: remove the animation feature entirely` 重复上百次），属噪声
-- 唯一可能相关的修复 `3f19e4d`（bundle 注册名 `@deepseek-ai` → `@ha-na-bi`）**对本地不适用**：
+- `3f19e4d`（bundle 注册名 `@deepseek-ai` → `@ha-na-bi`）**对本地不适用**：
   本地 `lib/client.js` 的 bundle id 为 `oh-my-dsh-ui`，与 `cordis.patch.yml` 的 `name: 'oh-my-dsh-ui'` 一致
+- **`edf1ef7`（适配 DSH 0.1.2「移除 runtime 依赖」+ 自包含构建）经逐项比对，目标状态本地已提前达成**：
+  本地宿主是 0.2.0-rc.2（比 0.1.2 更晚），`@deepseek-ai/dsh-client-runtime` 在宿主中**实测已不存在**，
+  `src/client/dsh-client-types.ts` 早已记录该包在 0.1.7 被删除；本地源码中**没有任何**非 type 的
+  `dsh-client-runtime` 引用。该提交的 36 个文件里源码级只有 4 个（`snapshot-store.ts` 与其 import 拆分），
+  其余是产物与构建体系。**值得吸收的只有**：
+  - `tests/client-bundle.client.spec.ts`（**产物能否在宿主模块表下加载**的回归守卫——本地 `tests/` 完全没有这一类，
+    而 docs 里反复强调的正是「构建通过 ≠ 功能可用」）；移植时断言值：id `oh-my-dsh-ui`、CSS 标记
+    `oh-my-dsh-ui/bundle.css`、require 集合 `react`/`react-dom`/`react/jsx-runtime`/`-ui-attachment`/`-ui-primitives`；
+  - `snapshot-store.ts` 的 `produce` 语义（本地是浅拷贝 stub，嵌套写会**就地改写上一份快照**、空配方仍产生新根并通知；
+    本地现有两处消费都是顶层赋值，暂无实际影响，属硬化）；
+  - `tsconfig` 的 `allowImportingTsExtensions`（本地 `tsc --noEmit` 493 → 355，TS5097 归零）；
+  - 卫生项：`package.json` 的 `dsh.client.inject` 与 bundle 实际 require 集合不符；`lib/types/` 是 8-29 旧快照。
+- **不要照搬**其整套 tsdown 自包含改造：上游是被 rolldown#4271 移除 CSS 打包才改走 esbuild 自写 `local-css` 插件，
+  而本地的 `backdrop-filter` 前缀双写修复正建立在 `@tsdown/css` + Lightning CSS 之上，换路线会拆掉该立足点
 - 本地未纳入的模块：`shortcuts/` + `settings/`（快捷键）、`history/`（浮動历史条）、`marketplace/`（插件市场）、`pin/`（固定轮次），
   以及 `actions.ts` / `composer.ts` / `custom.module.css` / `locales.ts`
 
 ### Laplace-bit/dsh-smooth-stream（`smooth` Feature 上游）
 
 - **地址**：https://github.com/Laplace-bit/dsh-smooth-stream （原 `magian1127/dsh-smooth-stream` 已迁移）
-- **当前版本**：`package.json` 仍标 **v0.6.1**，但 `main` 已到 `2e2c1c4`（2026-09-23，PR #33 合入）
-- **0.1.7 适配**：**无**（README 内核兼容表仍只列到 `0.1.2-alpha.3`，既未声明也未否认 0.1.7）
+- **当前版本**：`package.json` 标 **v0.8.0-rc.1**，`main` 已到 `bf9c3c5`（**2026-10-07**；2026-10-08 复核）
+- **本地基线**：`2e2c1c4`（v0.6.1）——即上次整体对齐的位置，**已落后 15 个提交**（约 2380 行），其中大量是 **0.2.x 适配**（与本地宿主直接相关）
+- **0.1.7 / 0.2.x 适配**：已补（`bf9c3c5` 的验证文档列出 0.1.7-rc.2 与 0.2.0-rc.2 两个验证版本）
+- ⚠️ **移植必须按 `2e2c1c4 → bf9c3c5` 的净增量，不能按单个提交的 diff**：
+  `1f199b7` 这个合并提交**回退了 `0e33ff7` 的大量改动**（`isOwnedRunwayMargin`、`finishAtNaturalFloor` 提前
+  `restoreRunway+setFlowPad(0)`、`applyVisual` 的 `Math.max(runwayOffset,limit)`、`setShift/setDirectShift` 空值守卫、
+  `migrateLegacyRunway` 广扫等在 HEAD **全不存在**）。
 - **本地整合状态**：`src/client/smooth/` 为**深度定制分支**，非实时同步
+
+**`bf9c3c5` 的逐项判定（2026-10-08）**：
+
+| 上游提交 | 内容 | 判定 |
+|---|---|---|
+| `86ac0ab` | 0.2.x response 行整轮拥有 scrollport（`rowOwnsPort`） | **值得合并**（本地缺失）：本地 `TypewriterAssistantNodeView.tsx` 的 `controlScroll` 恒为 true，而 reasoning seat 在 streaming 时同样 active → 同一 scrollport 上两个 FollowHost 竞争。改动极小，但会改变思考阶段的主导者，须实测跟随 |
+| `e71ee76` | 行入场按真实高度钳制（entranceClamp/maxHeight） | **值得合并**（本地无 `entranceClamp`）。注意 `finishEntrance`/卸载必须释放 `maxHeight`，否则行被永久压扁；上游自查未过项正含此区域 |
+| `2b36885` | ①思考块尾部判定改全量 blocks ②`snapAutoCollapse`（0.2.x 自动折叠改滑动） | **只合 ②**：①本地 `isStreamTail` 已等价覆盖；②需与本地 `9cfe2d9` 的跨 seat reveal 闸门联测 |
+| `0e33ff7` | perf：表面缓存 / 揭示节奏钳制 / markdown 增量扫描 / 跑道残留清扫 / FPS 观察器 | **只合 `1f199b7` 回退后仍幸存的项**（按 HEAD 走，别按该提交 diff 抄） |
+| `useDecoupledMarkdown.ts` / `useFpsGuard.ts` / `useLogarithmicFade.ts` / `useProgressiveDomText.ts` / `TypewriterAssistantNodeView.module.css` | — | 本地与 base **逐字节相同**（`useLogarithmicFade` 缺 9 行根色恢复、`useProgressiveDomText` 缺 `stopFrameTask()`、module.css 缺 text-box-trim 排除）→ 可整文件取 HEAD |
+| `fa0d194` | `turnStatusOf` 补认 0.2.x whale tail 行 | **明确不合并**：实测本宿主 `data-chat-turn-status` 出现 **0** 次，`role="status"` 是 `data-chat-running` 的**孙**节点；补上会让 72px 跑道重新启用（见下方注意事项第 1 条） |
+| `12fce15` | 按 `groupPart` 分流 blocks / assistant-step 改「原地替换」 | **① 已被本地等价覆盖**（`visibleBlocks`+`visibleOriginalIndexes` 更精确）；**② 不需要**：宿主 slots 按 `priority` 升序、每 key 单 winner，本地 `priority:-100` 已压住内核，改原地替换反而绕过本地 HMR/还原路径 |
+| `66c2ef6` / `eba49a2` / PR#39 / `settings-bridge.ts` / `settings-channel.ts` / `SmoothStreamPluginsPage.tsx` / `plugins.bundle.config` | Host settings seam / 0.2.x 设置卡可达 | **不适用**：本地无 smooth Host 半边，设置面是 `ctx.settingsScope`(ui-custom) + `smooth-settings-adapter.ts` + `zh/logic/settings-section.tsx` |
+| `primitives-compat.tsx` / `flowPart.ts` | 0.1.7 内核线兼容层 / groupPart 分流 | **不适用**：实测宿主 primitives 导出 `MarkdownText`/`JsonBlock`/`Tooltip`/`writeClipboard` 全在；`flowPart.ts` 的 `isFlowPartActiveTail` 在 HEAD 是死代码 |
+| `60d6858`（=`b5c1562`） | 0.2.x 默认把贴底滚动交回内核（`controlScroll` 默认 false） | **产品取舍，不能照抄**：本地该键目前只是恒为 true 的渲染器 prop，无设置项。要做需新增 scope 字段 + 「丝滑流式」加一行 + `SmoothStreamCardController` 的字段比较 |
+| `5f82313` / `bf9c3c5` | 发版 v0.7.0 / v0.8.0-rc.1 | 不适用（版本号与文档） |
 
 关键差异：上游用 loopback RPC 通道 `/smooth-stream` 读写设置，
 本地已改为 `ctx.settingsScope`（`ui-custom` 命名空间），见 `smooth-settings-adapter.ts`。
@@ -115,12 +175,13 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 | `bcc305f` / `737ebe6` / `e2b4398` | 入场亚像素抖动 / 思考块高度上限 + 智能滚动 / 对数淡出每帧 jank |
 | `dfe69bb` | 解耦流式渲染（`FrameCoordinator` / `StreamBuffer` / `useDecoupledMarkdown`，FollowHost 收敛为单一 owner）—— 架构级，本地未移植 |
 
-> **smooth 已于 2026-09-23 整体对齐上游 HEAD（`2e2c1c4`）**：本地原本是上游
-> `6f596ee`（2026-08-26，PR #10）的整文件快照 + 3 处自造空白行修复，落后 28 个
+> **smooth 已于 2026-09-23 整体对齐到当时的 HEAD（`2e2c1c4`）**：
+> 本地原本是上游 `6f596ee`（2026-08-26，PR #10）的整文件快照 + 3 处自造空白行修复，落后 28 个
 > 涉及 `src/client/` 的提交。现按文件取上游 HEAD 版本替换：**18 个文件更新 +
 > 7 个新增**（`FrameCoordinator`、`StreamBuffer`、`useDecoupledMarkdown`、`clientStore`、
 > `harnessIcons`、`turn-process-face.d.ts`、`AgentRowEntrance.module.css`），
 > 并补上 pacing preset 设置项（位置见下方「移植注意事项」第 2 条的补记）。
+> **2026-10-08 复核：上游又前进 15 个提交到 `bf9c3c5`，本地尚未跟进**，逐项判定见上方表格。
 >
 > - 上游 `readBootConfig` **不适用**：它读 `globalThis.__DSH_SMOOTH_STREAM_CONFIG__`，
 >   写入方是上游 Host 侧 `plugin.ts`，而本地刻意移除了 Host 半边。
@@ -257,16 +318,18 @@ oh-my-dsh-ui/
 │   │       ├── useSmoothStreamContent.ts / useProgressiveDomText.ts
 │   │       ├── teleprompterGlide.ts / useFpsGuard.ts
 │   │       ├── AnimatedDisclosure.tsx / FollowHost.tsx
-│   │       ├── SmoothStreamCard.tsx / SmoothStreamCardController.ts
+│   │       ├── SmoothStreamCardController.ts（注册在「丝滑流式」分组，**非** settings.plugin.item）
 │   │       ├── smooth-settings-adapter.ts（settingsScope 适配层）
-│   │       ├── DebugPanel.tsx / debugRuntime.ts
+│   │       ├── DebugPanel.tsx / debugRuntime.ts / FrameCoordinator.ts / StreamBuffer.ts
+│   │       ├── clientStore.ts / harnessIcons.ts / reasoningGate.ts
 │   │       └── locales.ts
 │   └── server/                # ===== Host 半边（Electron 主进程） =====
 │       ├── index.ts           # Host 入口 installAll()
 │       ├── constants.ts       # 常量定义
 │       ├── types.ts           # 类型定义
 │       ├── util.ts            # 工具函数
-│       ├── session-delete.ts  # 会话删除路由（/dsh-zh/api/session.delete）
+│       ├── session-delete.ts  # 会话删除/取消归档/回收站路由（/dsh-zh/api/session.*）
+│       ├── service-monitor.ts # 服务监控 Host 侧（被 session-delete.ts 导入）
 │       └── trash.ts           # 回收站封装（@dsh-community/trash-utils）
 ├── lib/                       # tsdown 构建产物
 │   ├── client.js              # 浏览器半边 bundle（bundle id = oh-my-dsh-ui）
@@ -276,7 +339,7 @@ oh-my-dsh-ui/
 ├── cordis.patch.yml           # 持久 bundle 行（id: oh-my-dsh-ui）
 ├── package.json               # 包名 oh-my-dsh-ui
 ├── tsdown.config.ts           # 构建配置
-├── tests/                     # 单元测试（appearance / color / motion / theme-section）
+├── tests/                     # 单元测试（appearance / color / motion / theme-section / settings-source / session-batch）
 └── docs/                      # 文档
 ```
 

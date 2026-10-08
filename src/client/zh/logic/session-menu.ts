@@ -15,7 +15,7 @@
 import type { ClientContext } from '../../dsh-client-types.ts'
 import { ZhApplyContext } from './apply.ts'
 import { settingsStore } from '../store/settings-store.ts'
-import { batchSelectionIds, batchSelectionSize, clearBatchSelection } from './session-batch.ts'
+import { batchSelectionIds, batchSelectionSize, clearBatchSelection, matchSessionIdByTitle } from './session-batch.ts'
 
 // ─── Locale strings ───────────────────────────────────────────────────────────
 const DELETE_LABELS = { zh: '删除会话', en: 'Delete session' }
@@ -708,7 +708,15 @@ export function installSessionMenu(zhCtx: ZhApplyContext): () => void {
     const row = lastEllipsisRow
     if (!row) return
 
+    // 会话 id：fiber 链优先，**标题唯一匹配兜底**（上游同款）。兜底对官方
+    // 「显示已归档」视图的归档行尤其必要——那种行取不到 id 时整段注入会被
+    // 跳过，连批量项也拿不到（批量项本不依赖当前行 id，却卡在这个提前 return）。
     let sessionId = readSessionIdFromRow(row)
+    if (!sessionId) {
+      let snapshot: unknown = null
+      try { snapshot = ctx.sessions.list.getSnapshot() } catch { /* 快照不可用时放弃兜底 */ }
+      sessionId = matchSessionIdByTitle(titleOf(row), snapshot)
+    }
     if (!sessionId) return
 
     const copy = resolveCopy()
