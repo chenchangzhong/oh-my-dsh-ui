@@ -283,6 +283,18 @@ export interface UseSmoothStreamContentOptions {
   onRevealCommit?: (() => void) | undefined
   /** Live multiplier from the follow spring when safe visual lag is filling. */
   revealScaleRef?: { current: number } | undefined
+  /**
+   * Multiplier on the adaptive reveal rate (default 1), i.e. the path taken
+   * while the input is still streaming and no `steadyCps` is set. The reasoning
+   * pane passes 2 so a long think block drains at up to twice the answer's
+   * pace: the answer's pacing is tuned for reading comfort, while the think
+   * block is a secondary pane whose backlog should clear before the next step
+   * draws the eye. The product is bounded by `computeAdaptiveQueueStep`'s own
+   * clamp (≤ 2x), which is exactly the ceiling this wants — it also stops the
+   * follow spring's backpressure (down to 0.55x) from throttling the think
+   * block.
+   */
+  speedScale?: number | undefined
 }
 
 /**
@@ -304,6 +316,7 @@ export function useSmoothStreamContent(
     speedCpsRef,
     revealedCharsRef,
     revealScaleRef,
+    speedScale = 1,
     onRevealCommit,
   }: UseSmoothStreamContentOptions = {},
 ): string {
@@ -473,7 +486,7 @@ export function useSmoothStreamContent(
           backlog,
           frameIntervalMs,
           queueDebtRef.current,
-          revealScaleOutRef.current?.current ?? 1,
+          (revealScaleOutRef.current?.current ?? 1) * speedScale,
           debugTuning,
         )
         revealChars = step.revealChars
@@ -525,7 +538,7 @@ export function useSmoothStreamContent(
     }
 
     rafRef.current = requestAnimationFrame(tick)
-  }, [config, seedCps, stopFrameLoop, steadyCps])
+  }, [config, seedCps, stopFrameLoop, steadyCps, speedScale])
 
   // Run AFTER the commit's DOM mutations, before paint: the follower's
   // same-task correction hook.

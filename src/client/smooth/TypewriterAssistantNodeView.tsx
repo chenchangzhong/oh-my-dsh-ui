@@ -18,6 +18,17 @@ import css from './TypewriterAssistantNodeView.module.css'
 type AssistantProps = ChatNodeViewProps<'assistant-step'>
 type MarkdownProps = Pick<ComponentProps<typeof MarkdownText>, 'labels' | 'fileMentions' | 'text'>
 
+/**
+ * Reveal-rate multiplier for the reasoning pane only.
+ *
+ * Both seats drive the same adaptive reveal (`computeAdaptiveQueueStep`), whose
+ * product term is clamped at 2x. The answer keeps the tuned pacing it was
+ * designed for; the think block — a secondary pane the reader only glances at —
+ * asks for the clamp's ceiling so a long block finishes typing instead of still
+ * crawling when the next step already has the eye.
+ */
+const REASONING_REVEAL_SPEED_SCALE = 2
+
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(
     () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true,
@@ -514,6 +525,9 @@ function AnimatedReasoning({
     shouldHoldBack,
     speedCpsRef: fadeSpeedRef,
     revealScaleRef: followRevealScaleRef,
+    // The think pane is a secondary pane: drain it at the engine's ceiling
+    // rather than at the answer's reading-comfort pace (see the constant).
+    speedScale: REASONING_REVEAL_SPEED_SCALE,
     onRevealCommit: () => { notifyFollowCommit(commitAnchorRef.current) },
   })
   useLayoutEffect(() => {
