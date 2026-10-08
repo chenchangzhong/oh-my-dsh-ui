@@ -586,7 +586,16 @@ function AnimatedReasoning({
         if (!followActiveRef.current || userScrolledRef.current || el === null) return
         const delta = el.scrollHeight - el.scrollTop - el.clientHeight
         if (delta > 2) {
-          el.scrollTop = Number.MAX_SAFE_INTEGER
+          // Pin to the bottom by asking for a position past the end and letting
+          // the browser clamp it. `Number.MAX_SAFE_INTEGER` does NOT survive
+          // that clamp on this host's Chromium: measured in the running app, a
+          // frame with 40px of scrollable overflow (`scrollHeight` 348,
+          // `clientHeight` 308) read back `scrollTop` 0 immediately after the
+          // write, while a plain 1e7 from the console reached the end. The
+          // reasoning block therefore never followed its own text. Asking for
+          // `scrollHeight` is the exact bottom and needs no magic constant.
+          // Upstream carries the MAX_SAFE_INTEGER form, so this is a local fix.
+          el.scrollTop = el.scrollHeight
         }
       })
     }

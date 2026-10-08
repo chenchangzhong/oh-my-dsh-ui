@@ -98,6 +98,10 @@ function isThinkOpen(root: Element): boolean {
 function latestRunningThink(): Element | null {
   const roots = thinkRoots()
   for (const r of Array.from(roots)) {
+    // smooth-stream 渲染的思考块自带展开/折叠节奏（AnimatedDisclosure 的
+    // grid 轨道动画 + 流结束自动收起），zh 不得再对它调用 toggleThink，
+    // 否则流一结束就被本函数重新点开，与紧跟其后的"折叠成一行摘要"打架。
+    if (isSmoothStreamBlock(r)) continue
     if (r.getAttribute?.('data-state') === 'running') return r
   }
   return null
@@ -326,6 +330,12 @@ export function installChineseEnhance(zhCtx: ZhApplyContext): () => void {
         }
       }
       if (last === null) return
+      // smooth 接管的思考块（其 body 带 data-disclosure-content）由 smooth 自己
+      // 在流结束收起；zh 不再"保持展开供阅读"，否则等于把它强行掰开。
+      if (isSmoothStreamBlock(last)) {
+        autoThinkTarget = null
+        return
+      }
       if (autoThinkTarget !== null && !document.contains(autoThinkTarget)) {
         // 宿主用新节点替换了旧的思考块：把引用指向新的最近思考块。
         autoThinkTarget = last

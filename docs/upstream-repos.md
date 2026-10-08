@@ -132,6 +132,18 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 >   接管）、`useThinkMaxLines` 等 4 个、`FollowRowErrorBoundary`。
 > - **回归观察点**：聊天区空白行与收尾位置。若空白行复现，把那 3 个本地修复加回
 >   上游版即可，无需整体回滚。
+> - **2026-10 实测新增的本地修复（上游同款代码存在同一缺陷）**：
+>   `TypewriterAssistantNodeView` 的思考块跟随把 `el.scrollTop = Number.MAX_SAFE_INTEGER`
+>   改成了 `el.scrollTop = el.scrollHeight`。上游 HEAD 同一行仍是 `MAX_SAFE_INTEGER`，
+>   但在本机 Chromium 上该值落不到 `max`：实测 `deltaBefore=40`（`sh=348` / `ch=308`）
+>   时写入后**立刻**读回 `scrollTop` 仍是 0，于是思考块永不跟随、始终停在最早几行，
+>   而控制台写 `el.scrollTop = 1e7` 却能到底。改用 `scrollHeight`（由浏览器钳到
+>   `scrollHeight - clientHeight`，即精确底部）后正常。
+>   **移植上游新版本时不要把这行覆盖回去。**
+> - **不要给 `turnStatusOf` 补 `[data-chat-flow] > [data-chat-running]`**：本宿主不渲染
+>   `[data-chat-turn-status]`，`ensureRunway` 正是靠 `status === null` 禁用跑道；
+>   补上第三个选择器会让 `turnStatusOf` 不再为 null，72px 跑道重新启用、流式期间
+>   底部露出固定空白（见 commit `1bdaae4`，2026-10 又踩过一次）。
 
 ---
 
@@ -311,13 +323,18 @@ cd /Users/zhong/project/dsh-plugins/oh-my-dsh-ui
 # 软链安装（已配置好，无需操作）
 # ~/.dsh/profiles/web/node_modules/oh-my-dsh-ui → 本地目录
 
-# 生效
-# 1. 完全退出 DSH Desktop
-# 2. 重新打开
-# 3. 浏览器 Cmd+Shift+R 硬刷新
+# 生效（Client 半边）
+# dsh-client-hmr 默认每 500ms stat-poll 依赖图里每个 client bundle 的
+# mtime/ctime/size，变化即 clientModules.rebuilt(id) 重读并推 SSE。
+# 所以刷新页面即可，通常连刷新都不用。
+
+# 生效（Host 半边：lib/index.js、src/server/）
+# 需重启进程 —— Host 代码跑在 node 进程里，HMR 只覆盖 client bundle。
 ```
 
-> ⚠️ 普通修改没有 HMR，必须重启 + 硬刷新。
+> ⚠️ 客户端改动**不需要重启**（HMR 自动跟随，见上）；只有 Host 半边要重启。
+> 另外：浏览器 `console.log` 不会写进任何日志文件，它只在 DevTools 里 ——
+> `~/.dsh/zap-dsh-web-*.log` 是 host（node 进程）的 stdout。
 
 ---
 
@@ -338,7 +355,13 @@ DSH 插件每个 Feature 都分两侧运行：
 ## 目标运行环境
 
 - **DSH Desktop**：2.0.7
-- **dsh CLI**：0.1.7-alpha.2（全局装在 `~/.nvm/versions/node/v24.20.0/lib/node_modules/@deepseek-ai/dsh`）
+- **dsh CLI**：0.2.0-rc.2（全局装在 `~/.nvm/versions/node/v24.20.0/lib/node_modules/@deepseek-ai/dsh`）
+
+> ⚠️ **2026-10 实测校正**：此处原写 `0.1.7-alpha.2`，已过期。宿主实为 0.2.x，
+> 0.2.x 的契约（`groupPart` 双 seat、RunningStatus 的 `[data-chat-running]` 状态行等）
+> **都已生效**，按 0.1.x 判断兼容性会得出错误结论——本地曾因此漏掉一批 0.2.x 差异。
+> 复核方式：读 `package.json` 的 version，并与 `node_modules/@deepseek-ai/dsh-client-ui-chat/package.json` 对齐
+> （两者应为同一版本）。
 
 > `zh` Feature 的词典与 DOM 改写表基线来自 zh_pro v0.7.0（对应更早的 DSH 版本）。
 > DSH 0.1.5 起大量界面已由官方词典化，旧 DOM 层改写会失效或冗余 —— 移植上游 `0522430` 时需一并处理。

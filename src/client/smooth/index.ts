@@ -387,8 +387,12 @@ export function apply(ctx: ClientContext, config?: { preset?: string; takeover?:
 
     const syncTakeover = (): void => {
       if (!takeover) {
-        // `zh` owns the think block: smooth must not replace the assistant-step
-        // renderer, or the reasoning block loses `zh`'s fixed-height scroll/fold.
+        // `config.takeover === false`: leave the assistant-step renderer to the
+        // host. This is the opt-out, not the default division of labour —
+        // measured on this host with takeover on, smooth renders the reasoning
+        // block itself (`.NBCYja_think` / `.NBCYja_thinkBody`, a
+        // `data-disclosure-content` grid fold), and `zh`'s DOM controller only
+        // steps around those blocks via its own `isSmoothStreamBlock` guard.
         releaseTakeover?.()
         releaseTakeover = undefined
         return
