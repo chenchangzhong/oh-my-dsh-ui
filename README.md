@@ -50,7 +50,7 @@ oh-my-dsh-ui 是一个纯前端的 DSH Web UI 客制化插件：提供外观定�
 
 | 位置 | 类型 | 内容 |
 | --- | --- | --- |
-| 设置 → UI增强 → 外观 | 标签页 | 主题定制，包括壁纸、玻璃、强调色、表面不透明度、字体与质感 |
+| 设置 → UI增强 → 外观 | 标签页 | 主题定制：预设、强调色、各表面不透明度、字体与字号、主题色滚动条，含实时预览与随机灵感 |
 | 设置 → UI增强 → 动效 | 标签页 | 对话/侧边栏/新建对话入场动效与选中框动效，含三套一键预设 |
 | 设置 → UI增强 → 增强 | 标签页 | 中文界面增强（zh）、丝滑流式（smooth）与服务监控的设置 |
 | 设置 → 通用 | 修改原有页 | 新增用户消息 Markdown 渲染开关 |
@@ -59,11 +59,9 @@ oh-my-dsh-ui 是一个纯前端的 DSH Web UI 客制化插件：提供外观定�
 
 ### 外观（设置 → 外观）
 
-外观设置提供给用户极大的自定义空间，用户可根据自己需求选择背景、玻璃档位、强调色（可自动从
-背景取色）、各表面不透明度、色调渐变、暗色遮罩、字体与字号、主题色滚动条
-与内嵌晕影，并可把 ui-theme 的**主题偏好**（浅色 / 深色 / 跟随系统）合并进本
-栏。改动通过 `ui-custom` settings 命名空间保存并**即时生效**（主题实时重渲染，
-无需重启）。
+外观页把主题定制收在一处：预设、强调色（含和谐色板与暗色强调色）、各表面不透明度、
+字体与字号、主题色滚动条。改动通过 `ui-custom` settings 命名空间保存并**即时生效**
+（无需重启）。
 
 **预览**—— 主题定制支持小窗预览。
 
@@ -73,50 +71,37 @@ oh-my-dsh-ui 是一个纯前端的 DSH Web UI 客制化插件：提供外观定�
 
 <img src="https://cdn.jsdelivr.net/gh/yoli-mi/dsh-client-ui-custom@main/assets/preview-fullscreen.png" width="900" alt="全屏预览">
 
+**随机灵感** —— 预览卡里的按钮：一键生成一组和谐强调色及配套的表面不透明度档位。
 
-**预设（Preset）** —— 插件内置了六种预设，每个预设都有独立的风格（预设可独立生效，你自己的 `wallpaper` 仍会叠加在它之下）：
+**预设（Preset）** —— 插件内置六种预设，用 `preset` 选择；显式配置的字段永远覆盖预设：
 
 | id | 名称 | 风格 |
 | --- | --- | --- |
-| `ink-teal` | Ink Teal 黛青 | 青玉色渐变，静谧沉稳 |
-| `ink-blue` | Ink Blue 黛蓝 | 黛蓝渐变，深邃克制的蓝 |
-| `dusty-rose` | Dusty Rose 藕荷 | 藕荷色渐变，温润柔和的粉 |
-| `apricot-gold` | Apricot Gold 杏金 | 杏金色渐变，温雅低调的金 |
-| `mist-gray` | Mist Gray 雾灰 | 雾灰色渐变，清冷安静的灰蓝 |
-| `ink-violet` | Ink Violet 墨紫 | 墨紫色渐变，沉静神秘 |
+| `ink-teal` | Ink Teal 黛青 | 青玉色主题，静谧沉稳 |
+| `ink-blue` | Ink Blue 黛蓝 | 黛蓝主题，深邃克制的蓝 |
+| `dusty-rose` | Dusty Rose 藕荷 | 藕荷色主题，温润柔和的粉 |
+| `apricot-gold` | Apricot Gold 杏金 | 杏金色主题，温雅低调的金 |
+| `mist-gray` | Mist Gray 雾灰 | 雾灰色主题，清冷安静的灰蓝 |
+| `ink-violet` | Ink Violet 墨紫 | 墨紫色主题，沉静神秘 |
 
 更多美术选择后续会扩展进这份列表 —— 见 `src/client/presets.ts`。
-
-**玻璃档位** —— `glass` 是透明度的开关；显式设置 `wallpaperBlur`
-时总是优先于档位的默认半径：
-
-| 档位 | 模糊 | 饱和度 | 气质 |
-| --- | --- | --- | --- |
-| `off` | 0px | 1.0 | 不透明，无玻璃 |
-| `light` | 6px | 1.15 | 轻微玻璃 |
-| `frosted` | 14px | 1.25 | 强毛玻璃（默认） |
-| `mica` | 22px | 1.1 | 柔和静态质感，保留壁纸色相 |
 
 **主题配置项** —— 所有字段均可选；显式配置永远优先于预设：
 
 | 键 | 类型 | 默认值 | 含义 |
 | --- | --- | --- | --- |
 | `preset` | string | `''` | 预设 id（见上表）；`''` = 不使用预设 |
-| `wallpaper` | string | `''` | 壁纸 URL/路径（Web 可访问）；空字符串 = 插件保持关闭 |
-| `wallpaperBlur` | number 0–60 | 玻璃档位默认 | `#root` 模糊半径（px）；显式值优先于玻璃档位 |
-| `glass` | enum | `frosted` | `off` / `light` / `frosted` / `mica`（见玻璃档位表） |
 | `accent` | string | `#4176e6` | 强调色，整套 deepseek 色阶由它派生 |
-| `autoAccent` | boolean | `false` | 从壁纸自动派生强调色（成功后覆盖 `accent`） |
-| `surfaceOpacity` | number 0–100 | `100` | 主表面不透明度（聊天/细节列） |
+| `darkAccent` | string | `''` | 暗色模式下的强调色覆盖；空 = 沿用亮色档 |
+| `surfaceOpacity` | number 0–100 | `100` | 亮色模式下的**页面底层背景**不透明度（只作用于这一层；弹窗、卡片与浮层保持宿主实色） |
 | `sidebarOpacity` | number 0–100 | `100` | 侧栏不透明度 |
 | `inputOpacity` | number 0–100 | `100` | 输入框不透明度 |
 | `codeBlockOpacity` | number 0–100 | `100` | 代码块/行内代码不透明度 |
-| `darkSurfaceOpacity` | number 0–100 | `surfaceOpacity` | 暗色模式表面不透明度（独立档位） |
-| `gradient` | string | `''` | 亮色模式下叠加在壁纸上的渐变；空 = 无 |
-| `darkScrim` | number 0–100 | `0` | 暗色模式下壁纸上的遮罩强度 |
+| `darkSurfaceOpacity` | number 0–100 | `surfaceOpacity` | 暗色模式下的页面底层背景不透明度（独立档位；未显式设置时沿用 `surfaceOpacity`） |
 | `fontFamily` | string | `''` | 字体栈覆盖；空 = 主题默认 |
+| `codeFontFamily` | string | `''` | 代码字体栈覆盖；空 = 主题默认 |
+| `fontScale` | number 0.9–1.1 | `1` | 整界面字号缩放（步进 0.05；`1` = 原始大小） |
 | `scrollbarAccent` | boolean | `false` | 滚动条使用强调色 |
-| `vignette` | boolean | `false` | 应用根节点的柔和内嵌晕影 |
 | `customCss` | string | `''` | 原样追加的自定义 CSS（逃生舱） |
 | `customVars` | object | `{}` | 额外写到 `<html>` 上的 CSS 自定义属性（逃生舱） |
 
@@ -125,9 +110,6 @@ oh-my-dsh-ui 是一个纯前端的 DSH Web UI 客制化插件：提供外观定�
 ```yaml
 config:
   preset: 'ink-teal'
-  wallpaper: 'https://example.com/wall.jpg'
-  glass: 'mica'              # 或 wallpaperBlur: 8 自定义半径
-  autoAccent: true           # 强调色由壁纸自动派生
   customCss: |
     .some-hashed-class { border-radius: 16px; }
   customVars:
@@ -213,8 +195,8 @@ config:
   name: 'oh-my-dsh-ui'
   config:
     preset: 'ink-teal'        # 选择预设；下面任意字段会覆盖它
-    wallpaper: '/my-wall.jpg'
-    wallpaperBlur: 14
+    accent: '#1e8f7e'
+    surfaceOpacity: 40
 ```
 
 3. 重启 `dsh web`。
@@ -234,7 +216,8 @@ config:
 - 样式表（custom.css）消费这些变量，用比主题表更高优先级的选择器
   在 `body` / `body[data-ds-dark-theme]` 上重新声明主题 token，插件总是
   赢得级联，且不修改任何插件或 shell 源码。
-- 毛玻璃给 `#root` 加 `backdrop-filter`，半透明表面透过它显示壁纸。
+- 表面不透明度写在 `<body>` 的背景上（亮暗各一档）；铺满视口的外壳容器透明让位，
+  弹窗/卡片/浮层保留宿主实色，聊天区的粘性遮罩跟随同一档位。
 - 框架结构：
 
 ```
@@ -259,7 +242,6 @@ oh-my-dsh-ui/
 ### 注意事项
 
 - profile 的 `cordis.patch.yml` 改动需要重启 `dsh web` 才生效。
-- 壁纸必须能被浏览器访问（例如放在 Web 服务静态根目录下，或外部 URL）。
 - 插件自带的设置页（外观、动效等）修改**实时生效**、无需重启；
   通过内置「插件配置」页直接编辑 loader 层配置暂不支持（待 `ui-settings-plugins` 的 schema）。
 
@@ -274,7 +256,7 @@ UI: appearance theming, entrance motion and user-message
 Markdown rendering — plus two integrated third-party capabilities: **Chinese
 UI enhancement** (`zh`) and **smooth streaming** (`smooth`).
 
-- **New settings pages** — Appearance, App Usage and Motion;
+- **New settings pages** — Appearance and Motion;
 - **Adds to General settings** — a user-message Markdown rendering toggle;
 - **Chinese UI enhancement (zh)** — dictionaries and DOM-level localization, thinking fold, archive view, session delete (trash), auto-archive;
 - **Smooth streaming (smooth)** — per-frame typewriter reveal with glide follow.
@@ -305,7 +287,7 @@ When `features` is absent or empty, all five features are enabled.
 
 | Where | Kind | What |
 | --- | --- | --- |
-| Settings → UI enhancement → Appearance | tab | custom theming: wallpaper, glass, accent, surface opacity, fonts & texture |
+| Settings → UI enhancement → Appearance | tab | custom theming: presets, accent, per-surface opacities, fonts & scale, accent scrollbar, with live preview and random inspiration |
 | Settings → UI enhancement → Motion | tab | entrance motion for conversation / sidebar / new conversation, selection box, three one-click presets |
 | Settings → UI enhancement → Enhancements | tab | Chinese UI enhancement (zh), smooth streaming and the service monitor |
 | Settings → General | added row | user-message Markdown toggle |
@@ -314,13 +296,10 @@ When `features` is absent or empty, all five features are enabled.
 
 ### Appearance (Settings → Appearance)
 
-Appearance offers a large customization space: you can choose the wallpaper,
-glass level, accent color (optionally auto-derived from the wallpaper),
-per-surface opacities, tone gradient, dark scrim, fonts & scale, accent
-scrollbar and an inset vignette, and merge the ui-theme **theme preference**
-(light / dark / system) into this section. Changes save through the
-`ui-custom` settings namespace and **apply immediately** (the theme re-renders
-live, no restart).
+Appearance gathers the theme customization in one place: presets, accent color
+(plus a harmony palette and a dark-mode accent), per-surface opacities, fonts &
+scale, and the accent scrollbar. Changes save through the `ui-custom` settings
+namespace and **apply immediately** (no restart).
 
 **Preview** — the theme supports a mini-window preview.
 
@@ -330,30 +309,22 @@ Fullscreen preview is also supported — press F2 to exit.
 
 <img src="https://cdn.jsdelivr.net/gh/yoli-mi/dsh-client-ui-custom@main/assets/preview-fullscreen.png" width="900" alt="Fullscreen preview">
 
-**Presets** — the plugin ships six built-in presets, each with its own distinct
-style (a preset works standalone, and your own `wallpaper` still layers under
-it):
+**Random inspiration** — the button in the preview card: generates a harmonious
+accent plus a matching set of surface opacities in one click.
+
+**Presets** — the plugin ships six built-in presets, selected with `preset`;
+explicitly configured fields always win over the preset:
 
 | id | name | look |
 | --- | --- | --- |
-| `ink-teal` | Ink Teal 黛青 | jade-green gradient, quiet and steady |
-| `ink-blue` | Ink Blue 黛蓝 | deep blue gradient, restrained and profound |
-| `dusty-rose` | Dusty Rose 藕荷 | dusty-rose gradient, warm and gentle pink |
+| `ink-teal` | Ink Teal 黛青 | jade-green theme, quiet and steady |
+| `ink-blue` | Ink Blue 黛蓝 | deep blue theme, restrained and profound |
+| `dusty-rose` | Dusty Rose 藕荷 | dusty-rose theme, warm and gentle pink |
 | `apricot-gold` | Apricot Gold 杏金 | elegant, understated warm gold |
 | `mist-gray` | Mist Gray 雾灰 | cool, quiet gray-blue mist |
 | `ink-violet` | Ink Violet 墨紫 | deep violet, serene and mysterious |
 
 More art choices will extend this list — see `src/client/presets.ts`.
-
-**Glass levels** — `glass` is the translucency switch; an explicit
-`wallpaperBlur` always overrides the level's default radius:
-
-| Level | Blur | Saturation | Vibe |
-| --- | --- | --- | --- |
-| `off` | 0px | 1.0 | opaque, no glass |
-| `light` | 6px | 1.15 | subtle glass |
-| `frosted` | 14px | 1.25 | strong frosted glass (default) |
-| `mica` | 22px | 1.1 | soft static texture, keeps the wallpaper's hues |
 
 **Theme config keys** — every field is optional; explicit values always win
 over the preset:
@@ -361,21 +332,17 @@ over the preset:
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `preset` | string | `''` | Preset id (see the table above); `''` = no preset |
-| `wallpaper` | string | `''` | Wallpaper URL/path (web-reachable); empty string keeps the plugin off |
-| `wallpaperBlur` | number 0–60 | glass default | Blur radius (px) on `#root`; an explicit value overrides the glass level |
-| `glass` | enum | `frosted` | `off` / `light` / `frosted` / `mica` (see the glass-level table) |
 | `accent` | string | `#4176e6` | Accent color; the whole deepseek ramp is derived from it |
-| `autoAccent` | boolean | `false` | Derive the accent from the wallpaper automatically (overrides `accent` on success) |
-| `surfaceOpacity` | number 0–100 | `100` | Main surface opacity (chat/details columns) |
+| `darkAccent` | string | `''` | Dark-mode accent override; empty = inherit the light accent |
+| `surfaceOpacity` | number 0–100 | `100` | Background opacity of the page's base layer in light theme (scoped to that layer; cards, dialogs and popovers keep the host's opaque fill) |
 | `sidebarOpacity` | number 0–100 | `100` | Sidebar opacity |
 | `inputOpacity` | number 0–100 | `100` | Composer input opacity |
 | `codeBlockOpacity` | number 0–100 | `100` | Code block / inline code opacity |
-| `darkSurfaceOpacity` | number 0–100 | `surfaceOpacity` | Dark-mode surface opacity (independent knob) |
-| `gradient` | string | `''` | Light-theme gradient layered over the wallpaper; empty = none |
-| `darkScrim` | number 0–100 | `0` | Dark-theme scrim strength over the wallpaper |
+| `darkSurfaceOpacity` | number 0–100 | `surfaceOpacity` | Dark-mode page background opacity (independent knob; falls back to `surfaceOpacity` when unset) |
 | `fontFamily` | string | `''` | Font stack override; empty = theme default |
+| `codeFontFamily` | string | `''` | Code-font stack override; empty = theme default |
+| `fontScale` | number 0.9–1.1 | `1` | Whole-UI font scale (0.05 steps; `1` = stock size) |
 | `scrollbarAccent` | boolean | `false` | Tint the scrollbar with the accent color |
-| `vignette` | boolean | `false` | Soft inset vignette on the app root |
 | `customCss` | string | `''` | Raw custom CSS appended verbatim (escape hatch) |
 | `customVars` | object | `{}` | Extra CSS custom properties written onto `<html>` (escape hatch) |
 
@@ -384,9 +351,6 @@ Full example:
 ```yaml
 config:
   preset: 'ink-teal'
-  wallpaper: 'https://example.com/wall.jpg'
-  glass: 'mica'              # or wallpaperBlur: 8 for a custom radius
-  autoAccent: true           # accent derived from the wallpaper
   customCss: |
     .some-hashed-class { border-radius: 16px; }
   customVars:
@@ -486,8 +450,8 @@ messages render as Markdown (headings, lists, code blocks, `@subagent` /
   name: 'oh-my-dsh-ui'
   config:
     preset: 'ink-teal'        # pick a preset; any field below overrides it
-    wallpaper: '/my-wall.jpg'
-    wallpaperBlur: 14
+    accent: '#1e8f7e'
+    surfaceOpacity: 40
 ```
 
 3. Restart `dsh web`.
@@ -509,8 +473,10 @@ is already in this checkout.
   the theme tokens on `body` / `body[data-ds-dark-theme]` with selectors that
   out-specify the theme sheets, so the plugin always wins the cascade — no
   plugin or shell source is modified.
-- Frosted glass adds `backdrop-filter` to `#root`, and translucent surfaces
-  show the wallpaper through it.
+- Surface opacity is painted as the `<body>` background (one knob per theme);
+  the full-bleed shell containers go transparent so it can show through, while
+  dialogs, cards and popovers keep the host's opaque fill — the chat area's
+  sticky veils follow the same knob.
 - Framework layout:
 
 ```
@@ -536,9 +502,7 @@ oh-my-dsh-ui/
 
 - Changes to a profile's `cordis.patch.yml` only take effect after a
   `dsh web` restart.
-- The wallpaper must be reachable by the browser (e.g. placed under the web
-  server's static root, or an external URL).
-- The plugin's own settings pages (Appearance, App Usage, Motion, …) apply
+- The plugin's own settings pages (Appearance, Motion, …) apply
   changes immediately without a restart; editing the loader-layer config
   directly through the built-in Plugin Configuration page is not supported yet
   (pending the `ui-settings-plugins` schema).
