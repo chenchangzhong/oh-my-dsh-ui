@@ -138,15 +138,41 @@ html[data-dsu-active='1'] #root [data-expanded] [data-open] [data-disclosure-row
    suffix in a production build), so a `[class*='_frame_']` / `[class*='_root_']`
    match silently misses every one of them — that failure mode looks exactly
    like "nothing is translucent any more".
-   - `#root > *` covers the app frame itself, including blank/new-session pages
-     where no chat flow is mounted yet;
-   - `#root …:has([data-chat-flow])` covers every full-bleed ancestor of the
-     chat flow (ConversationRoot, the darwin `centerCol`, any wrapper in
-     between). Cards and panels never contain the whole flow, so they keep the
-     host's opaque --dsw-alias-bg-base. The darwin `rightbarCol` paints the same
-     token but holds no chat flow, so it stays opaque — give it the same
-     `transparent` here if the detail column should be glass too. */
+   Measured on the new-session page (dark, web shell / profile `zap`): with
+   `#root > *` + `:has([data-chat-flow])` in place, the plates still opaque were
+   the app frame (1918x959) and the dock layout's empty pane (863x959) — both
+   painting var(--dsw-alias-bg-base) — while ConversationRoot was already
+   transparent. `#root > *` had never matched the frame at all (it would have won:
+   (1,1,1) vs the host's (0,1,0)), i.e. the frame is NOT a direct child of #root —
+   the shell nests it inside the dock containers, so the rule has to reach the
+   whole ancestor chain instead of just the first level.
+   - `#root *:has([data-conversation-region])` is the workhorse: it matches the
+     conversation plate (ConversationRoot, `.wSkVaW_root`), the app frame and
+     every dock wrapper in between. `[data-conversation-region]` is set by
+     ui-conversation alone — on the always-mounted body (`chat`) and composer
+     seat (`composer`) — so it holds in every phase: on a new/blank session
+     ConversationRoot's phase is `hero` (`hero = sessionId === undefined ||
+     shellPhase === 'blank' …`) and there is no chat flow yet, which is why
+     keying on `:has([data-chat-flow])` alone left that page opaque. It does not
+     catch the composer card: the card is a *descendant* of the composer seat,
+     not an ancestor, so the 输入框不透明度 plate is untouched.
+   - `#root [data-dockkit-empty]` covers the dock layout's empty pane — a column
+     with no tabs, so it contains no conversation region and needs its own anchor
+     (the attribute is set by the shell's tab layout).
+   - `#root > *` and `:has([data-chat-flow])` are kept as cheap safety nets for
+     shells that mount the frame directly / carry a flow without a region.
+   Message cards, dialogs and popovers hold neither a conversation region nor a
+   chat flow, so they keep the host's opaque --dsw-alias-bg-base. The one
+   exception is a panel hosting an *embedded* conversation (subagent view): that
+   panel matches and goes transparent too, which only reveals the plate behind it
+   — the embedded conversation's own area keeps painting, so nothing is lost.
+   The darwin `rightbarCol` / blank-session `centerCol` paint the same token
+   without holding a conversation region, so they stay opaque — add a
+   `[class*='_centerCol']`-style rule if the desktop build should be glass there
+   too. */
 html[data-dsu-active='1'] #root > *,
+html[data-dsu-active='1'] #root *:has([data-conversation-region]),
+html[data-dsu-active='1'] #root [data-dockkit-empty],
 html[data-dsu-active='1'] :is(#root, #root *):has([data-chat-flow]) {
   background-color: transparent;
 }
