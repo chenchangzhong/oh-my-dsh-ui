@@ -18,7 +18,7 @@
  * The backing service may appear after this plugin, so binding is lazy — the
  * face starts on `loading` and forwards to the real scope once it attaches.
  */
-import type { ClientContext } from '../dsh-client-types.ts'
+import type { ClientContext } from './dsh-client-types.ts'
 import { UI_CUSTOM_SETTINGS_NS } from '../shared.ts'
 
 /** Snapshot shape both harness generations answer with. */

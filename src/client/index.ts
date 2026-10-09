@@ -15,7 +15,7 @@
  * whitelist decides which mount; absent or empty = everything (backward
  * compatible).
  */
-import type { ClientContext } from '../dsh-client-types.ts'
+import type { ClientContext } from './dsh-client-types.ts'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the locale Context merge (ctx.locale) and the settings
 // scope + settings.section slot declarations (ctx.settingsScope, SlotMap).

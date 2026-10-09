@@ -125,7 +125,7 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
   - `snapshot-store.ts` 的 `produce` 语义（本地是浅拷贝 stub，嵌套写会**就地改写上一份快照**、空配方仍产生新根并通知；
     本地现有两处消费都是顶层赋值，暂无实际影响，属硬化）；
   - `tsconfig` 的 `allowImportingTsExtensions`（本地 `tsc --noEmit` 493 → 355，TS5097 归零）；
-  - 卫生项：`package.json` 的 `dsh.client.inject` 与 bundle 实际 require 集合不符；`lib/types/` 是 8-29 旧快照。
+  - 卫生项：`package.json` 的 `dsh.client.inject` 与 bundle 实际 require 集合不符（**仍待办**）；`lib/types/` 是 8-29 旧快照（**2026-10 已修**：改为 tsdown 随构建生成 `lib/{index,invariant,client}.d.ts`，旧目录连同其中上游早已删除模块的声明一并删除；开启 dts 时暴露出 `src/client/index.ts`、`settings-source.ts` 两处 `'../dsh-client-types.ts'` 路径错误——文件就在同目录，已改为 `'./'`）。
 - **不要照搬**其整套 tsdown 自包含改造：上游是被 rolldown#4271 移除 CSS 打包才改走 esbuild 自写 `local-css` 插件，
   而本地的 `backdrop-filter` 前缀双写修复正建立在 `@tsdown/css` + Lightning CSS 之上，换路线会拆掉该立足点
 - 本地未纳入的模块：`shortcuts/` + `settings/`（快捷键）、`history/`（浮動历史条）、`marketplace/`（插件市场）、`pin/`（固定轮次），
@@ -331,11 +331,11 @@ oh-my-dsh-ui/
 │       ├── session-delete.ts  # 会话删除/取消归档/回收站路由（/dsh-zh/api/session.*）
 │       ├── service-monitor.ts # 服务监控 Host 侧（被 session-delete.ts 导入）
 │       └── trash.ts           # 回收站封装（@dsh-community/trash-utils）
-├── lib/                       # tsdown 构建产物
+├── lib/                       # tsdown 构建产物（js 与同名 d.ts 均由 tsdown 生成）
 │   ├── client.js              # 浏览器半边 bundle（bundle id = oh-my-dsh-ui）
 │   ├── index.js               # Host 半边入口
 │   ├── invariant.js           # 插件标识
-│   └── types/                 # 类型声明
+│   └── *.d.ts                 # client / index / invariant 的声明（不再有 lib/types 旧快照）
 ├── cordis.patch.yml           # 持久 bundle 行（id: oh-my-dsh-ui）
 ├── package.json               # 包名 oh-my-dsh-ui
 ├── tsdown.config.ts           # 构建配置

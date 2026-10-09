@@ -115,10 +115,12 @@ export default defineConfig([
     treeshake: true,
     sourcemap: false,
     clean: false,
-    dts: false,
+    dts: true,
     onSuccess: inlineStyleCss,
     outputOptions: {
-      entryFileNames: 'client.js',
+      // 声明固定叫 client.d.ts：entry 名是 index（src/client/index.ts），套用
+      // `${chunk.name}.ts` 会与 node 半边的 lib/index.d.ts 撞名并互相覆盖。
+      entryFileNames: (chunk) => (chunk.name.endsWith('.d') ? 'client.d.ts' : 'client.js'),
     },
   },
   {
@@ -131,9 +133,13 @@ export default defineConfig([
     treeshake: true,
     sourcemap: false,
     clean: false,
-    dts: false,
+    dts: true,
     outputOptions: {
-      entryFileNames: (chunk) => (chunk.name === 'invariant' ? 'invariant.js' : 'index.js'),
+      // 声明 chunk 的 name 以 `.d` 结尾（tsdown 内部约定）：必须让它保留 `.d.ts`，
+      // 否则会被下面的 JS 命名规则套用、产出 lib/index.ts 这类垃圾文件。
+      entryFileNames: (chunk) => chunk.name.endsWith('.d')
+        ? `${chunk.name}.ts`
+        : (chunk.name === 'invariant' ? 'invariant.js' : 'index.js'),
     },
   },
 ])
