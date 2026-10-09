@@ -41,7 +41,6 @@ export function configFromThemeSection(
     autoAccent: section.autoAccent ?? normalized.autoAccent,
     surfaceOpacity: section.surfaceOpacity ?? normalized.surfaceOpacity,
     sidebarOpacity: section.sidebarOpacity ?? normalized.sidebarOpacity,
-    chatSurfaceOpacity: section.chatSurfaceOpacity ?? normalized.chatSurfaceOpacity,
     inputOpacity: section.inputOpacity ?? normalized.inputOpacity,
     codeBlockOpacity: section.codeBlockOpacity ?? normalized.codeBlockOpacity,
     fontFamily: stringField(section.fontFamily, normalized.fontFamily),

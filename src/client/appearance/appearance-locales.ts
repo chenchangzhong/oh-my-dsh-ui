@@ -8,7 +8,7 @@ export type AppearanceKey =
   | 'nav' | 'title' | 'intro' | 'save' | 'saving' | 'reset' | 'dirty' | 'unavailable' | 'unavailableHint'
   | 'preview' | 'previewing' | 'cancelPreview'
   | 'accent' | 'accentPalette' | 'accentPaletteHint' | 'autoAccent'
-  | 'surfaceOpacity' | 'sidebarOpacity' | 'chatSurfaceOpacity' | 'inputOpacity' | 'codeBlockOpacity' | 'darkSurfaceOpacity'
+  | 'surfaceOpacity' | 'sidebarOpacity' | 'inputOpacity' | 'codeBlockOpacity' | 'darkSurfaceOpacity'
   | 'fontFamily' | 'codeFontFamily' | 'fontScale' | 'fontScaleHint' | 'scrollbarAccent'
   | 'refineTitle'
   | 'darkAccent' | 'darkAccentHint' | 'darkAccentPlaceholder'
@@ -34,7 +34,6 @@ export const zh: Record<AppearanceKey, string> = {
   autoAccent: '自动取色',
   surfaceOpacity: '主表面不透明度',
   sidebarOpacity: '侧栏不透明度',
-  chatSurfaceOpacity: '聊天列不透明度',
   inputOpacity: '输入框不透明度',
   codeBlockOpacity: '代码块不透明度',
   darkSurfaceOpacity: '暗色表面不透明度',
@@ -86,7 +85,6 @@ export const en: Record<AppearanceKey, string> = {
   autoAccent: 'Auto accent',
   surfaceOpacity: 'Main surface opacity',
   sidebarOpacity: 'Sidebar opacity',
-  chatSurfaceOpacity: 'Chat column opacity',
   inputOpacity: 'Input opacity',
   codeBlockOpacity: 'Code block opacity',
   darkSurfaceOpacity: 'Dark surface opacity',

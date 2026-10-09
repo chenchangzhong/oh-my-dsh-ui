@@ -109,7 +109,6 @@ oh-my-dsh-ui 是一个纯前端的 DSH Web UI 客制化插件：提供外观定�
 | `autoAccent` | boolean | `false` | 从壁纸自动派生强调色（成功后覆盖 `accent`） |
 | `surfaceOpacity` | number 0–100 | `100` | 主表面不透明度（聊天/细节列） |
 | `sidebarOpacity` | number 0–100 | `100` | 侧栏不透明度 |
-| `chatSurfaceOpacity` | number 0–100 | `100` | 聊天列不透明度（经 `--dsw-chat-surface`） |
 | `inputOpacity` | number 0–100 | `100` | 输入框不透明度 |
 | `codeBlockOpacity` | number 0–100 | `100` | 代码块/行内代码不透明度 |
 | `darkSurfaceOpacity` | number 0–100 | `surfaceOpacity` | 暗色模式表面不透明度（独立档位） |
@@ -129,7 +128,6 @@ config:
   wallpaper: 'https://example.com/wall.jpg'
   glass: 'mica'              # 或 wallpaperBlur: 8 自定义半径
   autoAccent: true           # 强调色由壁纸自动派生
-  chatSurfaceOpacity: 70
   customCss: |
     .some-hashed-class { border-radius: 16px; }
   customVars:
@@ -237,10 +235,6 @@ config:
   在 `body` / `body[data-ds-dark-theme]` 上重新声明主题 token，插件总是
   赢得级联，且不修改任何插件或 shell 源码。
 - 毛玻璃给 `#root` 加 `backdrop-filter`，半透明表面透过它显示壁纸。
-- 聊天列旋钮依赖 `ConversationRoot` 读取
-  `var(--dsw-chat-surface, var(--dsw-alias-bg-base))` —— 一行完全向后兼容
-  的回退写法（没有该 token 的原生 Harness 行为与之前完全一致），见
-  `packages/client/ui-conversation`。
 - 框架结构：
 
 ```
@@ -374,7 +368,6 @@ over the preset:
 | `autoAccent` | boolean | `false` | Derive the accent from the wallpaper automatically (overrides `accent` on success) |
 | `surfaceOpacity` | number 0–100 | `100` | Main surface opacity (chat/details columns) |
 | `sidebarOpacity` | number 0–100 | `100` | Sidebar opacity |
-| `chatSurfaceOpacity` | number 0–100 | `100` | Chat column opacity (via `--dsw-chat-surface`) |
 | `inputOpacity` | number 0–100 | `100` | Composer input opacity |
 | `codeBlockOpacity` | number 0–100 | `100` | Code block / inline code opacity |
 | `darkSurfaceOpacity` | number 0–100 | `surfaceOpacity` | Dark-mode surface opacity (independent knob) |
@@ -394,7 +387,6 @@ config:
   wallpaper: 'https://example.com/wall.jpg'
   glass: 'mica'              # or wallpaperBlur: 8 for a custom radius
   autoAccent: true           # accent derived from the wallpaper
-  chatSurfaceOpacity: 70
   customCss: |
     .some-hashed-class { border-radius: 16px; }
   customVars:
@@ -519,10 +511,6 @@ is already in this checkout.
   plugin or shell source is modified.
 - Frosted glass adds `backdrop-filter` to `#root`, and translucent surfaces
   show the wallpaper through it.
-- The chat-column knob relies on `ConversationRoot` reading
-  `var(--dsw-chat-surface, var(--dsw-alias-bg-base))` — a one-line, fully
-  backwards-compatible fallback (stock Harness behavior without the token is
-  exactly as before). See `packages/client/ui-conversation`.
 - Framework layout:
 
 ```

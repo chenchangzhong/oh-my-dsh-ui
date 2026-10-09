@@ -29,7 +29,6 @@ export function AppearancePreview({ draft }: { draft: ThemeSection }) {
       style={{
         ['--pv-accent' as string]: accent,
         ['--pv-surface' as string]: alpha(draft.surfaceOpacity, 100),
-        ['--pv-chat' as string]: alpha(draft.chatSurfaceOpacity, 100),
         ['--pv-input' as string]: alpha(draft.inputOpacity, 100),
         ['--pv-sidebar' as string]: alpha(draft.sidebarOpacity, 100),
         fontFamily: fontFamily !== '' ? fontFamily : undefined,
@@ -49,7 +48,7 @@ export function AppearancePreview({ draft }: { draft: ThemeSection }) {
             <span className={css.title} style={{ fontFamily: codeFont !== '' ? codeFont : undefined }}>ui-custom</span>
             <span className={css.badge} style={{ background: accent, color: '#fff' }}>预览</span>
           </div>
-          <div className={css.chat} style={{ background: 'var(--pv-chat)' }}>
+          <div className={css.chat} style={{ background: 'var(--pv-surface)' }}>
             <div className={css.bubbleLeft} />
             <div className={css.bubbleRight} style={{ borderColor: accent }} />
             <div className={css.bubbleLeft} style={{ width: '62%' }} />

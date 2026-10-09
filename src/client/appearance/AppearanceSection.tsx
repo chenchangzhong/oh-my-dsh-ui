@@ -21,14 +21,13 @@ export type AppearanceSectionProps =
 const SLIDERS: readonly { field: ThemeField; label: AppearanceSliderKey }[] = [
   { field: 'surfaceOpacity', label: 'surfaceOpacity' },
   { field: 'sidebarOpacity', label: 'sidebarOpacity' },
-  { field: 'chatSurfaceOpacity', label: 'chatSurfaceOpacity' },
   { field: 'inputOpacity', label: 'inputOpacity' },
   { field: 'codeBlockOpacity', label: 'codeBlockOpacity' },
   { field: 'darkSurfaceOpacity', label: 'darkSurfaceOpacity' },
 ]
 
 type AppearanceSliderKey =
-  | 'surfaceOpacity' | 'sidebarOpacity' | 'chatSurfaceOpacity'
+  | 'surfaceOpacity' | 'sidebarOpacity'
   | 'inputOpacity' | 'codeBlockOpacity' | 'darkSurfaceOpacity'
 
 /** Mini color preview for a preset (accent-graded wash). */
@@ -306,7 +305,7 @@ export function AppearanceSection({
         </div>
       </GroupCard>
 
-      {/* 表面: the six opacity sliders. */}
+      {/* 表面: the opacity sliders. */}
       <GroupCard title={translator('groupSurface')} resetLabel={translator('groupReset')} group="surface" writable={state.writable} onReset={resetGroup}>
         {SLIDERS.map((slider) => (
           <div key={slider.field} className={css.row}>

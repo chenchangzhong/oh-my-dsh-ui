@@ -28,7 +28,6 @@ export interface ThemeSection {
   autoAccent: boolean | undefined
   surfaceOpacity: number | undefined
   sidebarOpacity: number | undefined
-  chatSurfaceOpacity: number | undefined
   inputOpacity: number | undefined
   codeBlockOpacity: number | undefined
   darkSurfaceOpacity: number | undefined

@@ -31,7 +31,6 @@ const isNeutralConfig = (config: CustomThemeConfig): boolean =>
   && config.autoAccent === DEFAULTS.autoAccent
   && config.surfaceOpacity === DEFAULTS.surfaceOpacity
   && config.sidebarOpacity === DEFAULTS.sidebarOpacity
-  && config.chatSurfaceOpacity === DEFAULTS.chatSurfaceOpacity
   && config.inputOpacity === DEFAULTS.inputOpacity
   && config.codeBlockOpacity === DEFAULTS.codeBlockOpacity
   && config.darkSurfaceOpacity === 100
@@ -61,7 +60,6 @@ export function applyConfig(config: CustomThemeConfig): void {
   set('--dsu-accent', cleanString(config.accent, '#4176e6'))
   set('--dsu-surface-alpha', `${clampNumber(config.surfaceOpacity, 0, 100, 50)}%`)
   set('--dsu-sidebar-alpha', `${clampNumber(config.sidebarOpacity, 0, 100, 50)}%`)
-  set('--dsu-chat-alpha', `${clampNumber(config.chatSurfaceOpacity, 0, 100, 80)}%`)
   set('--dsu-input-alpha', `${clampNumber(config.inputOpacity, 0, 100, 82)}%`)
   set('--dsu-code-alpha', `${clampNumber(config.codeBlockOpacity, 0, 100, 45)}%`)
   set('--dsu-dark-alpha', `${clampNumber(config.darkSurfaceOpacity, 0, 100, config.surfaceOpacity)}%`)

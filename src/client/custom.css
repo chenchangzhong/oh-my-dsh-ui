@@ -42,10 +42,9 @@ html[data-dsu-active='1'] body {
   --dsw-alias-interactive-bg-active: color-mix(in srgb, var(--dsu-accent, #4176e6) 16%, transparent);
   --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--dsu-accent, #4176e6) 14%, transparent);
 
-  /* Translucent glass surfaces (light-theme hues). */
-  --dsw-alias-bg-base: color-mix(in srgb, var(--dsw-static-neutral-bluish-00) var(--dsu-surface-alpha, 50%), transparent);
+  /* Translucent glass surfaces (light-theme hues). --dsw-alias-bg-base is
+     deliberately NOT rewritten here — see the body rules below. */
   --dsw-specific-sidebar-fill: color-mix(in srgb, var(--dsw-static-neutral-bluish-50) var(--dsu-sidebar-alpha, 50%), transparent);
-  --dsw-chat-surface: color-mix(in srgb, var(--dsw-static-neutral-bluish-00) var(--dsu-chat-alpha, 80%), transparent);
   --dsw-specific-input-major: color-mix(in srgb, var(--dsw-static-neutral-bluish-00) var(--dsu-input-alpha, 82%), transparent);
   --dsw-alias-markdown-code-block: color-mix(in srgb, var(--dsw-static-deepseek-50) var(--dsu-code-alpha, 45%), transparent);
   --dsw-alias-markdown-code-block-banner: color-mix(in srgb, var(--dsw-static-deepseek-100) calc(var(--dsu-code-alpha, 45%) + 10%), transparent);
@@ -62,8 +61,7 @@ html[data-dsu-active='1'] body {
    MenuSurface's `.material` layer, which reads --dsw-menu-surface-fill
    (#f8f9fa94 ≈ 58% light / #43454a73 ≈ 45% dark) plus a backdrop blur; the
    darwin backing that lets that blur read as a solid plate is filled with
-   --dsw-alias-bg-base, which this plugin zeroes along with every other
-   surface — so the card shows the wallpaper through instead. 0.1.5 — the
+   --dsw-alias-bg-base. 0.1.5 — the
    reference design, still what a stock desktop install shows — fills the card
    with --dsw-alias-bg-layer-3 instead. Mirror that official expression on both
    tokens: no invented colour, the host's own plate. The :not() lifts this above
@@ -84,9 +82,7 @@ html[data-dsu-active='1'] body[data-ds-dark-theme] {
   --dsw-alias-button-primary-hover: var(--dsu-dark-accent, var(--dsw-static-deepseek-400));
   --dsw-alias-brand-text: var(--dsw-static-deepseek-300);
 
-  --dsw-alias-bg-base: color-mix(in srgb, var(--dsw-static-neutral-bluish-950) var(--dsu-dark-alpha, var(--dsu-surface-alpha, 50%)), transparent);
   --dsw-specific-sidebar-fill: color-mix(in srgb, var(--dsw-static-neutral-bluish-950) var(--dsu-sidebar-alpha, var(--dsu-dark-alpha, 50%)), transparent);
-  --dsw-chat-surface: color-mix(in srgb, var(--dsw-static-neutral-bluish-950) var(--dsu-chat-alpha, var(--dsu-dark-alpha, 50%)), transparent);
   --dsw-specific-input-major: color-mix(in srgb, var(--dsw-static-neutral-bluish-850) var(--dsu-input-alpha, var(--dsu-dark-alpha, 50%)), transparent);
   --dsw-alias-markdown-code-block: color-mix(in srgb, var(--dsw-static-neutral-bluish-900) var(--dsu-code-alpha, var(--dsu-dark-alpha, 50%)), transparent);
   --dsw-alias-markdown-code-block-banner: color-mix(in srgb, var(--dsw-static-neutral-bluish-850) calc(var(--dsu-code-alpha, var(--dsu-dark-alpha, 50%)) + 10%), transparent);
@@ -96,6 +92,63 @@ html[data-dsu-active='1'] body[data-ds-dark-theme] {
      already carries the dark hue. */
   --dsw-specific-menu: var(--dsw-alias-bg-layer-3);
   --dsw-menu-surface-fill: var(--dsw-alias-bg-layer-3);
+}
+
+/* 表面不透明度 / 暗色表面不透明度 land on <body> ONLY.
+   --dsw-alias-bg-base is no longer rewritten: the host hands that token to
+   every component that paints a plate of its own — ask-question cards,
+   inspect/detail panels, file previews, the darwin menu backing, code-block
+   banners, message attachments — so rewriting it turned all of them
+   translucent along with the app background. The body plate is now the single
+   glass layer; the full-bleed shells below give up their own paint so it can
+   show through instead of being covered.
+   Live-DOM check (dark, web shell): the only two full-viewport boxes are
+   `.pI_x6G_frame` (AppFrame, 1918x959) and `.wSkVaW_root` (ConversationRoot,
+   1638x959), both painted with var(--dsw-alias-bg-base) — that is the whole
+   set this pair of rules has to cover. */
+html[data-dsu-active='1'] body:not([data-ds-dark-theme]) {
+  --dsu-glass: color-mix(in srgb, var(--dsw-static-neutral-bluish-00) var(--dsu-surface-alpha, 50%), transparent);
+  background-color: var(--dsu-glass);
+}
+html[data-dsu-active='1'] body[data-ds-dark-theme] {
+  --dsu-glass: color-mix(in srgb, var(--dsw-static-neutral-bluish-950) var(--dsu-dark-alpha, var(--dsu-surface-alpha, 50%)), transparent);
+  background-color: var(--dsu-glass);
+}
+
+/* Chat-scope sticky veils. They exist to blank out whatever scrolls under them,
+   so they are structure, not cards — and they used to read the plugin's
+   translucent bg-base. With bg-base back to the host's opaque plate they would
+   otherwise show as opaque slabs sitting on top of the glass (the composer seat
+   already did: its gradient ends in a solid var(--dsw-alias-bg-base) from 36px
+   down). They take the body plate colour instead.
+   `#root` in the selector is for specificity only: the host states these with
+   two/three class-level selectors. */
+html[data-dsu-active='1'] #root [class*='_composerSeat'] {
+  background: linear-gradient(180deg, transparent 0px, var(--dsu-glass) 36px);
+}
+html[data-dsu-active='1'] #root [class*='_compactionButton'],
+html[data-dsu-active='1'] #root [class*='_bannerWrap'],
+html[data-dsu-active='1'] #root [data-expanded] [data-open] [data-disclosure-row] {
+  background-color: var(--dsu-glass);
+}
+
+/* Full-bleed shells opt out of painting so the body plate is what shows
+   through. Keyed on STRUCTURE, not on hashed module class names: the shipped
+   bundles carry `pI_x6G_frame` / `wSkVaW_root` (hash + "_" + name, with no line
+   suffix in a production build), so a `[class*='_frame_']` / `[class*='_root_']`
+   match silently misses every one of them — that failure mode looks exactly
+   like "nothing is translucent any more".
+   - `#root > *` covers the app frame itself, including blank/new-session pages
+     where no chat flow is mounted yet;
+   - `#root …:has([data-chat-flow])` covers every full-bleed ancestor of the
+     chat flow (ConversationRoot, the darwin `centerCol`, any wrapper in
+     between). Cards and panels never contain the whole flow, so they keep the
+     host's opaque --dsw-alias-bg-base. The darwin `rightbarCol` paints the same
+     token but holds no chat flow, so it stays opaque — give it the same
+     `transparent` here if the detail column should be glass too. */
+html[data-dsu-active='1'] #root > *,
+html[data-dsu-active='1'] :is(#root, #root *):has([data-chat-flow]) {
+  background-color: transparent;
 }
 
 /* No #root rule: an inset vignette would need --dsu-vignette, which nothing

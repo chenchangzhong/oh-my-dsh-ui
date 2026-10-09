@@ -19,7 +19,6 @@ describe('configFromThemeSection', () => {
       autoAccent: true,
       surfaceOpacity: 42,
       sidebarOpacity: 50,
-      chatSurfaceOpacity: 60,
       inputOpacity: 70,
       codeBlockOpacity: 55,
       darkSurfaceOpacity: 40,
@@ -48,7 +47,6 @@ describe('configFromThemeSection', () => {
       autoAccent: undefined,
       surfaceOpacity: undefined,
       sidebarOpacity: undefined,
-      chatSurfaceOpacity: undefined,
       inputOpacity: undefined,
       codeBlockOpacity: undefined,
       darkSurfaceOpacity: undefined,
@@ -64,7 +62,7 @@ describe('configFromThemeSection', () => {
   it('never lands an explicit undefined on the optional darkSurfaceOpacity', () => {
     const config = configFromThemeSection(normalized, {
       accent: undefined, autoAccent: undefined,
-      surfaceOpacity: undefined, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
+      surfaceOpacity: undefined, sidebarOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
       fontFamily: undefined, codeFontFamily: undefined,
       fontScale: undefined, scrollbarAccent: undefined, darkAccent: undefined,
@@ -79,7 +77,7 @@ describe('configFromThemeSection', () => {
     // is the per-field fallback test above, not this one.
     const config = configFromThemeSection(normalized, {
       accent: '', autoAccent: undefined,
-      surfaceOpacity: undefined, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
+      surfaceOpacity: undefined, sidebarOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
       fontFamily: '', codeFontFamily: '', darkAccent: '',
       fontScale: undefined, scrollbarAccent: undefined,
@@ -95,7 +93,7 @@ describe('configFromThemeSection', () => {
     // the raw user layer carries an explicit override).
     const config = configFromThemeSection(normalized, {
       accent: '#123456', autoAccent: undefined,
-      surfaceOpacity: 72, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
+      surfaceOpacity: 72, sidebarOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
       fontFamily: undefined, codeFontFamily: undefined, fontScale: undefined,
       scrollbarAccent: undefined, darkAccent: undefined,
@@ -104,7 +102,7 @@ describe('configFromThemeSection', () => {
     // An explicit dark override still wins.
     const overridden = configFromThemeSection(normalized, {
       accent: undefined, autoAccent: undefined,
-      surfaceOpacity: 72, sidebarOpacity: undefined, chatSurfaceOpacity: undefined,
+      surfaceOpacity: 72, sidebarOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: 41,
       fontFamily: undefined, codeFontFamily: undefined, fontScale: undefined,
       scrollbarAccent: undefined, darkAccent: undefined,

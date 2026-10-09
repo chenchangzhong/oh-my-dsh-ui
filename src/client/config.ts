@@ -22,8 +22,6 @@ export interface CustomThemeConfig {
   surfaceOpacity: number
   /** Sidebar surface opacity, 0–100. */
   sidebarOpacity: number
-  /** Chat column opacity, 0–100 (read via --dsw-chat-surface). */
-  chatSurfaceOpacity: number
   /** Composer input opacity, 0–100. */
   inputOpacity: number
   /** Code block / inline code opacity, 0–100. */
@@ -63,7 +61,6 @@ export const DEFAULTS: CustomThemeConfig = {
   autoAccent: false,
   surfaceOpacity: 100,
   sidebarOpacity: 100,
-  chatSurfaceOpacity: 100,
   inputOpacity: 100,
   codeBlockOpacity: 100,
   fontFamily: '',
@@ -137,7 +134,6 @@ export function normalizeConfig(
     autoAccent: toBoolean(merged.autoAccent, DEFAULTS.autoAccent),
     surfaceOpacity,
     sidebarOpacity: toPercent(merged.sidebarOpacity, DEFAULTS.sidebarOpacity),
-    chatSurfaceOpacity: toPercent(merged.chatSurfaceOpacity, DEFAULTS.chatSurfaceOpacity),
     inputOpacity: toPercent(merged.inputOpacity, DEFAULTS.inputOpacity),
     codeBlockOpacity: toPercent(merged.codeBlockOpacity, DEFAULTS.codeBlockOpacity),
     darkSurfaceOpacity,
@@ -155,7 +151,7 @@ export function normalizeConfig(
 /** All supported knob names (drives docs and future settings UI). */
 export const CONFIG_KEYS: readonly (keyof CustomThemeConfig)[] = [
   'preset', 'accent', 'autoAccent',
-  'surfaceOpacity', 'sidebarOpacity', 'chatSurfaceOpacity', 'inputOpacity',
+  'surfaceOpacity', 'sidebarOpacity', 'inputOpacity',
   'codeBlockOpacity', 'darkSurfaceOpacity',
   'fontFamily', 'codeFontFamily', 'fontScale', 'scrollbarAccent',
   'darkAccent', 'customCss', 'customVars',

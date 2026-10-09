@@ -155,7 +155,6 @@ export function randomInspirationConfig(rng: () => number = Math.random): Partia
     autoAccent: false,
     surfaceOpacity: surface,
     sidebarOpacity: surface,
-    chatSurfaceOpacity: Math.min(100, surface + 22),
     inputOpacity: Math.min(100, surface + 28),
     codeBlockOpacity: Math.min(100, surface + 12),
     darkSurfaceOpacity: surface,

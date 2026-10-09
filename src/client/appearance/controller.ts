@@ -22,13 +22,13 @@ import { configFromThemeSection } from '../theme-section.ts'
 /** The theme fields the form edits. */
 export type ThemeField =
   | 'accent' | 'autoAccent'
-  | 'surfaceOpacity' | 'sidebarOpacity' | 'chatSurfaceOpacity' | 'inputOpacity' | 'codeBlockOpacity' | 'darkSurfaceOpacity'
+  | 'surfaceOpacity' | 'sidebarOpacity' | 'inputOpacity' | 'codeBlockOpacity' | 'darkSurfaceOpacity'
   | 'fontFamily' | 'codeFontFamily' | 'fontScale' | 'scrollbarAccent'
   | 'darkAccent'
 
 const THEME_FIELDS: readonly ThemeField[] = [
   'accent', 'autoAccent',
-  'surfaceOpacity', 'sidebarOpacity', 'chatSurfaceOpacity', 'inputOpacity', 'codeBlockOpacity', 'darkSurfaceOpacity',
+  'surfaceOpacity', 'sidebarOpacity', 'inputOpacity', 'codeBlockOpacity', 'darkSurfaceOpacity',
   'fontFamily', 'codeFontFamily', 'fontScale', 'scrollbarAccent',
   'darkAccent',
 ]
@@ -40,7 +40,7 @@ export type ParamGroup = 'color' | 'surface' | 'typography' | 'refine'
 /** Field list per group — drives the group reset. */
 const GROUP_FIELDS: Readonly<Record<ParamGroup, readonly ThemeField[]>> = {
   color: ['accent', 'autoAccent', 'darkAccent'],
-  surface: ['surfaceOpacity', 'sidebarOpacity', 'chatSurfaceOpacity', 'inputOpacity', 'codeBlockOpacity', 'darkSurfaceOpacity'],
+  surface: ['surfaceOpacity', 'sidebarOpacity', 'inputOpacity', 'codeBlockOpacity', 'darkSurfaceOpacity'],
   typography: ['fontFamily', 'codeFontFamily', 'fontScale'],
   refine: ['scrollbarAccent'],
 }
@@ -50,8 +50,8 @@ const GROUP_NEUTRALS: Readonly<Record<ParamGroup, Partial<ThemeSection>>> = {
   color: { accent: DEFAULTS.accent, autoAccent: DEFAULTS.autoAccent, darkAccent: DEFAULTS.darkAccent },
   surface: {
     surfaceOpacity: DEFAULTS.surfaceOpacity, sidebarOpacity: DEFAULTS.sidebarOpacity,
-    chatSurfaceOpacity: DEFAULTS.chatSurfaceOpacity, inputOpacity: DEFAULTS.inputOpacity,
-    codeBlockOpacity: DEFAULTS.codeBlockOpacity, darkSurfaceOpacity: 100,
+    inputOpacity: DEFAULTS.inputOpacity, codeBlockOpacity: DEFAULTS.codeBlockOpacity,
+    darkSurfaceOpacity: 100,
   },
   typography: { fontFamily: DEFAULTS.fontFamily, codeFontFamily: DEFAULTS.codeFontFamily, fontScale: DEFAULTS.fontScale },
   refine: {
@@ -155,7 +155,6 @@ const themeOf = (config: CustomThemeConfig): ThemeSection => ({
   autoAccent: config.autoAccent,
   surfaceOpacity: config.surfaceOpacity,
   sidebarOpacity: config.sidebarOpacity,
-  chatSurfaceOpacity: config.chatSurfaceOpacity,
   inputOpacity: config.inputOpacity,
   codeBlockOpacity: config.codeBlockOpacity,
   darkSurfaceOpacity: config.darkSurfaceOpacity,
