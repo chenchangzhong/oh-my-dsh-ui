@@ -116,16 +116,27 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
   本地 `lib/client.js` 的 bundle id 为 `oh-my-dsh-ui`，与 `cordis.patch.yml` 的 `name: 'oh-my-dsh-ui'` 一致
 - **`edf1ef7`（适配 DSH 0.1.2「移除 runtime 依赖」+ 自包含构建）经逐项比对，目标状态本地已提前达成**：
   本地宿主是 0.2.0-rc.2（比 0.1.2 更晚），`@deepseek-ai/dsh-client-runtime` 在宿主中**实测已不存在**，
-  `src/client/dsh-client-types.ts` 早已记录该包在 0.1.7 被删除；本地源码中**没有任何**非 type 的
-  `dsh-client-runtime` 引用。该提交的 36 个文件里源码级只有 4 个（`snapshot-store.ts` 与其 import 拆分），
+  `src/client/dsh-client-types.ts` 早已记录该包在 0.1.7 被删除；本地源码里**没有静态**的
+  `dsh-client-runtime` 引用——唯一一处非 type 引用是 `src/client/smooth/clientStore.ts` 的
+  **动态探测**（`req(...)` 走变量、两层 try/catch、失败回落本地 `fallbackSnapshotStore`），
+  这是刻意为之：静态 require 会在缺该包的核上炸掉整个 loader 树（该文件头注释记有 issue #17）。
+  **移植时不要把这处探测"清理"成静态 import。** 该提交的 36 个文件里源码级只有 4 个（`snapshot-store.ts` 与其 import 拆分），
   其余是产物与构建体系。**值得吸收的只有**：
   - `tests/client-bundle.client.spec.ts`（**产物能否在宿主模块表下加载**的回归守卫——本地 `tests/` 完全没有这一类，
     而 docs 里反复强调的正是「构建通过 ≠ 功能可用」）；移植时断言值：id `oh-my-dsh-ui`、CSS 标记
     `oh-my-dsh-ui/bundle.css`、require 集合 `react`/`react-dom`/`react/jsx-runtime`/`-ui-attachment`/`-ui-primitives`；
   - `snapshot-store.ts` 的 `produce` 语义（本地是浅拷贝 stub，嵌套写会**就地改写上一份快照**、空配方仍产生新根并通知；
     本地现有两处消费都是顶层赋值，暂无实际影响，属硬化）；
-  - `tsconfig` 的 `allowImportingTsExtensions`（本地 `tsc --noEmit` 493 → 355，TS5097 归零）；
-  - 卫生项：`package.json` 的 `dsh.client.inject` 与 bundle 实际 require 集合不符（**仍待办**）；`lib/types/` 是 8-29 旧快照（**2026-10 已修**：改为 tsdown 随构建生成 `lib/{index,invariant,client}.d.ts`，旧目录连同其中上游早已删除模块的声明一并删除；开启 dts 时暴露出 `src/client/index.ts`、`settings-source.ts` 两处 `'../dsh-client-types.ts'` 路径错误——文件就在同目录，已改为 `'./'`）。
+  - `tsconfig` 的 `allowImportingTsExtensions`（**2026-10 已吸收**：连同 `noEmit: true` 一起打开，
+    本地 `tsc` 490 → 352、138 条 TS5097 归零；`noEmit` 同时堵掉裸 `tsc` 重生成旧声明树那条路）；
+  - 卫生项：`package.json` 的 `dsh.client.inject`（**2026-10 已修**：原值为 `dsh-client-runtime`
+    （宿主已无此包）+ `dsh-client-ui-theme`（本插件源码零引用，系上游那版主题插件的声明），
+    现改为与 bundle 实际 require 一致的 `-ui-primitives` / `-ui-attachment`。该字段的语义是
+    **模块到达排序 + prune 保留**，而宿主对查不到的条目静默跳过——所以旧值从未报错，只是空转。
+    注意新值两项**效力不同**：`-ui-attachment` 是 boot graph 的 row（真排序），
+    `-ui-primitives` 由壳的 `staticModules` 以 seed 提供（`dsh-web-frontend` 的 seed 表里与
+    `dsh-client-store` / `-ui-slots` / `-ui-dockkit` 同列）→ 不在 graph 里，此条只起自述作用。
+    **别照「inject 应等于 require 集合」去"修"它**）；`lib/types/` 是 8-29 旧快照（**2026-10 已修**：改为 tsdown 随构建生成 `lib/{index,invariant,client}.d.ts`，旧目录连同其中上游早已删除模块的声明一并删除；开启 dts 时暴露出 `src/client/index.ts`、`settings-source.ts` 两处 `'../dsh-client-types.ts'` 路径错误——文件就在同目录，已改为 `'./'`）。
 - **不要照搬**其整套 tsdown 自包含改造：上游是被 rolldown#4271 移除 CSS 打包才改走 esbuild 自写 `local-css` 插件，
   而本地的 `backdrop-filter` 前缀双写修复正建立在 `@tsdown/css` + Lightning CSS 之上，换路线会拆掉该立足点
 - 本地未纳入的模块：`shortcuts/` + `settings/`（快捷键）、`history/`（浮動历史条）、`marketplace/`（插件市场）、`pin/`（固定轮次），

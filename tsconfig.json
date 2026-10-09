@@ -6,7 +6,6 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "rootDir": "src",
-    "outDir": "lib/types",
     "strict": true,
     "noUncheckedIndexedAccess": false,
     "skipLibCheck": true,
@@ -15,9 +14,13 @@
     "esModuleInterop": true,
     "useDefineForClassFields": true,
     "forceConsistentCasingInFileNames": true,
-    "declaration": true,
-    "declarationMap": false,
-    "noEmit": false
+    // tsc 只做类型检查：类型声明由 tsdown 随构建生成到 lib/*.d.ts（见 tsdown.config.ts）。
+    // 这里关掉输出，否则裸 `tsc` 会按 outDir 重新长出一套无人引用的声明树，
+    // 再随源码演进变成"旧快照"——2026-10 刚清掉一次，别再引入。
+    "noEmit": true,
+    // 本仓库源码一律用显式 `.ts` 扩展名做相对导入；该选项让 tsc 接受它
+    // （原先每处都是 TS5097，共 138 条），与 noEmit 是搭配关系。
+    "allowImportingTsExtensions": true
   },
   "include": [
     "src",
