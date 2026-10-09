@@ -34,7 +34,6 @@ const INK_TEAL: ThemePreset = {
   description: '青玉色主题，静谧沉稳。',
   config: {
     accent: '#1e8f7e',
-    autoAccent: false,
     surfaceOpacity: 40,
     sidebarOpacity: 40,
     inputOpacity: 70,
@@ -53,7 +52,6 @@ const INK_BLUE: ThemePreset = {
   description: '黛蓝主题，深邃克制的蓝。',
   config: {
     accent: '#3f63d8',
-    autoAccent: false,
     surfaceOpacity: 38,
     sidebarOpacity: 38,
     inputOpacity: 68,
@@ -72,7 +70,6 @@ const DUSTY_ROSE: ThemePreset = {
   description: '藕荷色主题，温润柔和的粉。',
   config: {
     accent: '#c2788f',
-    autoAccent: false,
     surfaceOpacity: 42,
     sidebarOpacity: 42,
     inputOpacity: 70,
@@ -91,7 +88,6 @@ const APRICOT_GOLD: ThemePreset = {
   description: '杏金色主题，温雅低调的金。',
   config: {
     accent: '#c0863c',
-    autoAccent: false,
     surfaceOpacity: 42,
     sidebarOpacity: 42,
     inputOpacity: 72,
@@ -110,7 +106,6 @@ const MIST_GRAY: ThemePreset = {
   description: '雾灰色主题，清冷安静的灰蓝。',
   config: {
     accent: '#64728e',
-    autoAccent: false,
     surfaceOpacity: 30,
     sidebarOpacity: 30,
     inputOpacity: 60,
@@ -129,7 +124,6 @@ const INK_VIOLET: ThemePreset = {
   description: '墨紫色主题，沉静神秘。',
   config: {
     accent: '#8268c4',
-    autoAccent: false,
     surfaceOpacity: 28,
     sidebarOpacity: 28,
     inputOpacity: 60,

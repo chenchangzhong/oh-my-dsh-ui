@@ -11,7 +11,6 @@ export const ZH_ARCHIVE_NS = 'dsh-zh-archive'
 
 /** zh feature id (for feature whitelist). */
 export const ZH_FEATURE = 'zh' as const
-export type ZhFeature = typeof ZH_FEATURE
 
 /** One user-defined monitored service (host probes it over TCP). */
 export interface ServiceMonitorTarget {

@@ -81,7 +81,7 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 | `37c19ac` | 桌面版 DSH 支持（profile 探测/CLI/19387 端口/locale 元数据）+ client 侧若干对齐（v0.9.5） | ⚠️ **部分整合**（2026-10）：client 侧的「已删除会话在官方列表/搜索复活」「归档行删除入口」「取消归档时序账本」「`batchSelectionArchiveKind`」等见下方「2026-10 合并轮」；**不适用**：`src/bin/cli/*`（桌面 profile 拒改/默认端口）、`model-locale.ts`（本地无该模块）、`schemastery.ts` 死锁修复（本地走静态 ESM import + 外置依赖，路径不同）、`build-client.mts`、`verify-*.cts/mts`、`docs/*` |
 | `931aef1` | 修复提示词注入在 DSH 0.1.7 起每轮失败 | **不适用**：本地无 prompt 注入与 `context-locale`（`src/server/index.ts` 明记已移除），无落点 |
 | `d27b185` | 深色模式下弹窗/输入框等自建界面元素白底浅字 | ✅ **已整合**（2026-10）：根因是**幻影令牌**（CSS 对未定义自定义属性不报错，静默回落硬编码 `#fff`）。已把 `brand-strong`→`brand-primary`、`danger-strong`→`state-error-primary`、主按钮前景→`label-primary-foreground`、遮罩→`bg-mask-1`、投影→`elevation-prominent`、重命名输入框底色→`bg-layer-3` 全部对齐官方同名组件；本地同款缺陷（开关旋钮 `bg-layer-1` 在深色下约 1.2:1）一并修复 |
-| `7247194` | 插件同步（方向随当前 profile 翻转，同名包只取最高版本） | **暂不整合**：本地零插件同步能力；前置条件未满足（它用 `argvProfile()` 决定方向/目标，而本地在 Electron Host 下会判成 `web`，需先并入 `37c19ac` 的 `profileNameFrom`，还依赖本地不存在的 `validateProfileName`）；且属**写入型**功能（调官方 `pluginManager.installBundle`，会改 `package.json`+lock 并需重启），约 780 行且上游是 `createElement` 版设置卡、需改写成本地 JSX 版。要做请**独立立项** |
+| `7247194` | 插件同步（方向随当前 profile 翻转，同名包只取最高版本） | **暂不整合**：本地零插件同步能力；前置条件未满足（它用 `argvProfile()` 决定方向/目标，而该辅助函数与 `dshHome()` / `localProfileDir()` / `manifestPath()` / `slug()` 于 2026-10 一并作为死代码删除——`session-delete.ts` 早已内联重复了 home 判定；要做需自建 profile 判定，Electron Host 下还会判成 `web`，且需先并入 `37c19ac` 的 `profileNameFrom`，另依赖本地不存在的 `validateProfileName`）；且属**写入型**功能（调官方 `pluginManager.installBundle`，会改 `package.json`+lock 并需重启），约 780 行且上游是 `createElement` 版设置卡、需改写成本地 JSX 版。要做请**独立立项** |
 | `5e796e9` | 版本徽章 0.9.6 | 不适用（包名/版本体系不同） |
 
 > **2026-10 合并轮（`eb3846d..5e796e9`，commit `51632d0`）**
@@ -165,13 +165,14 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 | `useDecoupledMarkdown.ts` / `useFpsGuard.ts` / `useLogarithmicFade.ts` / `useProgressiveDomText.ts` / `TypewriterAssistantNodeView.module.css` | — | 本地与 base **逐字节相同**（`useLogarithmicFade` 缺 9 行根色恢复、`useProgressiveDomText` 缺 `stopFrameTask()`、module.css 缺 text-box-trim 排除）→ 可整文件取 HEAD |
 | `fa0d194` | `turnStatusOf` 补认 0.2.x whale tail 行 | **明确不合并**：实测本宿主 `data-chat-turn-status` 出现 **0** 次，`role="status"` 是 `data-chat-running` 的**孙**节点；补上会让 72px 跑道重新启用（见下方注意事项第 1 条） |
 | `12fce15` | 按 `groupPart` 分流 blocks / assistant-step 改「原地替换」 | **① 已被本地等价覆盖**（`visibleBlocks`+`visibleOriginalIndexes` 更精确）；**② 不需要**：宿主 slots 按 `priority` 升序、每 key 单 winner，本地 `priority:-100` 已压住内核，改原地替换反而绕过本地 HMR/还原路径 |
-| `66c2ef6` / `eba49a2` / PR#39 / `settings-bridge.ts` / `settings-channel.ts` / `SmoothStreamPluginsPage.tsx` / `plugins.bundle.config` | Host settings seam / 0.2.x 设置卡可达 | **不适用**：本地无 smooth Host 半边，设置面是 `ctx.settingsScope`(ui-custom) + `smooth-settings-adapter.ts` + `zh/logic/settings-section.tsx` |
+| `66c2ef6` / `eba49a2` / PR#39 / `settings-bridge.ts` / `settings-channel.ts` / `SmoothStreamPluginsPage.tsx` / `plugins.bundle.config` | Host settings seam / 0.2.x 设置卡可达 | **不适用**：本地无 smooth Host 半边，设置面是 `ctx.settingsScope`(ui-custom) + `settings-source.ts`（`bindSettingsScope`）+ `smooth/settings.ts` + `zh/logic/settings-section.tsx`。**2026-10 更正**：此前记的 `smooth-settings-adapter.ts` 从未被任何模块 import（整个文件是死代码，已删除） |
 | `primitives-compat.tsx` / `flowPart.ts` | 0.1.7 内核线兼容层 / groupPart 分流 | **不适用**：实测宿主 primitives 导出 `MarkdownText`/`JsonBlock`/`Tooltip`/`writeClipboard` 全在；`flowPart.ts` 的 `isFlowPartActiveTail` 在 HEAD 是死代码 |
 | `60d6858`（=`b5c1562`） | 0.2.x 默认把贴底滚动交回内核（`controlScroll` 默认 false） | **产品取舍，不能照抄**：本地该键目前只是恒为 true 的渲染器 prop，无设置项。要做需新增 scope 字段 + 「丝滑流式」加一行 + `SmoothStreamCardController` 的字段比较 |
 | `5f82313` / `bf9c3c5` | 发版 v0.7.0 / v0.8.0-rc.1 | 不适用（版本号与文档） |
 
 关键差异：上游用 loopback RPC 通道 `/smooth-stream` 读写设置，
-本地已改为 `ctx.settingsScope`（`ui-custom` 命名空间），见 `smooth-settings-adapter.ts`。
+本地已改为 `ctx.settingsScope`（`ui-custom` 命名空间），见 `settings-source.ts`（`bindSettingsScope`）
++ `smooth/settings.ts`。
 因此上游 `666e498`（DSH 0.1.5-rc.1 下 RPC 通道挂载失败的修复）**对本地不适用**。
 
 **可借鉴的上游改动**（需按语义移植，不可直接 cherry-pick）：
@@ -196,8 +197,10 @@ export const FEATURES = ['markdown', 'appearance', 'motion', 'zh', 'smooth'] as 
 >
 > - 上游 `readBootConfig` **不适用**：它读 `globalThis.__DSH_SMOOTH_STREAM_CONFIG__`，
 >   写入方是上游 Host 侧 `plugin.ts`，而本地刻意移除了 Host 半边。
-> - `StreamBuffer.ts` 上游自己也没引用（重构遗留）。
-> - 本地保留：设置三件套（`config` / `settings` / `smooth-settings-adapter`）、
+> - `StreamBuffer.ts` 上游自己也没引用（重构遗留）。**2026-10 已作为死代码删除**（同样零引用的
+>   本地 `smooth-settings-adapter.ts` 一并删除）；下次按 HEAD 整文件对齐上游时，`StreamBuffer.ts` 会重新出现，
+>   按本节说明再删一次即可。
+> - 本地保留：设置两件套（`config` / `settings`）+ 适配层 `settings-source.ts`、
 >   `FollowErrorBoundary` / `TakeoverErrorBoundary`（在未替换的本地 `index.ts` 内）。
 > - 随替换移除：`teleprompterGlide` 的 3 个自造空白行符号（由上游
 >   `followTerminalPhases` / `setFlowPad` / `FollowScrollOwnership` / `FollowReaderHold`
@@ -317,7 +320,7 @@ oh-my-dsh-ui/
 │   │   ├── zh/                # ===== 整合自 zh_pro =====
 │   │   │   ├── index.ts       # applyZh() 入口
 │   │   │   ├── shared.ts      # zh 共享类型与设置默认值
-│   │   │   ├── store/         # 设置 store（prompt-store / settings-store）
+│   │   │   ├── store/         # 设置 store（settings-store；prompt-store 已随 prompt 注入一并删除）
 │   │   │   ├── data/          # 词典（terms、zh-dict、dom-labels、settings-dicts、traj-patterns）
 │   │   │   ├── locales/       # 界面文案
 │   │   │   └── logic/         # DOM 增强（apply、dom-enhance、archive-view、auto-archive、
@@ -330,8 +333,8 @@ oh-my-dsh-ui/
 │   │       ├── teleprompterGlide.ts / useFpsGuard.ts
 │   │       ├── AnimatedDisclosure.tsx / FollowHost.tsx
 │   │       ├── SmoothStreamCardController.ts（注册在「丝滑流式」分组，**非** settings.plugin.item）
-│   │       ├── smooth-settings-adapter.ts（settingsScope 适配层）
-│   │       ├── DebugPanel.tsx / debugRuntime.ts / FrameCoordinator.ts / StreamBuffer.ts
+│   │       ├── DebugPanel.tsx / debugRuntime.ts / FrameCoordinator.ts
+│   │       ├── （StreamBuffer.ts 与 smooth-settings-adapter.ts 已于 2026-10 作为死代码删除）
 │   │       ├── clientStore.ts / harnessIcons.ts / reasoningGate.ts
 │   │       └── locales.ts
 │   └── server/                # ===== Host 半边（Electron 主进程） =====

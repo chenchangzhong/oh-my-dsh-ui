@@ -22,9 +22,7 @@ interface CustomThemeConfig {
   preset: string;
   /** Accent color; the whole deepseek ramp is derived from it. */
   accent: string;
-  /** Derive the accent color automatically from a sampled source (overrides `accent` on success). */
-  autoAccent: boolean;
-  /** Main surface opacity, 0–100 (chat/details columns). */
+  /** Page background opacity, 0–100 (painted on <body>, see custom.css). */
   surfaceOpacity: number;
   /** Sidebar surface opacity, 0–100. */
   sidebarOpacity: number;

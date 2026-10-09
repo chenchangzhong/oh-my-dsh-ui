@@ -25,7 +25,6 @@ export type PluginFeature = typeof FEATURES[number]
  */
 export interface ThemeSection {
   accent: string | undefined
-  autoAccent: boolean | undefined
   surfaceOpacity: number | undefined
   sidebarOpacity: number | undefined
   inputOpacity: number | undefined

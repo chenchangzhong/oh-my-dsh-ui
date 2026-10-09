@@ -16,9 +16,7 @@ export interface CustomThemeConfig {
   preset: string
   /** Accent color; the whole deepseek ramp is derived from it. */
   accent: string
-  /** Derive the accent color automatically from a sampled source (overrides `accent` on success). */
-  autoAccent: boolean
-  /** Main surface opacity, 0–100 (chat/details columns). */
+  /** Page background opacity, 0–100 (painted on <body>, see custom.css). */
   surfaceOpacity: number
   /** Sidebar surface opacity, 0–100. */
   sidebarOpacity: number
@@ -58,7 +56,6 @@ export interface CustomThemeConfig {
 export const DEFAULTS: CustomThemeConfig = {
   preset: '',
   accent: '#4176e6',
-  autoAccent: false,
   surfaceOpacity: 100,
   sidebarOpacity: 100,
   inputOpacity: 100,
@@ -131,7 +128,6 @@ export function normalizeConfig(
   return {
     preset: cleanString(merged.preset, DEFAULTS.preset),
     accent: cleanString(merged.accent, DEFAULTS.accent),
-    autoAccent: toBoolean(merged.autoAccent, DEFAULTS.autoAccent),
     surfaceOpacity,
     sidebarOpacity: toPercent(merged.sidebarOpacity, DEFAULTS.sidebarOpacity),
     inputOpacity: toPercent(merged.inputOpacity, DEFAULTS.inputOpacity),
@@ -150,7 +146,7 @@ export function normalizeConfig(
 
 /** All supported knob names (drives docs and future settings UI). */
 export const CONFIG_KEYS: readonly (keyof CustomThemeConfig)[] = [
-  'preset', 'accent', 'autoAccent',
+  'preset', 'accent',
   'surfaceOpacity', 'sidebarOpacity', 'inputOpacity',
   'codeBlockOpacity', 'darkSurfaceOpacity',
   'fontFamily', 'codeFontFamily', 'fontScale', 'scrollbarAccent',

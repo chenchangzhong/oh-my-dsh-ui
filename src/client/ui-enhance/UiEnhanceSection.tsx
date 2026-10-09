@@ -30,16 +30,6 @@ import css from './UiEnhanceSection.module.css'
 /** Union of all tab ids */
 export type UiEnhanceTab = 'appearance' | 'motion' | 'zh'
 
-/** All tab ids in display order */
-export const UI_ENHANCE_TABS: UiEnhanceTab[] = ['appearance', 'motion', 'zh']
-
-/** Locale key → tab id mapping */
-export const TAB_LABELS: Record<UiEnhanceTab, string> = {
-  appearance: 'nav',
-  motion: 'nav',
-  zh: 'nav',
-} as const
-
 // ─── Combined inject face ────────────────────────────────────────────────────
 // `enabledTabs` and the action callbacks are plain (top-level) values. The host
 // turns `hooks` into delivered component props: hook/snapshot sources become

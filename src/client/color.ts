@@ -1,19 +1,7 @@
 /**
- * Pure color math for the accent auto-derivation feature (Material-You style).
- * DOM-free so it is unit-testable: feed it RGBA pixel data, get a hex color.
- *
- * Strategy: bucket pixels by hue, ignore washed-out samples (near-white,
- * near-black, low saturation), score each bucket by saturation-weighted
- * population, and average the winning bucket's RGB into a hex color.
+ * Pure, DOM-free color math: hex formatting, HSL conversion, harmony swatches
+ * and the "随机灵感" accent recipe. Side-effect free so it is unit-testable.
  */
-
-/** Number of hue buckets around the wheel. */
-const HUE_BUCKETS = 24
-
-/** Ignore pixels this close to white, black, or neutral gray. */
-const MIN_SATURATION = 0.18
-const MIN_LIGHTNESS = 0.14
-const MAX_LIGHTNESS = 0.86
 
 const rgbToHsl = (r: number, g: number, b: number): { h: number; s: number; l: number } => {
   const rf = r / 255
@@ -85,48 +73,6 @@ export function harmonySwatches(hex: string): string[] {
   ]
 }
 
-/**
- * Extract the dominant saturated color from RGBA pixel data (as produced by
- * canvas getImageData). Returns null when no usable color is found.
- * @param data - RGBA byte quadruples.
- * @returns '#rrggbb' or null.
- */
-export function dominantColorFromRgba(data: Uint8ClampedArray): string | null {
-  interface Bucket { count: number; satSum: number; r: number; g: number; b: number }
-  const buckets: (Bucket | undefined)[] = new Array(HUE_BUCKETS)
-
-  for (let i = 0; i + 3 < data.length; i += 4) {
-    const a = data[i + 3]
-    if (a === undefined || a < 125) continue // skip largely transparent pixels
-    const r = data[i] ?? 0
-    const g = data[i + 1] ?? 0
-    const b = data[i + 2] ?? 0
-    const { h, s, l } = rgbToHsl(r, g, b)
-    if (s < MIN_SATURATION || l < MIN_LIGHTNESS || l > MAX_LIGHTNESS) continue
-    const index = Math.min(HUE_BUCKETS - 1, Math.floor(h * HUE_BUCKETS))
-    const bucket = (buckets[index] ??= { count: 0, satSum: 0, r: 0, g: 0, b: 0 })
-    bucket.count += 1
-    bucket.satSum += s
-    bucket.r += r
-    bucket.g += g
-    bucket.b += b
-  }
-
-  // Score by saturation-weighted population (bright, colorful pixels win).
-  let best: Bucket | undefined
-  let bestScore = 0
-  for (const bucket of buckets) {
-    if (bucket === undefined || bucket.count === 0) continue
-    const score = bucket.count * (bucket.satSum / bucket.count)
-    if (score > bestScore) {
-      bestScore = score
-      best = bucket
-    }
-  }
-  if (best === undefined) return null
-  return rgbToHex(best.r / best.count, best.g / best.count, best.b / best.count)
-}
-
 /** A curated set of muted hues (degrees) for the "随机灵感" button — warm to
  * cool, all low-key enough to read as 高级 rather than neon. */
 const INSPIRATION_HUES: readonly number[] = [0, 10, 20, 32, 46, 62, 82, 104, 124, 148, 172, 196, 220, 244, 264, 286, 306, 328]
@@ -152,7 +98,6 @@ export function randomInspirationConfig(rng: () => number = Math.random): Partia
   const surface = Math.round(between(rng, 30, 46))
   return {
     accent,
-    autoAccent: false,
     surfaceOpacity: surface,
     sidebarOpacity: surface,
     inputOpacity: Math.min(100, surface + 28),

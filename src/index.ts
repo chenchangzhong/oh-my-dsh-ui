@@ -17,7 +17,6 @@ import { installAll } from './server/index.ts'
 const SECTION_FIELDS = {
   // theme
   accent: z.string().default('#4176e6'),
-  autoAccent: z.boolean().default(false),
   surfaceOpacity: z.number().default(100),
   sidebarOpacity: z.number().default(100),
   inputOpacity: z.number().default(100),
@@ -199,7 +198,6 @@ interface SettingsServiceLike {
 function legacyBase(config?: UiCustomConfig): Record<string, unknown> {
   return {
     accent: config?.accent ?? '#4176e6',
-    autoAccent: config?.autoAccent ?? false,
     surfaceOpacity: config?.surfaceOpacity ?? 100,
     sidebarOpacity: config?.sidebarOpacity ?? 100,
     inputOpacity: config?.inputOpacity ?? 100,

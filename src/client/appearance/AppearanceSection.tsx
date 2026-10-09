@@ -1,4 +1,4 @@
-/** The 外观 settings section: theme preference (merged) + art customization form. */
+/** The 外观 settings section: art customization form (presets / color / surfaces / typography / refine). */
 
 import { useMemo, useState, type ReactNode } from 'react'
 import type {
@@ -225,7 +225,7 @@ export function AppearanceSection({
         )}
       </div>
 
-      {/* 色彩: accent + palette + autoAccent + dark accent. */}
+      {/* 色彩: accent + palette + dark accent. */}
       <GroupCard title={translator('groupColor')} resetLabel={translator('groupReset')} group="color" writable={state.writable} onReset={resetGroup}>
         <div className={css.row}>
           <label className={css.label} htmlFor="appearance-accent">{translator('accent')}</label>
@@ -265,20 +265,6 @@ export function AppearanceSection({
             ))}
           </span>
           <p className={css.hint}>{translator('accentPaletteHint')}</p>
-        </div>
-
-        <div className={css.row}>
-          <label className={css.label} htmlFor="appearance-autoAccent">{translator('autoAccent')}</label>
-          <span className={css.check}>
-            <input
-              id="appearance-autoAccent"
-              className={css.checkbox}
-              type="checkbox"
-              checked={bool('autoAccent', false)}
-              disabled={!state.writable}
-              onChange={(event) => setField('autoAccent', event.target.checked)}
-            />
-          </span>
         </div>
 
         <div className={css.row}>

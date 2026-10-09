@@ -7,7 +7,7 @@ export const APPEARANCE_NS = 'appearance'
 export type AppearanceKey =
   | 'nav' | 'title' | 'intro' | 'save' | 'saving' | 'reset' | 'dirty' | 'unavailable' | 'unavailableHint'
   | 'preview' | 'previewing' | 'cancelPreview'
-  | 'accent' | 'accentPalette' | 'accentPaletteHint' | 'autoAccent'
+  | 'accent' | 'accentPalette' | 'accentPaletteHint'
   | 'surfaceOpacity' | 'sidebarOpacity' | 'inputOpacity' | 'codeBlockOpacity' | 'darkSurfaceOpacity'
   | 'fontFamily' | 'codeFontFamily' | 'fontScale' | 'fontScaleHint' | 'scrollbarAccent'
   | 'refineTitle'
@@ -31,7 +31,6 @@ export const zh: Record<AppearanceKey, string> = {
   unavailable: '外观设置当前不可用',
   unavailableHint: '连接处于内存模式或该命名空间未对浏览器暴露。',
   accent: '强调色',
-  autoAccent: '自动取色',
   surfaceOpacity: '主表面不透明度',
   sidebarOpacity: '侧栏不透明度',
   inputOpacity: '输入框不透明度',
@@ -82,7 +81,6 @@ export const en: Record<AppearanceKey, string> = {
   unavailable: 'Appearance settings are unavailable',
   unavailableHint: 'The connection is in memory mode, or the namespace is not exposed to the browser.',
   accent: 'Accent color',
-  autoAccent: 'Auto accent',
   surfaceOpacity: 'Main surface opacity',
   sidebarOpacity: 'Sidebar opacity',
   inputOpacity: 'Input opacity',

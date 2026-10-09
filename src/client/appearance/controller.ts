@@ -21,13 +21,13 @@ import { configFromThemeSection } from '../theme-section.ts'
 
 /** The theme fields the form edits. */
 export type ThemeField =
-  | 'accent' | 'autoAccent'
+  | 'accent'
   | 'surfaceOpacity' | 'sidebarOpacity' | 'inputOpacity' | 'codeBlockOpacity' | 'darkSurfaceOpacity'
   | 'fontFamily' | 'codeFontFamily' | 'fontScale' | 'scrollbarAccent'
   | 'darkAccent'
 
 const THEME_FIELDS: readonly ThemeField[] = [
-  'accent', 'autoAccent',
+  'accent',
   'surfaceOpacity', 'sidebarOpacity', 'inputOpacity', 'codeBlockOpacity', 'darkSurfaceOpacity',
   'fontFamily', 'codeFontFamily', 'fontScale', 'scrollbarAccent',
   'darkAccent',
@@ -39,7 +39,7 @@ export type ParamGroup = 'color' | 'surface' | 'typography' | 'refine'
 
 /** Field list per group — drives the group reset. */
 const GROUP_FIELDS: Readonly<Record<ParamGroup, readonly ThemeField[]>> = {
-  color: ['accent', 'autoAccent', 'darkAccent'],
+  color: ['accent', 'darkAccent'],
   surface: ['surfaceOpacity', 'sidebarOpacity', 'inputOpacity', 'codeBlockOpacity', 'darkSurfaceOpacity'],
   typography: ['fontFamily', 'codeFontFamily', 'fontScale'],
   refine: ['scrollbarAccent'],
@@ -47,7 +47,7 @@ const GROUP_FIELDS: Readonly<Record<ParamGroup, readonly ThemeField[]>> = {
 
 /** Neutral (stock-look) value per group field — what 恢复本组默认 writes. */
 const GROUP_NEUTRALS: Readonly<Record<ParamGroup, Partial<ThemeSection>>> = {
-  color: { accent: DEFAULTS.accent, autoAccent: DEFAULTS.autoAccent, darkAccent: DEFAULTS.darkAccent },
+  color: { accent: DEFAULTS.accent, darkAccent: DEFAULTS.darkAccent },
   surface: {
     surfaceOpacity: DEFAULTS.surfaceOpacity, sidebarOpacity: DEFAULTS.sidebarOpacity,
     inputOpacity: DEFAULTS.inputOpacity, codeBlockOpacity: DEFAULTS.codeBlockOpacity,
@@ -152,7 +152,6 @@ function parseMyPresets(raw: unknown): MyPreset[] {
 
 const themeOf = (config: CustomThemeConfig): ThemeSection => ({
   accent: config.accent,
-  autoAccent: config.autoAccent,
   surfaceOpacity: config.surfaceOpacity,
   sidebarOpacity: config.sidebarOpacity,
   inputOpacity: config.inputOpacity,

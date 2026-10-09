@@ -16,7 +16,6 @@ describe('configFromThemeSection', () => {
   it('overlays section fields over the loader defaults', () => {
     const config = configFromThemeSection(normalized, {
       accent: '#ff7fb2',
-      autoAccent: true,
       surfaceOpacity: 42,
       sidebarOpacity: 50,
       inputOpacity: 70,
@@ -29,7 +28,6 @@ describe('configFromThemeSection', () => {
       darkAccent: '#223355',
     })
     expect(config.accent).toBe('#ff7fb2')
-    expect(config.autoAccent).toBe(true)
     expect(config.surfaceOpacity).toBe(42)
     expect(config.darkSurfaceOpacity).toBe(40)
     expect(config.fontFamily).toBe('MiSans')
@@ -44,7 +42,6 @@ describe('configFromThemeSection', () => {
   it('falls back per field when the section leaves it undefined', () => {
     const config = configFromThemeSection(normalized, {
       accent: undefined,
-      autoAccent: undefined,
       surfaceOpacity: undefined,
       sidebarOpacity: undefined,
       inputOpacity: undefined,
@@ -61,7 +58,7 @@ describe('configFromThemeSection', () => {
 
   it('never lands an explicit undefined on the optional darkSurfaceOpacity', () => {
     const config = configFromThemeSection(normalized, {
-      accent: undefined, autoAccent: undefined,
+      accent: undefined,
       surfaceOpacity: undefined, sidebarOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
       fontFamily: undefined, codeFontFamily: undefined,
@@ -76,7 +73,7 @@ describe('configFromThemeSection', () => {
     // Absent fields (undefined) fall back to the loader layer instead — that
     // is the per-field fallback test above, not this one.
     const config = configFromThemeSection(normalized, {
-      accent: '', autoAccent: undefined,
+      accent: '',
       surfaceOpacity: undefined, sidebarOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
       fontFamily: '', codeFontFamily: '', darkAccent: '',
@@ -92,7 +89,7 @@ describe('configFromThemeSection', () => {
     // follows 表面不透明度 (index.ts drops the loader-base dark value unless
     // the raw user layer carries an explicit override).
     const config = configFromThemeSection(normalized, {
-      accent: '#123456', autoAccent: undefined,
+      accent: '#123456',
       surfaceOpacity: 72, sidebarOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: undefined,
       fontFamily: undefined, codeFontFamily: undefined, fontScale: undefined,
@@ -101,7 +98,7 @@ describe('configFromThemeSection', () => {
     expect(config.darkSurfaceOpacity).toBe(72)
     // An explicit dark override still wins.
     const overridden = configFromThemeSection(normalized, {
-      accent: undefined, autoAccent: undefined,
+      accent: undefined,
       surfaceOpacity: 72, sidebarOpacity: undefined,
       inputOpacity: undefined, codeBlockOpacity: undefined, darkSurfaceOpacity: 41,
       fontFamily: undefined, codeFontFamily: undefined, fontScale: undefined,

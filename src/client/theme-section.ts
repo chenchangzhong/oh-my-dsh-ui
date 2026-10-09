@@ -38,7 +38,6 @@ export function configFromThemeSection(
     // moves the dark background too.
     darkSurfaceOpacity: section.darkSurfaceOpacity ?? section.surfaceOpacity ?? darkSurfaceOpacity ?? 100,
     accent: stringField(section.accent, normalized.accent),
-    autoAccent: section.autoAccent ?? normalized.autoAccent,
     surfaceOpacity: section.surfaceOpacity ?? normalized.surfaceOpacity,
     sidebarOpacity: section.sidebarOpacity ?? normalized.sidebarOpacity,
     inputOpacity: section.inputOpacity ?? normalized.inputOpacity,

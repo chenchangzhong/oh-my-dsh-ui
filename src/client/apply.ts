@@ -28,7 +28,6 @@ const CUSTOM_STYLE_ID = 'dsh-ui-custom-css'
  */
 const isNeutralConfig = (config: CustomThemeConfig): boolean =>
   config.accent === DEFAULTS.accent
-  && config.autoAccent === DEFAULTS.autoAccent
   && config.surfaceOpacity === DEFAULTS.surfaceOpacity
   && config.sidebarOpacity === DEFAULTS.sidebarOpacity
   && config.inputOpacity === DEFAULTS.inputOpacity
